@@ -2783,6 +2783,10 @@ const routes = {
       }
     }
     const requiresMedicalClearance = assessment.parq?.answers.some(answer => answer.answer) || false;
+    if (requiresMedicalClearance && !assessment.parq?.acknowledged) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.' + (req.assessmentId ? 'correct' : 'create') + '.denied', coach, 'medical_clearance_unacknowledged');
+      return b2bError(res, 400, 'invalid_assessment', 'medical clearance guidance must be acknowledged when PAR-Q is positive');
+    }
     const row = {
       id: makeEntityId('cas', db.coachAssessments),
       coachId: coach.id,
@@ -2827,11 +2831,20 @@ const routes = {
   'PATCH /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
     const coach = readSession(req);
     if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
-    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
     const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:write');
-    if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
     const index = db.coachAssessments.findIndex(item => item.id === req.assessmentId && item.coachId === coach.id && item.athleteId === req.athleteId);
-    if (index < 0) return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    if (index < 0) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
     const assessment = validateAssessment(await readBody(req), {
       futureSkewMs: ASSESSMENT_FUTURE_SKEW_MS, maxAgeYears: ASSESSMENT_MAX_AGE_YEARS,
     });
@@ -2845,6 +2858,10 @@ const routes = {
     const previous = db.coachAssessments[index];
     const now = new Date().toISOString();
     const requiresMedicalClearance = assessment.parq?.answers.some(answer => answer.answer) || false;
+    if (requiresMedicalClearance && !assessment.parq?.acknowledged) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.' + (req.assessmentId ? 'correct' : 'create') + '.denied', coach, 'medical_clearance_unacknowledged');
+      return b2bError(res, 400, 'invalid_assessment', 'medical clearance guidance must be acknowledged when PAR-Q is positive');
+    }
     const row = {
       id: previous.id, coachId: previous.coachId, athleteId: previous.athleteId, ...assessment,
       assessedAt: assessment.assessedAt || previous.assessedAt,
