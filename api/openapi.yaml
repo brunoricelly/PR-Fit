@@ -361,8 +361,10 @@ paths:
       summary: Choose athlete or professional profile
       description: >-
         Updates only the signed-in account's product profile. It never changes `admin` or
-        `owner`. A professional must choose at least one specialty. A professional with a
-        relationship that is not ended cannot switch back to athlete.
+        `owner`, and choosing professional is self-declared rather than PR Fit verification.
+        A professional must choose at least one specialty. Outgoing professional relationships
+        constrain specialty removal; relationships where this account is the athlete remain
+        visible and revocable after changing profile kind.
       requestBody:
         required: true
         content:
@@ -388,7 +390,9 @@ paths:
       summary: Create an opaque athlete invitation
       description: >-
         Professional only. The clear token is returned once; `db.json` stores only its
-        SHA-256 hash. Expiry defaults to seven days and may be from one to 30 days.
+        SHA-256 hash. Expiry defaults to seven days and may be from one to 30 days. Creation is
+        rate limited per account and client address, and each professional has a configurable
+        pending-invitation limit.
       requestBody:
         required: true
         content:
@@ -418,6 +422,8 @@ paths:
         '400': { description: Invalid scope or expiry., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: The caller is not a professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Pending-invitation or global relationship capacity reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: Per-account or per-address creation rate limit reached., headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/coach/invites/accept:
     post:
@@ -425,8 +431,10 @@ paths:
       operationId: acceptCoachInvite
       summary: Explicitly accept a professional invitation
       description: >-
-        Athlete only. The first success activates the relationship. Replaying the same token
-        as the same athlete returns the same relationship; another account gets `invite_used`.
+        The signed-in account accepts as the athlete participant even if its current product
+        profile is also professional. The first success activates the relationship. While the
+        bounded replay record is retained, replaying the same token as the same account returns
+        the same relationship; another account gets `invite_used`.
       requestBody:
         required: true
         content:
@@ -446,9 +454,9 @@ paths:
                 properties:
                   link: { $ref: '#/components/schemas/CoachAthleteLink' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: The caller is not an athlete profile., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '409': { description: 'Used invite, self relationship or an existing live relationship.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '410': { description: 'Invalid, expired or revoked invitation.', content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: Per-account or per-address acceptance rate limit reached., headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/coach/athletes:
     get:
@@ -473,7 +481,9 @@ paths:
       tags: [professionals]
       operationId: listAthleteCoaches
       summary: List the signed-in athlete's professionals
-      description: Returns only relationships whose athlete is the signed-in account.
+      description: >-
+        Returns only relationships whose athlete is the signed-in account, regardless of whether
+        that same account currently also has a professional product profile.
       responses:
         '200':
           description: The athlete's professional relationships.

@@ -81,6 +81,15 @@ O PR Fit evolui de um rastreador centrado no próprio usuário para uma platafor
 - pode ter mais de um profissional;
 - pode encerrar vínculo sem perder histórico próprio.
 
+`coach` e `athlete` são jornadas do produto, não identidades mutuamente exclusivas. A mesma conta
+pode manter carteira profissional e continuar como atleta de outro profissional. Isso não concede
+acesso transversal: toda autorização delegada continua dependendo de vínculo, escopo e estado.
+
+Escolher a jornada profissional é autodeclaração, não verificação do PR Fit, e não produz selo de
+“verificado”. Uma extensão futura server-authoritative é modelada como
+`professionalStatus: requested | verified | disabled`; o cliente não atribui esse campo, e ele não
+substitui aceite, vínculo, escopo, administração ou autorização.
+
 ### Conta legada
 
 - é preservada sem alteração destrutiva;
@@ -140,7 +149,7 @@ Campos persistidos em `db.users[]`, compatíveis com contas antigas:
 - `coachSpecialties`: subconjunto não vazio de `training`, `nutrition` quando `kind=coach`; vazio para atleta.
 - A ausência de `profile` é lida como atleta, permitindo rollback de binário sem reescrever estados de treino.
 - especialidades usadas por vínculos não encerrados não podem ser removidas até esses vínculos terminarem.
-- Futuro: perfil composto coach+athlete pode ser adicionado sem converter papel administrativo em papel de produto. No primeiro slice, um coach continua dono do próprio treino, mas a UI principal seleciona uma jornada.
+- A jornada principal não apaga a participação atleta: vínculos recebidos continuam listáveis e revogáveis quando `kind=coach`.
 
 ### Vínculo coach-atleta
 
@@ -279,6 +288,11 @@ Os nomes seguem o estilo REST simples já usado pelo servidor.
 
 `POST /api/coach/invites`
 
+- criação tem rate limit independente por conta e endereço;
+- cada coach tem limite configurável de pendências (`409 pending_invite_limit`);
+- a instância tem limites globais defensivos (`409 relationship_capacity`);
+- o token puro só aparece na resposta e nunca entra em log ou persistência.
+
 Request:
 
 ```json
@@ -299,6 +313,11 @@ Response `201`:
 ```
 
 `POST /api/coach/invites/accept`
+
+- a conta aceita como participante atleta mesmo quando sua jornada principal é `coach`;
+- aceite tem rate limit independente por conta e endereço (`429 rate_limited`);
+- o replay idempotente existe enquanto o registro limitado de replay estiver retido; depois da
+  compactação o vínculo segue válido, mas o token antigo passa a ser inválido.
 
 Request:
 
@@ -351,8 +370,11 @@ Response `200` para aceite e replay idempotente pelo mesmo atleta:
 | 404 | `relationship_not_found` | vínculo ausente ou fora do alcance |
 | 409 | `invite_used` | token aceito por outro usuário |
 | 409 | `relationship_exists` | já existe vínculo não encerrado |
+| 409 | `pending_invite_limit` | coach atingiu o limite de convites pendentes |
+| 409 | `relationship_capacity` | instância atingiu o limite global defensivo |
 | 409 | `invalid_transition` | transição de estado não permitida |
 | 410 | `invite_invalid` | token inválido, expirado ou revogado |
+| 429 | `rate_limited` | limite por conta ou endereço; inclui `Retry-After` |
 
 ## 8. UX mínima
 
@@ -381,13 +403,18 @@ Response `200` para aceite e replay idempotente pelo mesmo atleta:
 - aceite exige botão explícito; abrir o link não aceita automaticamente;
 - encerramento exige confirmação.
 
+Quando a conta também é profissional, “Meus alunos” e “Meus profissionais” aparecem na mesma
+superfície. Vínculos recebidos relevantes continuam visíveis e o participante pode revogar o
+consentimento sem abandonar a jornada profissional.
+
 ### Acessibilidade e responsividade
 
 - labels e mensagens não dependem apenas de cor;
 - foco permanece previsível após criar ou aceitar convite;
 - botões desabilitados explicam o motivo;
 - cartões funcionam em viewport estreita e respeitam os componentes/tokens existentes;
-- textos novos possuem inglês-base e tradução PT-BR.
+- textos novos possuem inglês-base e tradução PT-BR completa para este checkpoint;
+- os demais idiomas usam fallback inglês nesta fase, sem alegação de tradução integral.
 
 ## 9. Migração, backfill e reversibilidade
 
@@ -395,10 +422,25 @@ Response `200` para aceite e replay idempotente pelo mesmo atleta:
 
 - introduzir `db.schemaVersion`, iniciando em `2`;
 - leitura de arquivo sem versão assume versão `1`;
-- backfill em memória adiciona coleções vazias `coachInvites` e `coachAthleteLinks`;
+- somente baseline sem versão, versão conhecida `1` e campos ausentes são migrados;
+- versão futura ou coleção presente com tipo inválido recusa boot sem gravar `db.json` ou `.bak`;
+- backfill em memória adiciona coleções ausentes `coachInvites` e `coachAthleteLinks`;
 - usuários sem `profile` recebem comportamento efetivo de atleta; a persistência explícita pode ocorrer no próximo `saveDb`, sem remover campos;
 - migration deve ser idempotente e salvar antes de responder a operações B2B2C;
 - `db.json.bak` preserva a mesma versão gravada.
+
+### Retenção e limites
+
+- expirados encerram o vínculo pendente antes da compactação;
+- convites consumidos/encerrados e vínculos encerrados têm retenção por idade e quantidade;
+- metadados mínimos retidos no vínculo incluem participantes, escopos, criação, aceite, estado e encerramento;
+- excesso legado de pendências é encerrado deterministicamente do mais antigo para o mais novo;
+- vínculos vivos têm prioridade; se ativos/suspensos antigos excederem o teto, o boot falha fechado;
+- configuração: `B2B2C_PENDING_INVITES_PER_COACH`, `B2B2C_MAX_INVITES`, `B2B2C_MAX_LINKS`,
+  `B2B2C_TERMINAL_INVITES_KEEP`, `B2B2C_TERMINAL_LINKS_KEEP` e `B2B2C_TERMINAL_RETENTION_DAYS`.
+- janelas de criação/aceite também podem ser ajustadas por `B2B2C_RATE_WINDOW_MS`,
+  `B2B2C_INVITE_CREATE_ACCOUNT_MAX`, `B2B2C_INVITE_CREATE_IP_MAX`,
+  `B2B2C_INVITE_ACCEPT_ACCOUNT_MAX` e `B2B2C_INVITE_ACCEPT_IP_MAX`.
 
 ### Contas e estados existentes
 
@@ -417,6 +459,7 @@ Response `200` para aceite e replay idempotente pelo mesmo atleta:
 ## 10. Offline, sync e conflitos
 
 - perfil, convite e vínculo exigem conexão; a UI deve informar indisponibilidade e não fingir sucesso offline;
+- falha de listagem encerra “Loading…”, mostra erro localizado e retry; reconexão (`online`) tenta recuperar;
 - respostas B2B2C não são copiadas para o documento pessoal `S` e não participam de `mergeStates`;
 - listagens podem ser mantidas apenas em memória e recarregadas ao abrir a tela ou após mutação;
 - aceite e transições usam idempotência no servidor para tolerar retry após timeout;
@@ -479,6 +522,9 @@ Síntese para o roadmap: o mercado comunica repetidamente carteira/convite, pres
 - serialização nunca expõe credenciais, hashes, tokenHash, sessão, e-mail ou campos internos desnecessários;
 - reload/restart preserva schema, convite usado e vínculo;
 - auditoria registra criação, aceite, suspensão e encerramento.
+- auditoria registra aceite inválido/expirado/reutilizado, IDOR e transição negada, com limitação de volume e sem token/segredo;
+- atualização de perfil registra estado e especialidades anteriores e novas;
+- auditoria mantém a convenção best-effort/fail-open existente: falha de escrita não desfaz a operação, é observada no stderr sem payload sensível e não existe falsa garantia de atomicidade com `db.json`.
 
 ### Checkpoint C
 
@@ -507,6 +553,11 @@ Síntese para o roadmap: o mercado comunica repetidamente carteira/convite, pres
 14. Snapshots/respostas são inspecionados contra `credentialID`, `publicKey`, hashes, tokens, `sv`, e-mail e segredos.
 15. UI oculta “Meus alunos” para atleta e bloqueia deep link sem perfil de coach.
 16. UI não aceita convite ao abrir URL; exige ação explícita e remove token da barra após captura.
+17. Spam de criação/aceite recebe `429`; limite pendente não cruza coaches e aceite legítimo segue funcionando.
+18. Compactação limita arquivo/coleções após ciclos e restart, inclusive baseline legado inflado.
+19. Schema futuro ou coleção corrompida recusa boot sem sobrescrever `db.json`/`.bak`.
+20. Atleta muda para coach, continua vendo/revogando o vínculo e o acesso delegado é negado após encerramento.
+21. Falha offline sai de “Loading…”, oferece retry e recupera coach/atleta após reconexão sem simular mutação.
 
 ## 15. Fora de escopo deste slice
 

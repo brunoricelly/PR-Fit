@@ -3326,7 +3326,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Choose athlete or professional profile</span>
   </summary>
   <div class="ep-body">
-<p>Updates only the signed-in account's product profile. It never changes <code>admin</code> or <code>owner</code>. A professional must choose at least one specialty. A professional with a relationship that is not ended cannot switch back to athlete.</p>
+<p>Updates only the signed-in account's product profile. It never changes <code>admin</code> or <code>owner</code>, and choosing professional is self-declared rather than PR Fit verification. A professional must choose at least one specialty. Outgoing professional relationships constrain specialty removal; relationships where this account is the athlete remain visible and revocable after changing profile kind.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-B2B2CProfile">B2B2CProfile</a></p>
@@ -3360,7 +3360,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Create an opaque athlete invitation</span>
   </summary>
   <div class="ep-body">
-<p>Professional only. The clear token is returned once; <code>db.json</code> stores only its SHA-256 hash. Expiry defaults to seven days and may be from one to 30 days.</p>
+<p>Professional only. The clear token is returned once; <code>db.json</code> stores only its SHA-256 hash. Expiry defaults to seven days and may be from one to 30 days. Creation is rate limited per account and client address, and each professional has a configurable pending-invitation limit.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
@@ -3393,6 +3393,14 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="r-code s4">403</span>
     <span class="p-desc">The caller is not a professional.</span>
   </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Pending-invitation or global relationship capacity reached.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Per-account or per-address creation rate limit reached.</span>
+  </div>
     </div>
   </div>
 </details>
@@ -3405,7 +3413,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Explicitly accept a professional invitation</span>
   </summary>
   <div class="ep-body">
-<p>Athlete only. The first success activates the relationship. Replaying the same token as the same athlete returns the same relationship; another account gets <code>invite_used</code>.</p>
+<p>The signed-in account accepts as the athlete participant even if its current product profile is also professional. The first success activates the relationship. While the bounded replay record is retained, replaying the same token as the same account returns the same relationship; another account gets <code>invite_used</code>.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
@@ -3426,16 +3434,16 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
   </div>
   <div class="prow rrow">
-    <span class="r-code s4">403</span>
-    <span class="p-desc">The caller is not an athlete profile.</span>
-  </div>
-  <div class="prow rrow">
     <span class="r-code s4">409</span>
     <span class="p-desc">Used invite, self relationship or an existing live relationship.</span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">410</span>
     <span class="p-desc">Invalid, expired or revoked invitation.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Per-account or per-address acceptance rate limit reached.</span>
   </div>
     </div>
   </div>
@@ -3479,7 +3487,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">List the signed-in athlete's professionals</span>
   </summary>
   <div class="ep-body">
-<p>Returns only relationships whose athlete is the signed-in account.</p>
+<p>Returns only relationships whose athlete is the signed-in account, regardless of whether that same account currently also has a professional product profile.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 
