@@ -43,6 +43,10 @@ import { createIntegrations } from './integrations/index.js';
 import { integrationRoutes } from './integrations/routes.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
 import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from './wrapped.js';
+import {
+  migrateB2B2C, profileOf, validateProfile, validateScopes, capabilitiesFor, makeOpaqueInvite,
+  hashInviteToken, makeEntityId, linkForActor, serializeLink, removeB2B2CUser,
+} from './b2b2c.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -158,6 +162,7 @@ db.creds = db.creds || [];
 db.subs = db.subs || [];
 db.invites = db.invites || [];
 db.deviceLinks = db.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
+const b2b2cMigrated = migrateB2B2C(db);
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 // One owner per instance, any number of admins. Admins run the place day to day (users, invites,
 // the Coach); the owner is the one admin the others cannot act on: only the owner appoints or
@@ -187,6 +192,7 @@ function saveDb() {
   try { atomicWrite(dbFile + '.bak', text, 0o600); }
   catch (e) { console.error('db.json.bak could not be written', e.message); }
 }
+if (b2b2cMigrated) saveDb();
 // Flushed before and after the rename (durable.js): a host reset must not bring back the file
 // the client was told had been replaced.
 function atomicWrite(file, content, mode) { durableWrite(file, content, mode); }
@@ -1191,7 +1197,11 @@ function loginTarget(body) {
 }
 const acctKey = u => 'acct:' + u.id;
 const passkeyCount = u => db.creds.filter(c => c.userId === u.id).length;
-const publicUser = u => ({ id: u.id, name: u.name, admin: isAdmin(u), ...(isOwner(u) ? { owner: true } : {}) });
+const publicUser = u => ({
+  id: u.id, name: u.name, admin: isAdmin(u), ...(isOwner(u) ? { owner: true } : {}),
+  ...(u.profile ? { profile: profileOf(u), capabilities: capabilitiesFor(u) } : {}),
+});
+const b2bError = (res, status, code, error) => json(res, status, { error, code });
 const POLICY_ERRORS = {
   'too-short': `the password needs at least ${MIN_LENGTH} characters`,
   'too-long': `the password can have at most ${MAX_LENGTH} characters`,
@@ -1339,6 +1349,7 @@ function removeAccount(u) {
   db.users = db.users.filter(x => x.id !== u.id);
   db.creds = (db.creds || []).filter(c => c.userId !== u.id);
   db.subs = (db.subs || []).filter(x => x.userId !== u.id);
+  removeB2B2CUser(db, u.id);
   dropDeviceLinks(db, u.id);
   dropWatchLinks(db, u.id);
   dropWatchCodes(watchCodes, u.id);
@@ -2132,6 +2143,148 @@ const routes = {
     const { user } = s;
     const renew = s.bearer && s.kind !== 'c' && s.exp - Date.now() < SESSION_DAYS * 86400000 / 2;
     json(res, 200, { user: publicUser(user), ...(renew ? { token: makeSession(user) } : {}) });
+  },
+
+  'POST /api/profile': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const body = await readBody(req);
+    const profile = validateProfile(body);
+    if (!profile) return b2bError(res, 400, 'invalid_profile', 'invalid profile');
+    const incompatibleLink = db.coachAthleteLinks.some(link => link.coachId === user.id && link.status !== 'ended'
+      && link.scopes.some(scope => !profile.coachSpecialties.includes(scope)));
+    if (incompatibleLink) {
+      return b2bError(res, 409, 'relationships_active', 'end professional relationships before removing their specialties');
+    }
+    user.profile = profile;
+    saveDb();
+    audit(req, 'b2b2c.profile.update', { user, msg: profile.kind });
+    json(res, 200, { user: publicUser(user) });
+  },
+
+  'POST /api/coach/invites': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const profile = profileOf(coach);
+    if (profile.kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const body = await readBody(req);
+    const scopes = validateScopes(body.scopes, profile.coachSpecialties);
+    if (!scopes) return b2bError(res, 400, 'invalid_scope', 'invalid relationship scope');
+    const expiresInDays = body.expiresInDays === undefined ? 7 : body.expiresInDays;
+    if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
+      return b2bError(res, 400, 'invalid_expiry', 'expiry must be from 1 to 30 days');
+    }
+    const now = new Date();
+    const createdAt = now.toISOString();
+    const expiresAt = new Date(now.getTime() + expiresInDays * 86400000).toISOString();
+    const link = {
+      id: makeEntityId('cal', db.coachAthleteLinks), coachId: coach.id, athleteId: null,
+      scopes, status: 'pending', createdAt, updatedAt: createdAt,
+    };
+    const opaque = makeOpaqueInvite();
+    const invite = {
+      id: makeEntityId('cai', db.coachInvites), linkId: link.id, coachId: coach.id,
+      tokenHash: opaque.tokenHash, createdAt, expiresAt, acceptedAt: null, acceptedBy: null,
+    };
+    db.coachAthleteLinks.push(link);
+    db.coachInvites.push(invite);
+    saveDb();
+    audit(req, 'b2b2c.invite.create', { user: coach, msg: `${link.id}:${scopes.join(',')}` });
+    json(res, 201, { invite: { id: invite.id, linkId: link.id, token: opaque.token, scopes, expiresAt } });
+  },
+
+  'POST /api/coach/invites/accept': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(athlete).kind !== 'athlete') return b2bError(res, 403, 'role_forbidden', 'athlete profile required');
+    const body = await readBody(req);
+    const token = typeof body.token === 'string' ? body.token.trim() : '';
+    if (!token || token.length > 256) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    const invite = db.coachInvites.find(item => item.tokenHash === hashInviteToken(token));
+    if (!invite) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    const link = db.coachAthleteLinks.find(item => item.id === invite.linkId);
+    if (!link) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    if (invite.acceptedAt) {
+      if (invite.acceptedBy !== athlete.id) return b2bError(res, 409, 'invite_used', 'invite was already used');
+      return json(res, 200, { link: serializeLink(db, link, athlete) });
+    }
+    if (Date.parse(invite.expiresAt) <= Date.now() || link.status !== 'pending') {
+      if (link.status === 'pending') {
+        const now = new Date().toISOString();
+        link.status = 'ended'; link.updatedAt = now; link.endedAt = now;
+        invite.expiredAt = now;
+        saveDb();
+      }
+      return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    }
+    if (link.coachId === athlete.id) return b2bError(res, 409, 'self_relationship', 'a professional cannot accept their own invite');
+    if (db.coachAthleteLinks.some(item => item.id !== link.id && item.coachId === link.coachId && item.athleteId === athlete.id && item.status !== 'ended')) {
+      return b2bError(res, 409, 'relationship_exists', 'a relationship already exists');
+    }
+    const now = new Date().toISOString();
+    link.athleteId = athlete.id;
+    link.status = 'active';
+    link.acceptedAt = now;
+    link.updatedAt = now;
+    invite.acceptedAt = now;
+    invite.acceptedBy = athlete.id;
+    saveDb();
+    const coach = db.users.find(user => user.id === link.coachId);
+    audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: link.id });
+    json(res, 200, { link: serializeLink(db, link, athlete) });
+  },
+
+  'GET /api/coach/athletes': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    let changed = false;
+    const now = new Date().toISOString();
+    for (const invite of db.coachInvites) {
+      if (invite.coachId !== coach.id || invite.acceptedAt || invite.expiredAt || Date.parse(invite.expiresAt) > Date.now()) continue;
+      const link = db.coachAthleteLinks.find(item => item.id === invite.linkId);
+      if (link?.status === 'pending') { link.status = 'ended'; link.updatedAt = now; link.endedAt = now; }
+      invite.expiredAt = now;
+      changed = true;
+    }
+    if (changed) saveDb();
+    const links = db.coachAthleteLinks.filter(link => link.coachId === coach.id).map(link => {
+      const out = serializeLink(db, link, coach);
+      const invite = db.coachInvites.find(item => item.linkId === link.id);
+      return invite ? { ...out, expiresAt: invite.expiresAt } : out;
+    });
+    json(res, 200, { links });
+  },
+
+  'GET /api/athlete/coaches': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const links = db.coachAthleteLinks.filter(link => link.athleteId === athlete.id).map(link => serializeLink(db, link, athlete));
+    json(res, 200, { links });
+  },
+
+  'POST /api/coach/links/status': async (req, res) => {
+    const actor = readSession(req);
+    if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const body = await readBody(req);
+    const link = linkForActor(db, actor, typeof body.linkId === 'string' ? body.linkId : '');
+    if (!link) return b2bError(res, 404, 'relationship_not_found', 'relationship not found');
+    if (!['suspended', 'ended'].includes(body.status)) return b2bError(res, 400, 'invalid_status', 'invalid relationship status');
+    if (link.status === body.status) return json(res, 200, { link: serializeLink(db, link, actor) });
+    const allowed = (body.status === 'suspended' && link.status === 'active')
+      || (body.status === 'ended' && ['pending', 'active', 'suspended'].includes(link.status));
+    if (!allowed) return b2bError(res, 409, 'invalid_transition', 'invalid relationship transition');
+    const now = new Date().toISOString();
+    link.status = body.status;
+    link.updatedAt = now;
+    if (body.status === 'suspended') { link.suspendedAt = now; link.suspendedBy = actor.id; }
+    if (body.status === 'ended') { link.endedAt = now; link.endedBy = actor.id; }
+    saveDb();
+    const targetId = actor.id === link.coachId ? link.athleteId : link.coachId;
+    audit(req, body.status === 'suspended' ? 'b2b2c.link.suspend' : 'b2b2c.link.end', {
+      user: actor, target: db.users.find(user => user.id === targetId), msg: link.id,
+    });
+    json(res, 200, { link: serializeLink(db, link, actor) });
   },
 
   'POST /api/register/options': async (req, res) => {
