@@ -1,0 +1,116 @@
+import { getLang } from './i18n-core.js'
+
+export const PROFESSIONAL_PT_BR = {
+  'Professional relationships': 'Relacionamentos profissionais',
+  'My athletes': 'Meus alunos',
+  'My professionals': 'Meus profissionais',
+  'You control which professionals are linked to your account.': 'Você controla quais profissionais estão vinculados à sua conta.',
+  'Access depends on an accepted relationship and its authorized scope.': 'O acesso depende de um vínculo aceito e do escopo autorizado.',
+  'How do you use PR Fit?': 'Como você usa o PR Fit?',
+  'This choice never grants platform administration.': 'Essa escolha nunca concede administração da plataforma.',
+  'This professional profile is self-declared and is not verified by PR Fit.': 'Este perfil profissional é autodeclarado e não é verificado pelo PR Fit.',
+  'Profile type': 'Tipo de perfil',
+  'Athlete': 'Aluno',
+  'Professional': 'Profissional',
+  'Specialties': 'Especialidades',
+  'Nutrition': 'Nutrição',
+  'Training': 'Treino',
+  'Authorized scope': 'Escopo autorizado',
+  'Choose at least one specialty.': 'Escolha pelo menos uma especialidade.',
+  'Profile saved.': 'Perfil salvo.',
+  'Save profile': 'Salvar perfil',
+  'Saving…': 'Salvando…',
+  'Loading…': 'Carregando…',
+  'Settings': 'Ajustes',
+  'Invite an athlete': 'Convidar um aluno',
+  'Choose what this relationship authorizes. The athlete must accept explicitly.': 'Escolha o que este vínculo autoriza. O aluno deve aceitar explicitamente.',
+  'Choose at least one scope.': 'Escolha pelo menos um escopo.',
+  'Create invitation': 'Criar convite',
+  'Creating…': 'Criando…',
+  'Share this code once': 'Compartilhe este código uma vez',
+  'It expires {0}.': 'Ele expira em {0}.',
+  'Copy invitation': 'Copiar convite',
+  'Invitation copied.': 'Convite copiado.',
+  'Portfolio': 'Carteira',
+  'No athletes yet': 'Nenhum aluno ainda',
+  'Create an invitation to start your portfolio.': 'Crie um convite para iniciar sua carteira.',
+  'Invitation pending': 'Convite pendente',
+  'Unavailable account': 'Conta indisponível',
+  'Pending': 'Pendente',
+  'Active': 'Ativo',
+  'Suspended': 'Suspenso',
+  'Ended': 'Encerrado',
+  'Accepted {0}': 'Aceito em {0}',
+  'Expires {0}': 'Expira em {0}',
+  'Ended {0}': 'Encerrado em {0}',
+  'Suspend': 'Suspender',
+  'End relationship': 'Encerrar vínculo',
+  'End this relationship?': 'Encerrar este vínculo?',
+  'Suspend this relationship?': 'Suspender este vínculo?',
+  'Future professional access is blocked. The athlete keeps their training data.': 'O acesso profissional futuro será bloqueado. O aluno mantém seus dados de treino.',
+  'Professional access is blocked until a future reactivation flow.': 'O acesso profissional será bloqueado até um fluxo futuro de reativação.',
+  'Accept an invitation': 'Aceitar um convite',
+  'Opening an invitation never grants access by itself. Review it and accept here.': 'Abrir um convite nunca concede acesso por si só. Revise e aceite aqui.',
+  'Invitation code': 'Código do convite',
+  'Accept invitation': 'Aceitar convite',
+  'Accepting…': 'Aceitando…',
+  'Invitation accepted.': 'Convite aceito.',
+  'Linked professionals': 'Profissionais vinculados',
+  'No linked professionals': 'Nenhum profissional vinculado',
+  'When you accept an invitation, the professional and authorized scope appear here.': 'Ao aceitar um convite, o profissional e o escopo autorizado aparecem aqui.',
+  'The professional loses future access. Your training data stays with you.': 'O profissional perde o acesso futuro. Seus dados de treino continuam com você.',
+  'Professional profile': 'Perfil profissional',
+  'Invitations, portfolio and relationship status': 'Convites, carteira e estado dos vínculos',
+  'Profile, invitations and linked professionals': 'Perfil, convites e profissionais vinculados',
+  'Could not load your professional relationships.': 'Não foi possível carregar seus relacionamentos profissionais.',
+  'Try again': 'Tentar novamente',
+  'Could not reach PR Fit. Check your connection and try again.': 'Não foi possível acessar o PR Fit. Verifique sua conexão e tente novamente.',
+  'Something went wrong. Try again.': 'Algo deu errado. Tente novamente.',
+  'Too many attempts. Wait a moment and try again.': 'Muitas tentativas. Aguarde um momento e tente novamente.',
+  'You already have too many pending invitations. Wait for one to be accepted or expire.': 'Você já tem convites pendentes demais. Aguarde um aceite ou a expiração de um deles.',
+  'This server has reached its relationship capacity. Contact the server operator.': 'Este servidor atingiu a capacidade de relacionamentos. Entre em contato com o operador do servidor.',
+  'This invitation is invalid or has expired.': 'Este convite é inválido ou expirou.',
+  'This invitation was already used by another account.': 'Este convite já foi usado por outra conta.',
+  'This relationship already exists.': 'Este relacionamento já existe.',
+  'You cannot accept your own invitation.': 'Você não pode aceitar seu próprio convite.',
+  'End the affected professional relationships before changing these specialties.': 'Encerre os relacionamentos profissionais afetados antes de alterar estas especialidades.',
+  'This relationship is no longer available.': 'Este relacionamento não está mais disponível.',
+  'This relationship can no longer make that change.': 'Este relacionamento não pode mais fazer essa alteração.',
+  'Your profile does not allow this action.': 'Seu perfil não permite esta ação.',
+  'Sign in again to continue.': 'Entre novamente para continuar.',
+  'Review the selected profile, scope, and expiration.': 'Revise o perfil, o escopo e a expiração selecionados.',
+}
+
+export function professionalText(source, ...args) {
+  let value = getLang() === 'pt-BR' && PROFESSIONAL_PT_BR[source] ? PROFESSIONAL_PT_BR[source] : source
+  for (let index = 0; index < args.length; index++) value = value.replaceAll(`{${index}}`, args[index])
+  return value
+}
+
+const ERROR_COPY = {
+  rate_limited: 'Too many attempts. Wait a moment and try again.',
+  pending_invite_limit: 'You already have too many pending invitations. Wait for one to be accepted or expire.',
+  relationship_capacity: 'This server has reached its relationship capacity. Contact the server operator.',
+  invite_invalid: 'This invitation is invalid or has expired.',
+  invite_used: 'This invitation was already used by another account.',
+  relationship_exists: 'This relationship already exists.',
+  self_relationship: 'You cannot accept your own invitation.',
+  relationships_active: 'End the affected professional relationships before changing these specialties.',
+  relationship_not_found: 'This relationship is no longer available.',
+  invalid_transition: 'This relationship can no longer make that change.',
+  role_forbidden: 'Your profile does not allow this action.',
+  not_signed_in: 'Sign in again to continue.',
+  invalid_profile: 'Review the selected profile, scope, and expiration.',
+  invalid_scope: 'Review the selected profile, scope, and expiration.',
+  invalid_expiry: 'Review the selected profile, scope, and expiration.',
+  invalid_status: 'This relationship can no longer make that change.',
+}
+
+export function professionalError(error) {
+  const code = error?.data?.code || error?.code
+  if (ERROR_COPY[code]) return professionalText(ERROR_COPY[code])
+  if (code === 'network' || code === 'timeout' || !error?.status) {
+    return professionalText('Could not reach PR Fit. Check your connection and try again.')
+  }
+  return professionalText('Something went wrong. Try again.')
+}
