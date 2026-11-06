@@ -27,4 +27,7 @@
 .pro-dates{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
 .pro-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}.pro-actions .btn{flex:1 1 150px}
 .pro-loading{padding:24px;text-align:center}
+.pro-trust-note{color:var(--label-2);font-size:var(--fs-footnote);margin:0}
+.pro-load-error{align-items:flex-start;display:flex;flex-direction:column;gap:12px}
+.pro-load-error p{margin:0}
 @media (max-width:420px){.pro-hero>.icn{display:none}.pro-actions{flex-direction:column}.pro-actions .btn{width:100%;flex:auto}}

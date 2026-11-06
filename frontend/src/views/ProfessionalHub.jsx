@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
 import { api } from '../lib/api.js'
 import { copyText } from '../lib/clipboard.js'
 import { dateLocale } from '../lib/i18n.js'
-import { professionalText as p } from '../lib/professional-copy.js'
+import { professionalError, professionalText as p } from '../lib/professional-copy.js'
 import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import EmptyState from '../components/EmptyState.jsx'
@@ -52,7 +52,7 @@ function ProfileSetup({ user }) {
       })
       setUser(result.user)
       toast(p('Profile saved.'))
-    } catch (error) { toast(error.message) }
+    } catch (error) { toast(professionalError(error)) }
     finally { setSaving(false) }
   }
 
@@ -67,6 +67,7 @@ function ProfileSetup({ user }) {
       <Choice active={kind === 'coach'} onClick={() => chooseKind('coach')}>{p('Professional')}</Choice>
     </div>
     {kind === 'coach' && <>
+      <p className="pro-trust-note">{p('This professional profile is self-declared and is not verified by PR Fit.')}</p>
       <div className="pro-label">{p('Specialties')}</div>
       <ScopeChoices allowed={['training', 'nutrition']} value={specialties} onChange={setSpecialties} />
     </>}
@@ -97,14 +98,32 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd }) {
 function CoachPortfolio({ user }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [scopes, setScopes] = useState(() => user.profile.coachSpecialties.slice(0, 1))
   const [creating, setCreating] = useState(false)
   const [freshInvite, setFreshInvite] = useState(null)
   const capabilities = new Set(user.capabilities || [])
   const canInvite = capabilities.has('relationships:invite')
 
-  const load = () => api('/api/coach/athletes').then(result => setLinks(result.links || [])).catch(error => toast(error.message))
-  useEffect(() => { load() }, [user.id])
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const result = await api('/api/coach/athletes')
+      setLinks(result.links || [])
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [user.id])
+  useEffect(() => {
+    load()
+    const online = () => load()
+    window.addEventListener('online', online)
+    return () => window.removeEventListener('online', online)
+  }, [load])
 
   const createInvite = async () => {
     if (!scopes.length) return toast(p('Choose at least one scope.'))
@@ -113,7 +132,7 @@ function CoachPortfolio({ user }) {
       const result = await api('/api/coach/invites', { method: 'POST', body: JSON.stringify({ scopes, expiresInDays: 7 }) })
       setFreshInvite(result.invite)
       await load()
-    } catch (error) { toast(error.message) }
+    } catch (error) { toast(professionalError(error)) }
     finally { setCreating(false) }
   }
   const copyInvite = async () => {
@@ -130,7 +149,7 @@ function CoachPortfolio({ user }) {
       try {
         const result = await api('/api/coach/links/status', { method: 'POST', body: JSON.stringify({ linkId: link.id, status: next }) })
         setLinks(current => current.map(item => item.id === link.id ? { ...item, ...result.link } : item))
-      } catch (error) { toast(error.message) }
+      } catch (error) { toast(professionalError(error)) }
     },
   })
 
@@ -146,9 +165,10 @@ function CoachPortfolio({ user }) {
         <Button size="sm" icon="copy" onClick={copyInvite}>{p('Copy invitation')}</Button>
       </div>}
     </section>}
-    <section aria-labelledby="pro-list-title">
-      <h2 className="pro-section-title" id="pro-list-title">{p('Portfolio')}</h2>
-      {links === null ? <div className="pro-loading">{p('Loading…')}</div>
+    <section aria-labelledby="pro-coach-list-title">
+      <h2 className="pro-section-title" id="pro-coach-list-title">{p('Portfolio')}</h2>
+      {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>
+        : loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load your professional relationships.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
         : links.length === 0 ? <EmptyState icon="person" title={p('No athletes yet')} text={p('Create an invitation to start your portfolio.')} />
           : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="coach" onStatus={status}
             canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
@@ -157,13 +177,31 @@ function CoachPortfolio({ user }) {
   </>
 }
 
-function AthleteProfessionals({ initialToken }) {
+function AthleteProfessionals({ initialToken, userId, embedded = false }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [token, setToken] = useState(initialToken || '')
   const [accepting, setAccepting] = useState(false)
-  const load = () => api('/api/athlete/coaches').then(result => setLinks(result.links || [])).catch(error => toast(error.message))
-  useEffect(() => { load() }, [])
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const result = await api('/api/athlete/coaches')
+      setLinks(result.links || [])
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [userId])
+  useEffect(() => {
+    load()
+    const online = () => load()
+    window.addEventListener('online', online)
+    return () => window.removeEventListener('online', online)
+  }, [load])
 
   const accept = async () => {
     if (!token.trim()) return
@@ -173,7 +211,7 @@ function AthleteProfessionals({ initialToken }) {
       setToken('')
       toast(p('Invitation accepted.'))
       await load()
-    } catch (error) { toast(error.message) }
+    } catch (error) { toast(professionalError(error)) }
     finally { setAccepting(false) }
   }
   const end = link => confirmSheet({
@@ -184,11 +222,12 @@ function AthleteProfessionals({ initialToken }) {
       try {
         const result = await api('/api/coach/links/status', { method: 'POST', body: JSON.stringify({ linkId: link.id, status: 'ended' }) })
         setLinks(current => current.map(item => item.id === link.id ? { ...item, ...result.link } : item))
-      } catch (error) { toast(error.message) }
+      } catch (error) { toast(professionalError(error)) }
     },
   })
 
   return <>
+    {embedded && <h2 className="pro-section-title">{p('My professionals')}</h2>}
     <section className="card pro-accept" aria-labelledby="pro-accept-title">
       <h2 id="pro-accept-title">{p('Accept an invitation')}</h2>
       <p>{p('Opening an invitation never grants access by itself. Review it and accept here.')}</p>
@@ -196,9 +235,10 @@ function AthleteProfessionals({ initialToken }) {
         <TextField name="inviteToken" value={token} onChange={event => setToken(event.target.value)} autoComplete="off" spellCheck="false" /></label>
       <Button variant="primary" disabled={accepting || !token.trim()} onClick={accept}>{accepting ? p('Accepting…') : p('Accept invitation')}</Button>
     </section>
-    <section aria-labelledby="pro-list-title">
-      <h2 className="pro-section-title" id="pro-list-title">{p('Linked professionals')}</h2>
-      {links === null ? <div className="pro-loading">{p('Loading…')}</div>
+    <section aria-labelledby="pro-athlete-list-title">
+      <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>
+      {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>
+        : loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load your professional relationships.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
         : links.length === 0 ? <EmptyState icon="personCircle" title={p('No linked professionals')} text={p('When you accept an invitation, the professional and authorized scope appear here.')} />
           : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="athlete" onStatus={end}
             canSuspend={false} canEnd={link.status !== 'ended'} />)}</div>}
@@ -224,6 +264,7 @@ export default function ProfessionalHub() {
       <Icon name={coach ? 'person' : 'shield'} />
     </header>
     <ProfileSetup user={user} />
-    {coach ? <CoachPortfolio user={user} /> : <AthleteProfessionals initialToken={initialToken} />}
+    {coach ? <><CoachPortfolio user={user} /><AthleteProfessionals initialToken={initialToken} userId={user.id} embedded /></>
+      : <AthleteProfessionals initialToken={initialToken} userId={user.id} />}
   </main>
 }
