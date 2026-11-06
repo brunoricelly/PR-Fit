@@ -1,6 +1,6 @@
 {
-  "name": "openGym",
-  "short_name": "openGym",
+  "name": "PR Fit",
+  "short_name": "PR Fit",
   "description": "Personal gym & body weight tracker",
   "start_url": "./",
   "scope": "./",
