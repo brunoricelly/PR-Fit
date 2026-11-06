@@ -107,6 +107,20 @@ describe('pull against a revisioned server', () => {
     expect(sync()).toEqual({ rev: 5, ts: 50 })
   })
 
+  it('pullState applies a server-adopted prescription routine to the executable store', async () => {
+    signedIn(clone(DEF))
+    const prescribed = {
+      id: 'r-prescribed', name: 'Treino prescrito', prescriptionId: 'cpr-1', prescriptionDivisionId: 'div-1',
+      ex: [{ id: '0025', sets: 4, reps: 10, weight: 60, mode: 'reps' }],
+    }
+    api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 200, _rev: 8, routines: [prescribed] }, rev: 8 })
+
+    await useStore.getState().pullState()
+
+    expect(useStore.getState().S.routines).toContainEqual(prescribed)
+    expect(sync()).toEqual({ rev: 8, ts: 200 })
+  })
+
   it('a first pull with a newer local copy pushes it against the server revision', async () => {
     signedIn({ ...clone(DEF), _ts: 500, routines: [routine('local')] })
     api.mockResolvedValueOnce({ state: { ...clone(DEF), _ts: 50, routines: [routine('remote')], _rev: 5 }, rev: 5 })
@@ -164,6 +178,22 @@ describe('push against a revisioned server', () => {
     expect(localStorage.getItem('gym_dirty')).toBeNull()
   })
 
+  it('a 428 from a revision-less write reconciles and retries with the current revision', async () => {
+    signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('local')], restSec: 75 })
+    api.mockRejectedValueOnce(httpError(428, {
+      error: 'revision required', code: 'revision-required', rev: 2,
+      state: { ...clone(DEF), _ts: 200, workouts: [workout('server')], _rev: 2 },
+    }))
+    api.mockResolvedValueOnce({ ok: true, rev: 3 })
+
+    await useStore.getState().pushState()
+
+    expect(puts()).toHaveLength(2)
+    expect(puts()[0].baseRev).toBeUndefined()
+    expect(puts()[1].baseRev).toBe(2)
+    expect(puts()[1].state.workouts.map(item => item.id).sort()).toEqual(['local', 'server'])
+  })
+
   it('gives up after two conflicts in a row and leaves the copy dirty for the next pull', async () => {
     signedIn({ ...clone(DEF), _ts: 300, workouts: [workout('w1')] })
     localStorage.setItem('gym_sync', JSON.stringify({ rev: 1, ts: 100 }))
@@ -177,7 +207,7 @@ describe('push against a revisioned server', () => {
     expect(useStore.getState().S.workouts.map(w => w.id).sort()).toEqual(['w1', 'w2', 'w3'])
   })
 
-  it('a replace meant for the server goes without a baseRev, the change after it with one', async () => {
+  it('a replace meant for the server uses the current baseRev, and so does the change after it', async () => {
     vi.useFakeTimers()
     signedIn({ ...clone(DEF), _ts: 100, routines: [routine('old')] })
     localStorage.setItem('gym_sync', JSON.stringify({ rev: 4, ts: 100 }))
@@ -186,7 +216,7 @@ describe('push against a revisioned server', () => {
     useStore.getState().replaceState({ ...clone(DEF), routines: [routine('imported')] }, true)
     await vi.advanceTimersByTimeAsync(2000)
     expect(puts()).toHaveLength(1)
-    expect('baseRev' in puts()[0]).toBe(false)
+    expect(puts()[0].baseRev).toBe(4)
     expect(sync().rev).toBe(5)
 
     useStore.getState().update(s => { s.restSec = 45 })

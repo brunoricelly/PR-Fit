@@ -52,12 +52,12 @@ test('PUT /api/data keeps the reset stamp when a write lacks it or carries an ol
   const ids = { workouts: ['w-old'] };
 
   // the reset
-  let r = await put({ state: { _ts: 100, workouts: [], routines: [], resetAt: 5000, resetIds: ids } });
+  let r = await put({ state: { _ts: 100, workouts: [], routines: [], resetAt: 5000, resetIds: ids }, baseRev: 0 });
   assert.equal(r.status, 200);
   assert.equal(onDisk().resetAt, 5000);
 
   // a backup restored over it, with no stamp: its workouts land, the stamp stays
-  r = await put({ state: { _ts: 50, workouts: [{ id: 'w-old', d: '2026-01-01' }], routines: [] } });
+  r = await put({ state: { _ts: 50, workouts: [{ id: 'w-old', d: '2026-01-01' }], routines: [] }, baseRev: 1 });
   assert.equal(r.status, 200);
   assert.deepEqual(onDisk().workouts.map(w => w.id), ['w-old']);
   assert.equal(onDisk().resetAt, 5000);
@@ -70,7 +70,7 @@ test('PUT /api/data keeps the reset stamp when a write lacks it or carries an ol
   assert.deepEqual(onDisk().resetIds, ids);
 
   // a later reset moves it forward
-  r = await put({ state: { _ts: 70, workouts: [], routines: [], resetAt: 9000, resetIds: { workouts: ['w-new'] } } });
+  r = await put({ state: { _ts: 70, workouts: [], routines: [], resetAt: 9000, resetIds: { workouts: ['w-new'] } }, baseRev: 3 });
   assert.equal(r.status, 200);
   assert.equal(onDisk().resetAt, 9000);
   assert.deepEqual(onDisk().resetIds, { workouts: ['w-new'] });

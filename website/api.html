@@ -1845,7 +1845,8 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </summary>
   <div class="ep-body">
 <p>Replaces the stored state wholesale (atomic write; there is no merge on the server). The <code>active</code> field (an in-progress workout) is stripped before saving: a running session belongs to the device running it. Body limit 5 MiB.</p>
-<p>With <code>baseRev</code> the write is conditional: it goes through only when <code>baseRev</code> equals the document's current revision, and answers 409 with the current document otherwise; the client merges the two and pushes again with the revision it was given. Without <code>baseRev</code> the write is unconditional (clients from before revisions, and deliberate replaces such as a backup import). The server stamps the new revision into the document as <code>_rev</code>; a <code>_rev</code> sent by the client is ignored.</p>
+<p>With <code>baseRev</code> the write is conditional: it goes through only when <code>baseRev</code> equals the document's current revision, and answers 409 with the current document otherwise; the client merges the two and pushes again with the revision it was given. Without <code>baseRev</code>, a legacy writer may create the first document only. Once any document exists, the server answers 428 with its current copy instead of allowing an unnamed stale base to erase a device or server-side mutation. The server stamps the new revision into the document as <code>_rev</code>; a <code>_rev</code> sent by the client is ignored.</p>
+<p>State writes have bounded admission before the request body is retained: at most <code>STATE_WRITE_PER_USER_MAX</code> requests per profile and <code>STATE_WRITE_GLOBAL_MAX</code> across the process. Excess per-profile work answers 429; a full global backlog answers 503.</p>
 <p>The records of removals (<code>deleted</code>) and of edits (<code>edited</code>) never shrink: the stored ones are joined into the write (a reset keeps its own). A writer that does not stamp its own changes (no <code>stamped: true</code>; an API script, an older app) and sends the current <code>baseRev</code> gets them stamped by the server, at the server's time: every entry it removed (a workout, routine, custom exercise, weigh-in, card, profile or favourite), every setting and plan day it changed (<code>queue</code>, <code>week.&lt;day&gt;</code>, …), and every entry it edited (<code>_ts</code>, per field <code>_f</code>). That keeps a planner's new week, or a routine it removed, from being undone by a phone that reconnects later with an older change. A setting, plan day or entry field whose stored stamp (<code>edited</code>, <code>_f</code>) is later than the one the writer sends back keeps the stored value: the writer never saw that change, so send back the <code>edited</code> and <code>_f</code> you read. A writer that sends no <code>edited</code> at all is not held to it. An entry the document holds while a removal on record says it was deleted after its last edit is kept and marked as added back.</p>
 <p>Such a writer also cannot delete what it does not know: a field of the stored document, of a stored routine, workout, custom exercise, card or profile, of a routine's exercise, or of a logged exercise or set that its copy leaves out comes back from the stored copy (an older app rebuilds an exercise from the fields it knows, which dropped pyramid sets made on an updated device). Only the fields v1.3.9 itself removes (a superset link, a note, a cleared set value, …) can be removed this way. Send <code>stamped: true</code> to remove anything else.</p>
 <p>Every accepted write also starts the grace period of each stored file (tag <code>media</code>) the new state no longer references, and stops it for each one it references again. That bookkeeping never changes the answer.</p>
@@ -1860,7 +1861,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">baseRev</span>
     <span class="p-type">integer | null</span>
-    <span class="p-desc">The revision this client last read or wrote. Omit or null for an unconditional overwrite.</span>
+    <span class="p-desc">The revision this client last read or wrote. Omit or null only when creating a profile that has no stored state yet; otherwise the server answers 428.</span>
   </div>
   <div class="prow">
     <span class="p-name">baseWid</span>
@@ -1890,6 +1891,18 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">409</span>
     <span class="p-desc"><code>baseRev</code> is not the current revision: another client wrote since this one last read. Carries the current document so the client can merge and retry.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">428</span>
+    <span class="p-desc">A stored document exists but the writer omitted <code>baseRev</code>. Carries the current revision and document so the caller can reconcile and retry conditionally.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">This profile already has the maximum admitted state writes. The body was not parsed; retry shortly.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many state writes for this profile&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The process-wide admitted state-write backlog is full. The body was not parsed; retry shortly.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -3666,7 +3679,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Add one prescription to the athlete's routines</span>
   </summary>
   <div class="ep-body">
-<p>Idempotently adds every prescribed division as a new openGym routine in the athlete's synced state, without replacing existing routines, and marks the prescription adopted. Repeating the request returns the same routine ids. An active <code>training</code> relationship is required.</p>
+<p>Idempotently adds every prescribed division as a new openGym routine in the athlete's synced state, without replacing existing routines, and marks the prescription adopted. Repeating the request returns the same routine ids. State and prescription metadata are committed through a durable journal, so a retry or restart completes an interrupted adoption without duplicating routines. An active <code>training</code> relationship is required.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 <p class="ep-h">Query parameters</p><div class="ptab">
   <div class="prow">
@@ -3695,8 +3708,12 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-desc">Prescription absent</span>
   </div>
   <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">This profile already has the maximum admitted state writes. The body was not parsed; retry shortly.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many state writes for this profile&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
     <span class="r-code s5">503</span>
-    <span class="p-desc">The athlete state file is unreadable and was not rewritten.</span>
+    <span class="p-desc">The athlete state file is unreadable, the global state-write backlog is full, or an adoption journal could not yet be completed. No retry can duplicate adopted routines.</span>
   </div>
     </div>
   </div>

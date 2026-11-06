@@ -71,12 +71,14 @@ test('a Bearer header that authenticates nothing does not switch the origin chec
 
 test('the paired app still gets through from its own origin', async t => {
   const api = await startServer(t);
+  let baseRev = 0;
   // The WebView: its own origin, cross-site by definition, a session token and no cookie.
   for (const Origin of ['capacitor://localhost', 'https://localhost']) {
     const phone = { ...evil, Origin, Authorization: `Bearer ${mintSession('u_phone')}` };
     assert.equal((await activity(api, phone)).status, 200, Origin);
-    const put = await fetch(`${api}/api/data`, { method: 'PUT', headers: phone, body: JSON.stringify({ state: { unit: 'kg', workouts: [], routines: [] } }) });
+    const put = await fetch(`${api}/api/data`, { method: 'PUT', headers: phone, body: JSON.stringify({ state: { unit: 'kg', workouts: [], routines: [] }, baseRev }) });
     assert.equal(put.status, 200, Origin);
+    baseRev = (await put.json()).rev;
   }
   // and the web app on its own origin needs no Bearer at all
   assert.equal((await activity(api, { ...victimCookie, 'Content-Type': 'application/json', 'Sec-Fetch-Site': 'same-origin' })).status, 200);

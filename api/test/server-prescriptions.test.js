@@ -285,6 +285,121 @@ test('adoption and athlete sync serialize without losing either change', async t
   assert.equal(fs.readFileSync(file, 'utf8'), beforeRepeat);
 });
 
+test('stale legacy and modern PUTs cannot erase an adopted prescription', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-stale-put-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  const file = path.join(dataDir, `state-${IDS.athlete}.json`);
+  const stale = { _rev: 7, _wid: 'wid-stale', _ts: 100, routines: [], customEx: [], workouts: [] };
+  fs.writeFileSync(file, JSON.stringify(stale));
+
+  const adopted = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(adopted.status, 200);
+
+  const legacy = await request(server, IDS.athlete, 'PUT', '/api/data', { state: { ...stale, workouts: [{ id: 'legacy' }] } });
+  assert.deepEqual([legacy.status, legacy.body.code], [428, 'revision-required']);
+  assert.equal(legacy.body.state.routines.filter(item => item.prescriptionId === created.body.routine.id).length, 3);
+
+  const modern = await request(server, IDS.athlete, 'PUT', '/api/data', {
+    state: { ...stale, workouts: [{ id: 'modern' }] }, baseRev: 7, baseWid: 'wid-stale', stamped: true,
+  });
+  assert.deepEqual([modern.status, modern.body.error], [409, 'conflict']);
+
+  const finalState = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(finalState.routines.filter(item => item.prescriptionId === created.body.routine.id).length, 3);
+  assert.deepEqual(finalState.workouts, []);
+});
+
+test('a PUT that lands first is preserved by the later adoption', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-put-first-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  const file = path.join(dataDir, `state-${IDS.athlete}.json`);
+  const initial = { _rev: 4, _wid: 'wid-before-put', _ts: 100, routines: [], customEx: [], workouts: [] };
+  fs.writeFileSync(file, JSON.stringify(initial));
+  const workout = { id: 'put-first', d: '2026-11-06', name: 'Primeiro' };
+
+  const put = await request(server, IDS.athlete, 'PUT', '/api/data', {
+    state: { ...initial, workouts: [workout] }, baseRev: 4, baseWid: 'wid-before-put', stamped: true,
+  });
+  assert.equal(put.status, 200);
+  const adopted = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(adopted.status, 200);
+
+  const finalState = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(finalState.workouts.some(item => item.id === workout.id), true);
+  assert.equal(finalState.routines.filter(item => item.prescriptionId === created.body.routine.id).length, 3);
+});
+
+test('two concurrent adoptions serialize and persist both exactly once', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-two-adoptions-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  const first = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  const second = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, {
+    routine: { ...routine.routine, name: 'Segunda ficha' },
+  });
+  assert.deepEqual([first.status, second.status], [201, 201]);
+
+  const [adoptFirst, adoptSecond] = await Promise.all([
+    request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${first.body.routine.id}/adopt`, {}),
+    request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${second.body.routine.id}/adopt`, {}),
+  ]);
+  assert.deepEqual([adoptFirst.status, adoptSecond.status], [200, 200]);
+
+  const state = JSON.parse(fs.readFileSync(path.join(dataDir, `state-${IDS.athlete}.json`), 'utf8'));
+  assert.equal(state.routines.filter(item => item.prescriptionId === first.body.routine.id).length, 3);
+  assert.equal(state.routines.filter(item => item.prescriptionId === second.body.routine.id).length, 3);
+  assert.equal(new Set(state.routines.map(item => item.id)).size, 6);
+  const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.deepEqual(stored.coachPrescriptions.map(item => item.state), ['adopted', 'adopted']);
+});
+
+test('an adoption journal recovers a failure between state and db writes on restart', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-journal-'));
+  const barriers = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-journal-fault-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(barriers, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(barriers, `adoption-after-state-${IDS.athlete}.fail-once`), '');
+  let server = await launch(dataDir, { STATE_WRITE_TEST_DIR: barriers });
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  const failed = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.deepEqual([failed.status, failed.body.code], [503, 'adoption_pending']);
+  const stateFile = path.join(dataDir, `state-${IDS.athlete}.json`);
+  assert.equal(JSON.parse(fs.readFileSync(stateFile, 'utf8')).routines.length, 3);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8')).coachPrescriptions[0].state, 'available');
+  assert.equal(fs.readdirSync(dataDir).filter(name => name.startsWith('prescription-adoption-')).length, 1);
+
+  await stop(server);
+  server = await launch(dataDir, { STATE_WRITE_TEST_DIR: barriers });
+  assert.equal(fs.readdirSync(dataDir).filter(name => name.startsWith('prescription-adoption-')).length, 0);
+  const retry = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(retry.status, 200);
+  const recoveredState = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+  assert.equal(recoveredState.routines.filter(item => item.prescriptionId === created.body.routine.id).length, 3);
+  const recoveredDb = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(recoveredDb.coachPrescriptions[0].state, 'adopted');
+  const audit = fs.readFileSync(path.join(dataDir, 'audit.log'), 'utf8').trim().split('\n').map(line => JSON.parse(line));
+  assert.equal(audit.filter(item => item.ev === 'b2b2c.prescription.adopt' && item.msg === created.body.routine.id).length, 1);
+});
+
 test('adoption fails closed when the training relationship is no longer active', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-inactive-'));
   seed(dataDir);

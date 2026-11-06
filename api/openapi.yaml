@@ -602,7 +602,9 @@ paths:
       description: >-
         Idempotently adds every prescribed division as a new openGym routine in the athlete's
         synced state, without replacing existing routines, and marks the prescription adopted.
-        Repeating the request returns the same routine ids. An active `training` relationship is required.
+        Repeating the request returns the same routine ids. State and prescription metadata are
+        committed through a durable journal, so a retry or restart completes an interrupted
+        adoption without duplicating routines. An active `training` relationship is required.
       parameters:
         - in: path
           name: routineId
@@ -623,7 +625,12 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: The active training relationship no longer authorizes adoption., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Prescription absent, withdrawn or owned by another athlete., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '503': { description: The athlete state file is unreadable and was not rewritten., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/StateWriteBusy' }
+        '503':
+          description: >-
+            The athlete state file is unreadable, the global state-write backlog is full, or an
+            adoption journal could not yet be completed. No retry can duplicate adopted routines.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
   /api/coach/links/status:
     post:
@@ -2142,10 +2149,15 @@ paths:
         With `baseRev` the write is conditional: it goes through only when `baseRev`
         equals the document's current revision, and answers 409 with the current
         document otherwise; the client merges the two and pushes again with the
-        revision it was given. Without `baseRev` the write is unconditional (clients
-        from before revisions, and deliberate replaces such as a backup import). The
-        server stamps the new revision into the document as `_rev`; a `_rev` sent by
-        the client is ignored.
+        revision it was given. Without `baseRev`, a legacy writer may create the first
+        document only. Once any document exists, the server answers 428 with its current
+        copy instead of allowing an unnamed stale base to erase a device or server-side
+        mutation. The server stamps the new revision into the document as `_rev`; a
+        `_rev` sent by the client is ignored.
+
+        State writes have bounded admission before the request body is retained: at most
+        `STATE_WRITE_PER_USER_MAX` requests per profile and `STATE_WRITE_GLOBAL_MAX` across
+        the process. Excess per-profile work answers 429; a full global backlog answers 503.
 
         The records of removals (`deleted`) and of edits (`edited`) never shrink: the
         stored ones are joined into the write (a reset keeps its own). A writer that does
@@ -2185,8 +2197,8 @@ paths:
                 baseRev:
                   oneOf: [{ type: integer }, { type: 'null' }]
                   description: >-
-                    The revision this client last read or wrote. Omit or null for an
-                    unconditional overwrite.
+                    The revision this client last read or wrote. Omit or null only when creating
+                    a profile that has no stored state yet; otherwise the server answers 428.
                 baseWid:
                   type: string
                   description: >-
@@ -2236,6 +2248,19 @@ paths:
                     oneOf:
                       - $ref: '#/components/schemas/State'
                       - type: 'null'
+        '428':
+          description: >-
+            A stored document exists but the writer omitted `baseRev`. Carries the current
+            revision and document so the caller can reconcile and retry conditionally.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, const: revision required }
+                  code: { type: string, const: revision-required }
+                  rev: { type: integer }
+                  state: { $ref: '#/components/schemas/State' }
         '400':
           description: >-
             `state` missing or not an object, `state` an array or an object with nothing of
@@ -2250,6 +2275,8 @@ paths:
                 missing: { value: { error: "state required" } }
                 invalid: { value: { error: "invalid state" } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/StateWriteBusy' }
+        '503': { $ref: '#/components/responses/StateWriteGlobalBusy' }
 
   /api/data/rev:
     get:
@@ -4246,6 +4273,22 @@ components:
       headers:
         Retry-After:
           schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "the server is busy, try again in a moment", code: "busy" }
+    StateWriteBusy:
+      description: This profile already has the maximum admitted state writes. The body was not parsed; retry shortly.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds to wait before retrying. }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "too many state writes for this profile", code: "state-write-busy" }
+    StateWriteGlobalBusy:
+      description: The process-wide admitted state-write backlog is full. The body was not parsed; retry shortly.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds to wait before retrying. }
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }

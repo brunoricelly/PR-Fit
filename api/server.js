@@ -39,7 +39,7 @@ import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
 import { adoptPrescriptionState, prescriptionStateReadable } from './prescription-adoption.js';
-import { StateWriteQueue } from './state-write-queue.js';
+import { StateWriteQueue, StateWriteQueueFullError } from './state-write-queue.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT } from './net-guard.js';
 import { createIntegrations } from './integrations/index.js';
 import { integrationRoutes } from './integrations/routes.js';
@@ -235,8 +235,17 @@ const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/
 // Every read/transform/write of a profile document shares this queue. Entries exist only while a
 // user has an active or waiting write, so an instance that sees many users does not retain a lock
 // per user forever.
-const stateWrites = new StateWriteQueue();
-const withStateWrite = (uid, task) => stateWrites.run(stateFile(uid), task);
+const stateWrites = new StateWriteQueue({
+  perKeyLimit: envInt('STATE_WRITE_PER_USER_MAX', 4, { min: 1, max: 100 }),
+  globalLimit: envInt('STATE_WRITE_GLOBAL_MAX', 128, { min: 1, max: 10000 }),
+});
+function withStateWrite(uid, req, task) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(Object.assign(new Error('client disconnected'), { clientGone: true }));
+  req.once('aborted', abort);
+  return stateWrites.run(stateFile(uid), task, { signal: controller.signal })
+    .finally(() => req.removeListener('aborted', abort));
+}
 const STATE_WRITE_TEST_DIR = process.env.STATE_WRITE_TEST_DIR || '';
 const stateWriteTestName = (point, uid) => path.join(STATE_WRITE_TEST_DIR, `${point}-${uid.replace(/[^a-zA-Z0-9_-]/g, '')}`);
 function stateWriteTestMark(point, uid) {
@@ -254,6 +263,13 @@ async function stateWriteTestWait(point, uid) {
     if (Date.now() >= deadline) throw new Error(`state write test barrier timed out: ${point}`);
     await new Promise(resolve => setTimeout(resolve, 5));
   }
+}
+function stateWriteTestFail(point, uid) {
+  if (!STATE_WRITE_TEST_DIR) return;
+  const marker = stateWriteTestName(point, uid) + '.fail-once';
+  if (!fs.existsSync(marker)) return;
+  fs.unlinkSync(marker);
+  throw new Error(`injected state write failure: ${point}`);
 }
 // The watch relay's mailbox of a profile (watch-relay.js): the page's last snapshot and what its
 // Zepp OS watches sent. Small, rewritten whole like the state file.
@@ -514,6 +530,86 @@ function commitState(uid, previous, next, text) {
     try { MEDIA.noteState(uid, next); } catch (error) { console.error('media noteState', error); }
   }
   try { integrations.onStateWrite(uid, previous, next); } catch (error) { console.error('integrations onStateWrite', error); }
+}
+
+const ADOPTION_JOURNAL_PREFIX = 'prescription-adoption-';
+const adoptionJournalFile = (uid, prescriptionId) => path.join(DATA,
+  `${ADOPTION_JOURNAL_PREFIX}${uid.replace(/[^a-zA-Z0-9_-]/g, '')}-${prescriptionId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
+function readAdoptionJournal(file) {
+  const journal = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (journal?.version !== 1 || typeof journal.tx !== 'string' || typeof journal.uid !== 'string' ||
+      typeof journal.prescriptionId !== 'string' || !Array.isArray(journal.routineIds) ||
+      journal.routineIds.some(id => typeof id !== 'string') || typeof journal.at !== 'string') {
+    throw new Error(`invalid prescription adoption journal ${path.basename(file)}`);
+  }
+  return journal;
+}
+function adoptionJournalFor(uid, prescriptionId, routineIds) {
+  const file = adoptionJournalFile(uid, prescriptionId);
+  try { return { file, journal: readAdoptionJournal(file) }; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const journal = {
+    version: 1,
+    tx: crypto.randomBytes(12).toString('hex'),
+    uid,
+    prescriptionId,
+    routineIds: [...routineIds],
+    at: new Date().toISOString(),
+  };
+  atomicWrite(file, JSON.stringify(journal), 0o600);
+  return { file, journal };
+}
+function finishAdoptionJournal(file, journal, req) {
+  const prescription = db.coachPrescriptions.find(item => item.id === journal.prescriptionId && item.athleteId === journal.uid);
+  if (!prescription) throw new Error(`prescription ${journal.prescriptionId} from adoption journal is missing`);
+  const coach = db.users.find(user => user.id === prescription.coachId);
+  const current = readStateStrict(journal.uid);
+  if (current === UNREADABLE || !prescriptionStateReadable(current)) throw new Error(`state unreadable for ${journal.uid}`);
+  const adoption = adoptPrescriptionState(current, prescription, { now: Date.parse(journal.at) });
+  if (adoption.routineIds.length !== journal.routineIds.length ||
+      adoption.routineIds.some((id, index) => id !== journal.routineIds[index])) {
+    throw new Error(`prescription adoption journal ${journal.tx} no longer matches state`);
+  }
+  if (adoption.changed) {
+    const text = JSON.stringify(adoption.state);
+    commitState(journal.uid, current, adoption.state, text);
+    stateWriteTestFail('adoption-after-state', journal.uid);
+  }
+
+  const before = {
+    state: prescription.state,
+    updatedAt: prescription.updatedAt,
+    adoptedAt: prescription.adoptedAt,
+    adoptedRoutineIds: prescription.adoptedRoutineIds,
+  };
+  prescription.state = 'adopted';
+  prescription.updatedAt = journal.at;
+  prescription.adoptedAt ||= journal.at;
+  prescription.adoptedRoutineIds = [...journal.routineIds];
+  try { saveDb(); }
+  catch (error) {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete prescription[key];
+      else prescription[key] = value;
+    }
+    throw error;
+  }
+
+  const alreadyAudited = AUDIT_ON && auditLines().some(row => row.ev === 'b2b2c.prescription.adopt' && row.tx === journal.tx);
+  if (!alreadyAudited && !audit(req, 'b2b2c.prescription.adopt', { user: db.users.find(user => user.id === journal.uid), target: coach, msg: prescription.id, tx: journal.tx })) {
+    throw new Error(`could not audit prescription adoption ${journal.tx}`);
+  }
+  fs.unlinkSync(file);
+  return { prescription, routineIds: [...journal.routineIds] };
+}
+function recoverAdoptionJournals() {
+  const files = fs.readdirSync(DATA).filter(name => name.startsWith(ADOPTION_JOURNAL_PREFIX) && name.endsWith('.json')).sort();
+  for (const name of files) {
+    const file = path.join(DATA, name);
+    const journal = readAdoptionJournal(file);
+    finishAdoptionJournal(file, journal, { headers: {}, socket: {} });
+    console.log('recovered prescription adoption', journal.prescriptionId, journal.uid);
+  }
 }
 // Missed-workout nudge (nudge.js): opt-in on top of the reminder, so it needs everything the
 // reminder does (a push subscription, the reminder on, a zone). Owed from 20:00 — or 2 h after the
@@ -1036,7 +1132,7 @@ function compactAudit() {
 
 // Never throws: a log that can't be written must not break signing in.
 function audit(req, ev, f = {}) {
-  if (!AUDIT_ON) return;
+  if (!AUDIT_ON) return true;
   const rec = { id: ++auditSeq, ts: Date.now(), ev, ok: f.ok !== false };
   if (f.user) { rec.uid = f.user.id; rec.name = String(f.user.name || '').slice(0, 40); }
   else {
@@ -1045,18 +1141,25 @@ function audit(req, ev, f = {}) {
   }
   if (f.target) { rec.tgt = f.target.id; rec.tname = String(f.target.name || '').slice(0, 40); }
   if (f.msg) rec.msg = String(f.msg).slice(0, 120);
+  if (f.tx) rec.tx = String(f.tx).slice(0, 64);
   // What a failed proof of ownership was guarding (proveOwner): 'email', 'passkey-add', …
   if (f.act) rec.act = String(f.act).slice(0, 40);
   const ip = clientIp(req);
   if (ip) rec.ip = ip;
   try { fs.appendFileSync(auditFile, JSON.stringify(rec) + '\n'); }
-  catch (e) { return console.error('audit write failed', e.message); }
+  catch (e) { console.error('audit write failed', e.message); return false; }
   // Amortized: a 5000-event cap rewrites the file once per ~1250 events.
   if (AUDIT_MAX && ++auditCount > AUDIT_MAX * 1.25) compactAudit();
+  return true;
 }
 if (AUDIT_ON) {
   compactAudit();                                // prune on boot, seed auditSeq/auditCount
   setInterval(compactAudit, 3600000).unref();    // honour AUDIT_DAYS on an idle instance too
+}
+try { recoverAdoptionJournals(); }
+catch (error) {
+  console.error('prescription adoption recovery failed:', error.message);
+  process.exit(1);
 }
 
 /* ---------- sign-in throttle ---------- */
@@ -2481,7 +2584,7 @@ const routes = {
   'POST /api/athlete/prescriptions/{routineId}/adopt': async (req, res) => {
     const athlete = readSession(req);
     if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
-    const result = await withStateWrite(athlete.id, async () => {
+    const result = await withStateWrite(athlete.id, req, async () => {
       const prescription = db.coachPrescriptions.find(item => item.id === req.routineId && item.athleteId === athlete.id && item.state !== 'withdrawn');
       if (!prescription) return { status: 404, code: 'routine_not_found', message: 'prescribed routine not found' };
       const coach = db.users.find(user => user.id === prescription.coachId);
@@ -2499,31 +2602,29 @@ const routes = {
         if (error instanceof RangeError) return { status: 503, code: 'state_unreadable', message: 'state unreadable' };
         throw error;
       }
-      if (adoption.changed) {
-        let text;
-        try { text = JSON.stringify(adoption.state); }
-        catch (error) {
-          if (error instanceof RangeError) return { status: 503, code: 'state_unreadable', message: 'state unreadable' };
-          throw error;
-        }
-        commitState(athlete.id, current, adoption.state, text);
-      }
       const sameRoutineIds = Array.isArray(prescription.adoptedRoutineIds) &&
         prescription.adoptedRoutineIds.length === adoption.routineIds.length &&
         prescription.adoptedRoutineIds.every((id, index) => id === adoption.routineIds[index]);
-      if (prescription.state !== 'adopted' || !sameRoutineIds) {
-        const now = new Date().toISOString();
-        prescription.state = 'adopted';
-        prescription.updatedAt = now;
-        prescription.adoptedAt ||= now;
-        prescription.adoptedRoutineIds = adoption.routineIds;
-        saveDb();
-        audit(req, 'b2b2c.prescription.adopt', { user: athlete, target: coach, msg: prescription.id });
+      if (!adoption.changed && prescription.state === 'adopted' && sameRoutineIds &&
+          !fs.existsSync(adoptionJournalFile(athlete.id, prescription.id))) {
+        return { status: 200, prescription, routineIds: [...prescription.adoptedRoutineIds] };
       }
-      return { status: 200, prescription, routineIds: [...prescription.adoptedRoutineIds] };
+      let transaction;
+      try { transaction = adoptionJournalFor(athlete.id, prescription.id, adoption.routineIds); }
+      catch (error) {
+        console.error('could not create prescription adoption journal', error);
+        return { status: 503, code: 'adoption_pending', message: 'adoption could not be committed; retry' };
+      }
+      try {
+        const completed = finishAdoptionJournal(transaction.file, transaction.journal, req);
+        return { status: 200, ...completed };
+      } catch (error) {
+        console.error('prescription adoption pending recovery', transaction.journal.tx, error);
+        return { status: 503, code: 'adoption_pending', message: 'adoption is pending recovery; retry' };
+      }
     });
     if (result.status !== 200) {
-      auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, result.code);
+      if (result.code !== 'adoption_pending') auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, result.code);
       return b2bError(res, result.status, result.code, result.message);
     }
     json(res, 200, { prescription: serializePrescription(db, result.prescription), routineIds: result.routineIds });
@@ -2958,42 +3059,41 @@ const routes = {
   'PUT /api/data': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    const body = await readBody(req);
-    if (!body.state || typeof body.state !== 'object') return json(res, 400, { error: 'state required' });
-    // An object with nothing of the profile in it empties the document with the counter left
-    // intact: what lands on disk is `{"_rev":n+1}`, every routine, workout and weigh-in gone, and
-    // the next poll reports a revision the client accepts as its own. `_rev` and `_ts` do not
-    // count towards "something of the profile" — both are bookkeeping this route writes or echoes
-    // itself, so `{}` and `{"_rev":5}` are the same push and get the same refusal. Nothing
-    // shipped sends either: the web and mobile clients push a state built on DEF
-    // (frontend/src/store/useStore.js), which always carries its keys. An array is a document
-    // loss of its own and is left to the `invalid state` check below, which already refuses it.
-    if (!Array.isArray(body.state) && !Object.keys(body.state).some(k => k !== '_rev' && k !== '_ts')) {
-      return json(res, 400, { error: 'state required' });
-    }
-    // The reminder tick and the admin routes iterate these two on the server's side, so a truthy
-    // non-array would throw there on every pass for as long as it sat on disk. Absent or null is
-    // fine — every client fills its own defaults. An array is `typeof 'object'` but no document:
-    // `_rev` set on it is dropped by JSON.stringify, so the file would read back as rev 0 while
-    // the response claimed the next revision.
-    const list = v => v == null || Array.isArray(v);
-    if (Array.isArray(body.state) || !list(body.state.workouts) || !list(body.state.routines)) return json(res, 400, { error: 'invalid state' });
-    // The same readers walk every entry (`w.d`, `w.name`). They skip what is not an entry now
-    // (`records` above), but nothing should be storing one. Dropped, not refused:
-    // such an entry carries nothing worth keeping, whereas a 400 would strand a client whose own
-    // copy is already malformed — it keeps re-sending the same document and never syncs again.
-    for (const k of ['workouts', 'routines']) if (Array.isArray(body.state[k])) body.state[k] = records(body.state[k]);
     // Conditional writes and server-side mutations share one per-user critical section: adoption
     // cannot replace a sync that landed after its read, and a sync cannot compare against a copy
-    // that adoption is still transforming.
+    // that adoption is still transforming. Admission happens before readBody retains up to 5 MiB:
+    // rejected backlog never holds a parsed state or executes this callback.
     stateWriteTestMark('put-before-lock', user.id);
-    const result = await withStateWrite(user.id, async () => {
+    const result = await withStateWrite(user.id, req, async () => {
+      const body = await readBody(req);
+      if (!body.state || typeof body.state !== 'object') return { status: 400, body: { error: 'state required' } };
+      // An object with nothing of the profile in it empties the document with the counter left
+      // intact: what lands on disk is `{"_rev":n+1}`, every routine, workout and weigh-in gone, and
+      // the next poll reports a revision the client accepts as its own. `_rev` and `_ts` do not
+      // count towards "something of the profile" — both are bookkeeping this route writes or echoes
+      // itself, so `{}` and `{"_rev":5}` are the same push and get the same refusal.
+      if (!Array.isArray(body.state) && !Object.keys(body.state).some(k => k !== '_rev' && k !== '_ts')) {
+        return { status: 400, body: { error: 'state required' } };
+      }
+      const list = value => value == null || Array.isArray(value);
+      if (Array.isArray(body.state) || !list(body.state.workouts) || !list(body.state.routines)) {
+        return { status: 400, body: { error: 'invalid state' } };
+      }
+      for (const key of ['workouts', 'routines']) if (Array.isArray(body.state[key])) body.state[key] = records(body.state[key]);
       const cur = readStateStrict(user.id);
+      if (STATE_WRITE_TEST_DIR) await stateWriteTestWait('put-after-read', user.id);
       if (cur === UNREADABLE) {
         console.error('state file unreadable for', user.id);
         return { status: 503, body: { error: 'state unreadable' } };
       }
       const curRev = cur?._rev || 0;
+      // Revision-less writes remain compatible only for the first document. Once anything has
+      // persisted — including a server-side prescription adoption — accepting a writer that does
+      // not name what it read would silently erase newer work. Return the current copy so updated
+      // callers can merge exactly as they do for a stale revision.
+      if (body.baseRev == null && cur !== null) {
+        return { status: 428, body: { error: 'revision required', code: 'revision-required', rev: curRev, state: forClient(cur) } };
+      }
       // `_rev` is a counter, so after the data directory went back in time (a restored backup, a
       // write lost to a power cut) the same number names a different document. Every write also gets
       // a write id (`_wid`) and keeps its ancestors' (`_wids`): a client quoting the id it last saw
@@ -3533,6 +3633,18 @@ const server = http.createServer(async (req, res) => {
     if (e?.clientGone) { console.warn(key, 'client went away mid-body:', e.message); return; }
     if (e instanceof HttpError) {
       if (!res.headersSent) json(res, e.status, { error: e.message });
+      return;
+    }
+    if (e instanceof StateWriteQueueFullError) {
+      // The body was deliberately not read: drain it without retaining chunks so this connection
+      // can receive the bounded-backlog response and be reused.
+      req.on('error', () => {});
+      req.resume();
+      const status = e.scope === 'key' ? 429 : 503;
+      if (!res.headersSent) json(res, status, {
+        error: e.scope === 'key' ? 'too many state writes for this profile' : 'the server is busy, try again in a moment',
+        code: e.scope === 'key' ? 'state-write-busy' : 'busy',
+      }, { 'Retry-After': '1' });
       return;
     }
     // A refused upload or a missing file: the caller's to act on, never a logged 500.
