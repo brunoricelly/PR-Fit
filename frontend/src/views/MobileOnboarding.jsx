@@ -142,7 +142,7 @@ export default function MobileOnboarding() {
   const { chooseLocalMode } = useStore()
   const head = <>
     <div style={{ fontSize: 54, display: 'flex', justifyContent: 'center', color: 'var(--acc-ink)' }}><Icon name="dumbbell" /></div>
-    <h1 className="t-large" style={{ fontWeight: 700, margin: '10px 0 4px' }}>openGym</h1>
+    <h1 className="t-large" style={{ fontWeight: 700, margin: '10px 0 4px' }}>PR Fit</h1>
   </>
   const wrap = { display: 'flex', flexDirection: 'column', justifyContent: 'center', minHeight: '78vh', textAlign: 'center' }
   return (
