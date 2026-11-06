@@ -12,6 +12,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const mocks = vi.hoisted(() => {
   const state = { S: null, user: null, MOBILE: false }
   state.toast = vi.fn()
+  state.navigate = vi.fn()
   state.snapshot = () => ({
     S: state.S, user: state.user, coachLocal: null,
     sync: { status: 'ok', offline: false, pending: false, auth: false, lastError: null, lastSynced: Date.now(), server: 'https://gym.example.com' },
@@ -32,7 +33,7 @@ vi.mock('../store/useUI.js', () => {
   useUI.getState = snap
   return { useUI }
 })
-vi.mock('react-router-dom', () => ({ useNavigate: () => () => {} }))
+vi.mock('react-router-dom', () => ({ useNavigate: () => mocks.navigate }))
 vi.mock('../lib/api.js', () => ({
   api: vi.fn(() => Promise.resolve({})), webauthnOK: () => true, passkeyLogin: vi.fn(), passkeyRegister: vi.fn(), IS_ANDROID: false,
 }))
@@ -72,6 +73,7 @@ beforeEach(() => {
   mocks.user = { id: ID, name: 'andi' }
   mocks.MOBILE = false
   mocks.toast.mockClear()
+  mocks.navigate.mockClear()
   writeText = vi.fn(() => Promise.resolve())
   Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
 })
@@ -121,5 +123,13 @@ describe('Settings → Account ID', () => {
     mocks.user = null
     const page = mount(<Settings page="account" />)
     expect(idRow(page)).toBeUndefined()
+  })
+
+  it('shows a direct professional hub row in Settings', () => {
+    const page = mount(<Settings />)
+    const row = [...page.querySelectorAll('.lrow')].find(item => item.querySelector('.lrow-t')?.textContent === 'Professional profile')
+    expect(row).toBeTruthy()
+    act(() => row.click())
+    expect(mocks.navigate).toHaveBeenCalledWith('/professionals')
   })
 })

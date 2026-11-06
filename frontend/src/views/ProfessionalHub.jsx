@@ -9,7 +9,7 @@ import { professionalError, professionalText as p } from '../lib/professional-co
 import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import EmptyState from '../components/EmptyState.jsx'
-import { Button, TextField } from '../components/ui.jsx'
+import { Button, TextArea, TextField } from '../components/ui.jsx'
 import './ProfessionalHub.css'
 
 const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : p('Training')
@@ -17,6 +17,160 @@ const statusLabel = status => ({
   pending: p('Pending'), active: p('Active'), suspended: p('Suspended'), ended: p('Ended'),
 }[status] || status)
 const formatDate = value => value ? new Date(value).toLocaleDateString(dateLocale()) : ''
+const prescriptionStateLabel = state => ({
+  available: p('Available'), adopted: p('Adopted'), withdrawn: p('Withdrawn'),
+}[state] || state)
+const blankExercise = () => ({ name: '', sets: '3', reps: '8-12', load: '', restSeconds: '60', notes: '' })
+const blankRoutine = () => ({
+  name: '', notes: '',
+  divisions: ['A', 'B', 'C'].map(name => ({ name, exercises: [blankExercise()] })),
+})
+
+function PrescriptionSummary({ prescription, action }) {
+  return <article className="card pro-prescription" data-state={prescription.state}>
+    <div className="pro-link-head">
+      <div><h3>{prescription.routine.name}</h3>
+        <div className="pro-meta">{p('By {0}', prescription.coach?.name || p('Unavailable account'))} · {formatDate(prescription.createdAt)}</div></div>
+      <span className={'pro-status ' + prescription.state}>{prescriptionStateLabel(prescription.state)}</span>
+    </div>
+    {prescription.routine.notes && <p className="pro-routine-note">{prescription.routine.notes}</p>}
+    <div className="pro-divisions">{prescription.routine.divisions.map(division => <section key={division.id} className="pro-division-summary">
+      <h4>{division.name}</h4>
+      <div className="pro-exercise-list">{division.exercises.map(exercise => <div key={exercise.id} className="pro-exercise-summary">
+        <strong>{exercise.name}</strong>
+        <span>{p('{0} sets · {1} reps · {2} rest', exercise.sets, exercise.reps, p('{0}s', exercise.restSeconds))}</span>
+        {exercise.load && <span>{p('Load: {0}', exercise.load)}</span>}
+        {exercise.notes && <small>{exercise.notes}</small>}
+      </div>)}</div>
+    </section>)}</div>
+    {action && <div className="pro-actions">{action}</div>}
+  </article>
+}
+
+function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex, exerciseIndex }) {
+  const field = (key, value) => onChange({ ...exercise, [key]: value })
+  const prefix = `${divisionIndex + 1}-${exerciseIndex + 1}`
+  return <div className="pro-exercise-editor">
+    <div className="pro-editor-head"><strong>{p('Exercise {0}', exerciseIndex + 1)}</strong>
+      {canRemove && <Button size="sm" variant="danger" onClick={onRemove}>{p('Remove exercise')}</Button>}</div>
+    <label className="pro-field"><span>{p('Exercise')}</span><TextField name={`exercise-${prefix}`} value={exercise.name} maxLength={120}
+      onChange={event => field('name', event.target.value)} /></label>
+    <div className="pro-grid-fields">
+      <label className="pro-field"><span>{p('Sets')}</span><TextField name={`sets-${prefix}`} inputMode="numeric" value={exercise.sets}
+        onChange={event => field('sets', event.target.value.replace(/\D/g, '').slice(0, 2))} /></label>
+      <label className="pro-field"><span>{p('Repetitions')}</span><TextField name={`reps-${prefix}`} value={exercise.reps} maxLength={40}
+        onChange={event => field('reps', event.target.value)} /></label>
+      <label className="pro-field"><span>{p('Load')}</span><TextField name={`load-${prefix}`} value={exercise.load} maxLength={40}
+        placeholder={p('Example: 60 kg')} onChange={event => field('load', event.target.value)} /></label>
+      <label className="pro-field"><span>{p('Rest (seconds)')}</span><TextField name={`rest-${prefix}`} inputMode="numeric" value={exercise.restSeconds}
+        onChange={event => field('restSeconds', event.target.value.replace(/\D/g, '').slice(0, 4))} /></label>
+    </div>
+    <label className="pro-field"><span>{p('Observations')}</span><TextArea name={`notes-${prefix}`} rows={2} value={exercise.notes} maxLength={500}
+      onChange={event => field('notes', event.target.value)} /></label>
+  </div>
+}
+
+function RoutineEditor({ athlete, onCreated, onCancel }) {
+  const toast = useUI(state => state.toast)
+  const [routine, setRoutine] = useState(blankRoutine)
+  const [saving, setSaving] = useState(false)
+  const updateDivision = (divisionIndex, next) => setRoutine(current => ({
+    ...current,
+    divisions: current.divisions.map((division, index) => index === divisionIndex ? next : division),
+  }))
+  const updateExercise = (divisionIndex, exerciseIndex, next) => {
+    const division = routine.divisions[divisionIndex]
+    updateDivision(divisionIndex, { ...division, exercises: division.exercises.map((exercise, index) => index === exerciseIndex ? next : exercise) })
+  }
+  const removeExercise = (divisionIndex, exerciseIndex) => {
+    const division = routine.divisions[divisionIndex]
+    updateDivision(divisionIndex, { ...division, exercises: division.exercises.filter((_, index) => index !== exerciseIndex) })
+  }
+  const addExercise = divisionIndex => {
+    const division = routine.divisions[divisionIndex]
+    updateDivision(divisionIndex, { ...division, exercises: [...division.exercises, blankExercise()] })
+  }
+  const save = async () => {
+    const invalid = !routine.name.trim() || routine.divisions.some(division => !division.name.trim()
+      || division.exercises.some(exercise => !exercise.name.trim() || !exercise.reps.trim() || !Number(exercise.sets)))
+    if (invalid) return toast(p('Complete the routine name and every exercise.'))
+    setSaving(true)
+    try {
+      const body = {
+        routine: {
+          name: routine.name.trim(), notes: routine.notes.trim(),
+          divisions: routine.divisions.map(division => ({
+            name: division.name.trim(),
+            exercises: division.exercises.map(exercise => ({
+              name: exercise.name.trim(), sets: Number(exercise.sets), reps: exercise.reps.trim(), load: exercise.load.trim(),
+              restSeconds: Number(exercise.restSeconds || 0), notes: exercise.notes.trim(),
+            })),
+          })),
+        },
+      }
+      const result = await api(`/api/coach/athletes/${athlete.id}/routines`, { method: 'POST', body: JSON.stringify(body) })
+      onCreated(result.routine)
+      toast(p('Workout prescription saved.'))
+    } catch (error) { toast(professionalError(error)) }
+    finally { setSaving(false) }
+  }
+
+  return <section className="card pro-routine-editor" aria-label={p('Prescribe workout for {0}', athlete.name)}>
+    <div className="pro-editor-title"><div><h3>{p('New workout prescription')}</h3><p>{p('Build the athlete’s A/B/C split with complete exercise guidance.')}</p></div>
+      <Button size="sm" onClick={onCancel}>{p('Cancel')}</Button></div>
+    <label className="pro-field"><span>{p('Routine name')}</span><TextField name="routineName" value={routine.name} maxLength={120}
+      placeholder={p('Example: Hypertrophy ABC')} onChange={event => setRoutine(current => ({ ...current, name: event.target.value }))} /></label>
+    <label className="pro-field"><span>{p('General observations')}</span><TextArea name="routineNotes" rows={3} value={routine.notes} maxLength={1000}
+      onChange={event => setRoutine(current => ({ ...current, notes: event.target.value }))} /></label>
+    <div className="pro-division-editors">{routine.divisions.map((division, divisionIndex) => <section key={divisionIndex} className="pro-division-editor">
+      <label className="pro-field"><span>{p('Division')}</span><TextField name={`division-${divisionIndex + 1}`} value={division.name} maxLength={80}
+        onChange={event => updateDivision(divisionIndex, { ...division, name: event.target.value })} /></label>
+      {division.exercises.map((exercise, exerciseIndex) => <ExerciseEditor key={exerciseIndex} exercise={exercise}
+        divisionIndex={divisionIndex} exerciseIndex={exerciseIndex} canRemove={division.exercises.length > 1}
+        onChange={next => updateExercise(divisionIndex, exerciseIndex, next)} onRemove={() => removeExercise(divisionIndex, exerciseIndex)} />)}
+      <Button size="sm" icon="plus" onClick={() => addExercise(divisionIndex)}>{p('Add exercise')}</Button>
+    </section>)}</div>
+    <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
+  </section>
+}
+
+function CoachPrescriptionPanel({ link }) {
+  const toast = useUI(state => state.toast)
+  const [routines, setRoutines] = useState(null)
+  const [editing, setEditing] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const load = useCallback(async () => {
+    setLoadError(false)
+    try {
+      const result = await api(`/api/coach/athletes/${link.athlete.id}/routines`)
+      setRoutines(result.routines || [])
+    } catch { setLoadError(true) }
+  }, [link.athlete.id])
+  useEffect(() => { load() }, [load])
+  const withdraw = prescription => confirmSheet({
+    title: p('Withdraw this prescription?'),
+    message: p('The athlete will no longer see this routine as available.'),
+    confirmText: p('Withdraw prescription'), danger: true,
+    onConfirm: async () => {
+      try {
+        await api(`/api/coach/athletes/${link.athlete.id}/routines/${prescription.id}`, { method: 'DELETE' })
+        setRoutines(current => current.filter(item => item.id !== prescription.id))
+      } catch (error) { toast(professionalError(error)) }
+    },
+  })
+  return <div className="pro-prescription-panel">
+    <div className="pro-panel-head"><strong>{p('Workout prescriptions')}</strong>
+      {!editing && <Button size="sm" icon="plus" onClick={() => setEditing(true)}>{p('Prescribe workout')}</Button>}</div>
+    {editing && <RoutineEditor athlete={link.athlete} onCancel={() => setEditing(false)} onCreated={created => {
+      setRoutines(current => [created, ...(current || [])]); setEditing(false)
+    }} />}
+    {loadError ? <div className="pro-load-inline" role="alert"><span>{p('Could not load workout prescriptions.')}</span><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
+      : routines === null ? <div className="pro-loading">{p('Loading…')}</div>
+        : routines.length === 0 ? <p className="pro-empty-inline">{p('No workout prescriptions yet.')}</p>
+          : <div className="pro-prescription-list">{routines.map(item => <PrescriptionSummary key={item.id} prescription={item}
+            action={<Button size="sm" variant="danger" onClick={() => withdraw(item)}>{p('Withdraw prescription')}</Button>} />)}</div>}
+  </div>
+}
 
 function Choice({ active, children, onClick }) {
   return <button type="button" className={'pro-choice' + (active ? ' on' : '')} aria-pressed={active} onClick={onClick}>{children}</button>
@@ -75,7 +229,7 @@ function ProfileSetup({ user }) {
   </section>
 }
 
-function RelationshipCard({ link, side, onStatus, canSuspend, canEnd }) {
+function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }) {
   const person = side === 'coach' ? link.athlete : link.coach
   const title = person?.name || (link.status === 'pending' ? p('Invitation pending') : p('Unavailable account'))
   return <article className="card pro-link" data-status={link.status}>
@@ -92,6 +246,7 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd }) {
       {canSuspend && <Button size="sm" onClick={() => onStatus(link, 'suspended')}>{p('Suspend')}</Button>}
       {canEnd && <Button size="sm" variant="danger" onClick={() => onStatus(link, 'ended')}>{p('End relationship')}</Button>}
     </div>}
+    {children}
   </article>
 }
 
@@ -172,9 +327,45 @@ function CoachPortfolio({ user }) {
         : links.length === 0 ? <EmptyState icon="person" title={p('No athletes yet')} text={p('Create an invitation to start your portfolio.')} />
           : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="coach" onStatus={status}
             canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
-            canEnd={link.status !== 'ended' && capabilities.has('relationships:end')} />)}</div>}
+            canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
+            {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
+          </RelationshipCard>)}</div>}
     </section>
   </>
+}
+
+function AthletePrescriptions({ userId }) {
+  const toast = useUI(state => state.toast)
+  const [prescriptions, setPrescriptions] = useState(null)
+  const [loadError, setLoadError] = useState(false)
+  const [adopting, setAdopting] = useState(null)
+  const load = useCallback(async () => {
+    setLoadError(false)
+    try {
+      const result = await api('/api/athlete/prescriptions')
+      setPrescriptions(result.prescriptions || [])
+    } catch { setLoadError(true) }
+  }, [userId])
+  useEffect(() => { load() }, [load])
+  const adopt = async prescription => {
+    setAdopting(prescription.id)
+    try {
+      const result = await api(`/api/athlete/prescriptions/${prescription.id}/adopt`, { method: 'POST', body: '{}' })
+      setPrescriptions(current => current.map(item => item.id === prescription.id ? result.prescription : item))
+      toast(p('Workout prescription adopted.'))
+    } catch (error) { toast(professionalError(error)) }
+    finally { setAdopting(null) }
+  }
+  return <section aria-labelledby="pro-prescriptions-title">
+    <h2 className="pro-section-title" id="pro-prescriptions-title">{p('Workout prescriptions')}</h2>
+    {loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load workout prescriptions.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
+      : prescriptions === null ? <div className="pro-loading">{p('Loading…')}</div>
+        : prescriptions.length === 0 ? <EmptyState icon="dumbbell" title={p('No workout prescriptions')} text={p('Training prescriptions from linked professionals appear here.')} />
+          : <div className="pro-prescription-list">{prescriptions.map(item => <PrescriptionSummary key={item.id} prescription={item}
+            action={item.state === 'available'
+              ? <Button variant="primary" disabled={adopting === item.id} onClick={() => adopt(item)}>{adopting === item.id ? p('Adopting…') : p('Adopt prescription')}</Button>
+              : null} />)}</div>}
+  </section>
 }
 
 function AthleteProfessionals({ initialToken, userId, embedded = false }) {
@@ -235,6 +426,7 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
         <TextField name="inviteToken" value={token} onChange={event => setToken(event.target.value)} autoComplete="off" spellCheck="false" /></label>
       <Button variant="primary" disabled={accepting || !token.trim()} onClick={accept}>{accepting ? p('Accepting…') : p('Accept invitation')}</Button>
     </section>
+    <AthletePrescriptions userId={userId} />
     <section aria-labelledby="pro-athlete-list-title">
       <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>
       {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>

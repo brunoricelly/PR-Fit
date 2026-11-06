@@ -22,6 +22,8 @@ describe('professionalText', () => {
     expect(professionalText('Try again')).toBe('Tentar novamente')
     expect(professionalText('This professional profile is self-declared and is not verified by PR Fit.')).toBe('Este perfil profissional é autodeclarado e não é verificado pelo PR Fit.')
     expect(professionalText('You already have too many pending invitations. Wait for one to be accepted or expire.')).toBe('Você já tem convites pendentes demais. Aguarde um aceite ou a expiração de um deles.')
+    expect(professionalText('Workout prescriptions')).toBe('Prescrições de treino')
+    expect(professionalText('{0} sets · {1} reps · {2} rest', 4, '8-10', '90s')).toBe('4 séries · 8-10 repetições · 90s descanso')
   })
 
   it('uses English for the other languages in this checkpoint', () => {
