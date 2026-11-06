@@ -195,8 +195,10 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   if (keptPrescriptions.length !== db.coachPrescriptions.length) changed = true;
   db.coachPrescriptions = keptPrescriptions;
   const assessmentRetentionDays = limits.assessmentRetentionDays ?? B2B2C_LIMITS.assessmentRetentionDays;
+  let expiredAssessments = [];
   if (assessmentRetentionDays > 0) {
     const assessmentCutoff = nowMs - assessmentRetentionDays * 86400000;
+    expiredAssessments = db.coachAssessments.filter(item => Date.parse(item.assessedAt) < assessmentCutoff);
     const keptAssessments = db.coachAssessments.filter(item => Date.parse(item.assessedAt) >= assessmentCutoff);
     if (keptAssessments.length !== db.coachAssessments.length) changed = true;
     db.coachAssessments = keptAssessments;
@@ -216,6 +218,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
+    expiredAssessments,
   };
 }
 

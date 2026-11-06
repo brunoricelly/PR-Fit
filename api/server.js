@@ -1357,6 +1357,12 @@ function commitAssessmentConsent(link, scopes, now) {
 
 function compactRelationships() {
   const result = compactB2B2C(db, B2B2C_LIMITS);
+  if (result?.expiredAssessments?.length) {
+    for (const item of result.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+  }
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
   if (result.changed) saveDb();
   return result;
 }
@@ -2541,7 +2547,10 @@ const routes = {
     };
     db.coachAthleteLinks.push(link);
     db.coachInvites.push(invite);
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     audit(req, 'b2b2c.invite.create', { user: coach, msg: `${link.id}:${scopes.join(',')}` });
     json(res, 201, { invite: { id: invite.id, linkId: link.id, token: opaque.token, scopes, expiresAt } });
@@ -2601,7 +2610,10 @@ const routes = {
     link.updatedAt = now;
     invite.acceptedAt = now;
     invite.acceptedBy = athlete.id;
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     const coach = db.users.find(user => user.id === link.coachId);
     audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: link.id });
@@ -2674,7 +2686,10 @@ const routes = {
       updatedAt: now,
     };
     db.coachPrescriptions.push(prescription);
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     audit(req, 'b2b2c.prescription.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     json(res, 201, { routine: serializePrescription(db, prescription) });
@@ -2700,7 +2715,10 @@ const routes = {
       prescription.state = 'withdrawn';
       prescription.updatedAt = now;
       prescription.withdrawnAt = now;
-      compactB2B2C(db, B2B2C_LIMITS);
+      const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
       saveDb();
       audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     }
@@ -3046,7 +3064,10 @@ const routes = {
     link.updatedAt = now;
     if (body.status === 'suspended') { link.suspendedAt = now; link.suspendedBy = actor.id; }
     if (body.status === 'ended') { link.endedAt = now; link.endedBy = actor.id; }
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     const targetId = actor.id === link.coachId ? link.athleteId : link.coachId;
     audit(req, body.status === 'suspended' ? 'b2b2c.link.suspend' : 'b2b2c.link.end', {
