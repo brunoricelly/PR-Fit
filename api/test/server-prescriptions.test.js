@@ -41,17 +41,25 @@ function seed(dataDir) {
   }, null, 2));
 }
 
-async function launch(dataDir) {
+async function launch(dataDir, env = {}) {
   const child = spawn(process.execPath, ['server.js'], {
     cwd: API,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1' },
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1', ...env },
   });
   let log = '';
   child.stdout.on('data', chunk => log += chunk);
   child.stderr.on('data', chunk => log += chunk);
   const port = await boundPort(child, () => log);
   return { child, api: `http://127.0.0.1:${port}`, log: () => log };
+}
+
+async function waitForFile(file) {
+  const deadline = Date.now() + 30000;
+  while (!fs.existsSync(file)) {
+    if (Date.now() >= deadline) throw new Error(`timed out waiting for ${file}`);
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
 }
 
 async function stop(server) {
@@ -216,6 +224,65 @@ test('adoption refuses an unreadable state without replacing it', async t => {
   assert.equal(fs.readFileSync(file, 'utf8'), corrupt);
   const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
   assert.equal(stored.coachPrescriptions[0].state, 'available');
+
+  fs.writeFileSync(file, JSON.stringify({ routines: [], customEx: [], workouts: [], _rev: 1 }));
+  const recovered = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(recovered.status, 200);
+  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).routines.length, 3);
+});
+
+test('adoption and athlete sync serialize without losing either change', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-race-'));
+  const barriers = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-barrier-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  t.after(() => fs.rmSync(barriers, { recursive: true, force: true }));
+  const barrier = path.join(barriers, `adoption-after-read-${IDS.athlete}`);
+  const putMark = path.join(barriers, `put-before-lock-${IDS.athlete}`);
+  fs.writeFileSync(barrier + '.wait', '');
+  fs.writeFileSync(putMark + '.watch', '');
+  const server = await launch(dataDir, { STATE_WRITE_TEST_DIR: barriers });
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  const file = path.join(dataDir, `state-${IDS.athlete}.json`);
+  const initial = {
+    _rev: 7, _wid: 'wid-before', _wids: ['wid-ancestor'], _ts: 100,
+    routines: [{ id: 'mine', name: 'Minha rotina', ex: [] }], customEx: [], workouts: [],
+  };
+  fs.writeFileSync(file, JSON.stringify(initial));
+
+  const adoptionPromise = request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  await waitForFile(barrier + '.reached');
+  const concurrentWorkout = { id: 'workout-during-adoption', d: '2026-11-06', name: 'Treino concorrente' };
+  const putPromise = request(server, IDS.athlete, 'PUT', '/api/data', {
+    state: { ...initial, workouts: [concurrentWorkout] }, baseRev: 7, baseWid: 'wid-before', stamped: true,
+  });
+  await waitForFile(putMark + '.reached');
+  fs.writeFileSync(barrier + '.release', '');
+
+  const adoption = await adoptionPromise;
+  const conflict = await putPromise;
+  assert.equal(adoption.status, 200);
+  assert.deepEqual([conflict.status, conflict.body.error], [409, 'conflict']);
+  assert.equal(conflict.body.rev, 8);
+  assert.equal(conflict.body.state.routines.some(item => item.prescriptionId === created.body.routine.id), true);
+
+  const merged = structuredClone(conflict.body.state);
+  merged.workouts = [...(merged.workouts || []), concurrentWorkout];
+  const retry = await request(server, IDS.athlete, 'PUT', '/api/data', {
+    state: merged, baseRev: conflict.body.rev, baseWid: conflict.body.state._wid, stamped: true,
+  });
+  assert.equal(retry.status, 200);
+  const finalState = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.equal(finalState.workouts.some(item => item.id === concurrentWorkout.id), true);
+  assert.equal(finalState.routines.filter(item => item.prescriptionId === created.body.routine.id).length, 3);
+
+  const beforeRepeat = fs.readFileSync(file, 'utf8');
+  const repeated = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(repeated.status, 200);
+  assert.equal(fs.readFileSync(file, 'utf8'), beforeRepeat);
 });
 
 test('adoption fails closed when the training relationship is no longer active', async t => {

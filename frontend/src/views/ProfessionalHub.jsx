@@ -34,9 +34,9 @@ function PrescriptionSummary({ prescription, action }) {
       <span className={'pro-status ' + prescription.state}>{prescriptionStateLabel(prescription.state)}</span>
     </div>
     {prescription.routine.notes && <p className="pro-routine-note">{prescription.routine.notes}</p>}
-    <div className="pro-divisions">{prescription.routine.divisions.map(division => <section key={division.id} className="pro-division-summary">
+    <div className="pro-divisions">{prescription.routine.divisions.map((division, divisionIndex) => <section key={division.id || `${prescription.id}-division-${divisionIndex}`} className="pro-division-summary">
       <h4>{division.name}</h4>
-      <div className="pro-exercise-list">{division.exercises.map(exercise => <div key={exercise.id} className="pro-exercise-summary">
+      <div className="pro-exercise-list">{division.exercises.map((exercise, exerciseIndex) => <div key={exercise.id || `${prescription.id}-exercise-${divisionIndex}-${exerciseIndex}`} className="pro-exercise-summary">
         <strong>{exercise.name}</strong>
         <span>{p('{0} sets · {1} reps · {2} rest', exercise.sets, exercise.reps, p('{0}s', exercise.restSeconds))}</span>
         {exercise.load && <span>{p('Load: {0}', exercise.load)}</span>}
