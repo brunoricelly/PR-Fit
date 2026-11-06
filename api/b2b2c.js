@@ -2,6 +2,10 @@ import crypto from 'node:crypto';
 
 export const B2B2C_SCHEMA_VERSION = 3;
 export const COACH_SCOPES = ['training', 'nutrition'];
+export const B2B2C_LIMITS = {
+  maxAssessmentsPerAthlete: 200,
+  maxAssessments: 10000,
+};
 
 export class B2B2CDataError extends Error {
   constructor(message) {
@@ -39,7 +43,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -225,6 +229,119 @@ const cleanText = (value, max, { required = false } = {}) => {
   return normalized;
 };
 
+const assessmentNumber = (value, min, max) => (
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null
+);
+
+const normalizeNumberFields = (value, allowed, min, max) => {
+  if (!record(value) || !Object.keys(value).length || Object.keys(value).some(key => !allowed.includes(key))) return null;
+  const out = {};
+  for (const [key, measurement] of Object.entries(value)) {
+    const normalized = assessmentNumber(measurement, min, max);
+    if (normalized === null) return null;
+    out[key] = normalized;
+  }
+  return out;
+};
+
+const SKINFOLD_SITES = [
+  'abdomen', 'biceps', 'calf', 'chest', 'midaxillary', 'subscapular', 'suprailiac', 'thigh', 'triceps',
+];
+const CIRCUMFERENCE_SITES = [
+  'abdomen', 'ankle', 'arm', 'calf', 'chest', 'forearm', 'hip', 'neck', 'thigh', 'waist', 'wrist',
+];
+const BIOIMPEDANCE_FIELDS = [
+  'bodyFatPercent', 'boneMassKg', 'bmrKcal', 'metabolicAge', 'muscleMassKg', 'visceralFat', 'waterPercent',
+];
+const SKINFOLD_PROTOCOLS = {
+  pollock3: {
+    male: ['chest', 'abdomen', 'thigh'],
+    female: ['triceps', 'suprailiac', 'thigh'],
+  },
+  pollock7: {
+    male: ['chest', 'midaxillary', 'triceps', 'subscapular', 'abdomen', 'suprailiac', 'thigh'],
+    female: ['chest', 'midaxillary', 'triceps', 'subscapular', 'abdomen', 'suprailiac', 'thigh'],
+  },
+  faulkner4: ['triceps', 'subscapular', 'suprailiac', 'abdomen'],
+};
+
+function normalizeSkinfolds(value) {
+  if (!record(value)) return null;
+  const { protocol, sex, age, ...measurements } = value;
+  if (protocol !== undefined && !Object.hasOwn(SKINFOLD_PROTOCOLS, protocol)) return null;
+  if (sex !== undefined && !['male', 'female'].includes(sex)) return null;
+  const normalizedAge = age === undefined ? undefined : assessmentNumber(age, 1, 120);
+  if (age !== undefined && (!Number.isInteger(age) || normalizedAge === null)) return null;
+  const normalized = normalizeNumberFields(measurements, SKINFOLD_SITES, 0.1, 100);
+  if (!normalized) return null;
+  if (protocol) {
+    if (protocol !== 'faulkner4' && (!sex || normalizedAge === undefined)) return null;
+    const requiredSites = protocol === 'faulkner4' ? SKINFOLD_PROTOCOLS.faulkner4 : SKINFOLD_PROTOCOLS[protocol][sex];
+    if (!requiredSites.every(site => normalized[site] !== undefined)) return null;
+  }
+  return {
+    ...(protocol ? { protocol } : {}),
+    ...(sex ? { sex } : {}),
+    ...(normalizedAge === undefined ? {} : { age: normalizedAge }),
+    ...normalized,
+  };
+}
+
+function normalizeBioimpedance(value) {
+  const normalized = normalizeNumberFields(value, BIOIMPEDANCE_FIELDS, 0, 10000);
+  if (!normalized) return null;
+  for (const field of ['bodyFatPercent', 'waterPercent']) {
+    if (normalized[field] !== undefined && normalized[field] > 100) return null;
+  }
+  if (normalized.metabolicAge !== undefined && (!Number.isInteger(normalized.metabolicAge) || normalized.metabolicAge > 120)) return null;
+  if (normalized.visceralFat !== undefined && normalized.visceralFat > 100) return null;
+  return normalized;
+}
+
+function normalizeParq(value) {
+  if (!record(value) || Object.keys(value).some(key => !['answers', 'notes'].includes(key))) return null;
+  if (!Array.isArray(value.answers) || value.answers.length !== 7 || value.answers.some(answer => typeof answer !== 'boolean')) return null;
+  const notes = cleanText(value.notes, 1000);
+  if (notes === null) return null;
+  return { answers: [...value.answers], notes };
+}
+
+export function validateAssessment(payload) {
+  if (!record(payload)) return null;
+  const allowed = ['assessedAt', 'bioimpedance', 'circumferences', 'heightCm', 'notes', 'parq', 'skinfolds', 'weightKg'];
+  if (Object.keys(payload).some(key => !allowed.includes(key))) return null;
+  const assessedAt = payload.assessedAt === undefined ? undefined : cleanText(payload.assessedAt, 40, { required: true });
+  if (assessedAt === null || (assessedAt !== undefined && !Number.isFinite(Date.parse(assessedAt)))) return null;
+  const notes = cleanText(payload.notes, 2000);
+  if (notes === null) return null;
+  const weightKg = payload.weightKg === undefined ? undefined : assessmentNumber(payload.weightKg, 1, 500);
+  const heightCm = payload.heightCm === undefined ? undefined : assessmentNumber(payload.heightCm, 30, 300);
+  if ((payload.weightKg !== undefined && weightKg === null) || (payload.heightCm !== undefined && heightCm === null)) return null;
+
+  const skinfolds = payload.skinfolds === undefined ? undefined : normalizeSkinfolds(payload.skinfolds);
+  const circumferences = payload.circumferences === undefined
+    ? undefined
+    : normalizeNumberFields(payload.circumferences, CIRCUMFERENCE_SITES, 1, 300);
+  const bioimpedance = payload.bioimpedance === undefined ? undefined : normalizeBioimpedance(payload.bioimpedance);
+  const parq = payload.parq === undefined ? undefined : normalizeParq(payload.parq);
+  if ((payload.skinfolds !== undefined && !skinfolds)
+      || (payload.circumferences !== undefined && !circumferences)
+      || (payload.bioimpedance !== undefined && !bioimpedance)
+      || (payload.parq !== undefined && !parq)) return null;
+  if (!skinfolds && !circumferences && !bioimpedance && !parq) return null;
+
+  return {
+    ...(assessedAt === undefined ? {} : { assessedAt: new Date(assessedAt).toISOString() }),
+    ...(weightKg === undefined ? {} : { weightKg }),
+    ...(heightCm === undefined ? {} : { heightCm }),
+    ...(skinfolds ? { skinfolds } : {}),
+    ...(circumferences ? { circumferences } : {}),
+    ...(bioimpedance ? { bioimpedance } : {}),
+    ...(parq ? { parq } : {}),
+    notes,
+  };
+}
+
 export function validatePrescriptionRoutine(body) {
   if (!record(body) || !record(body.routine)) return null;
   if (Object.keys(body).some(key => key !== 'routine')) return null;
@@ -325,4 +442,5 @@ export function removeB2B2CUser(db, userId) {
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
+  db.coachAssessments = db.coachAssessments.filter(item => item.coachId !== userId && item.athleteId !== userId);
 }

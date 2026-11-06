@@ -46,10 +46,14 @@ import { integrationRoutes } from './integrations/routes.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
 import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from './wrapped.js';
 import {
-  B2B2CDataError, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
+  B2B2CDataError, B2B2C_LIMITS as B2B2C_DEFAULT_LIMITS, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
-  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, removeB2B2CUser,
+  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, validateAssessment, removeB2B2CUser,
 } from './b2b2c.js';
+import {
+  pollock3Men, pollock3Women, pollock7Men, pollock7Women, faulkner4,
+  siri, bodyComposition,
+} from './anthropometrics.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -111,6 +115,8 @@ const B2B2C_LIMITS = {
   maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
   maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
   prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
+  maxAssessmentsPerAthlete: envInt('B2B2C_ASSESSMENTS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxAssessmentsPerAthlete, { min: 1, max: 10000 }),
+  maxAssessments: envInt('B2B2C_MAX_ASSESSMENTS', B2B2C_DEFAULT_LIMITS.maxAssessments, { min: 1, max: 1000000 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -1312,6 +1318,42 @@ function compactRelationships() {
 
 function auditB2B2CDenied(req, event, user, reason, target) {
   auditFail(req, event, { ok: false, user, ...(target ? { target } : {}), msg: reason });
+}
+
+function assessmentResults(assessment) {
+  let density;
+  let bodyFatPercent;
+  const skinfolds = assessment.skinfolds;
+  if (skinfolds?.protocol) {
+    const { protocol, sex, age, ...measurements } = skinfolds;
+    if (protocol === 'pollock3') density = sex === 'male'
+      ? pollock3Men(measurements, age)
+      : pollock3Women(measurements, age);
+    if (protocol === 'pollock7') density = sex === 'male'
+      ? pollock7Men(measurements, age)
+      : pollock7Women(measurements, age);
+    if (protocol === 'faulkner4') bodyFatPercent = faulkner4(measurements);
+    else if (density !== undefined) bodyFatPercent = siri(density);
+  } else if (assessment.bioimpedance?.bodyFatPercent !== undefined) {
+    bodyFatPercent = assessment.bioimpedance.bodyFatPercent;
+  }
+  if (bodyFatPercent === undefined) return undefined;
+  return {
+    ...(density === undefined ? {} : { density }),
+    bodyFatPercent,
+    ...(assessment.weightKg === undefined ? {} : bodyComposition(assessment.weightKg, bodyFatPercent)),
+  };
+}
+
+function serializeAssessment(item) {
+  const { coachId, athleteId, ...assessment } = item;
+  const coach = db.users.find(user => user.id === coachId);
+  const athlete = db.users.find(user => user.id === athleteId);
+  return {
+    ...structuredClone(assessment),
+    coach: coach ? { id: coach.id, name: coach.name } : { id: coachId },
+    athlete: athlete ? { id: athlete.id, name: athlete.name } : { id: athleteId },
+  };
 }
 
 /* ---------- password sign-in (#118) ---------- */
@@ -2568,6 +2610,123 @@ const routes = {
     json(res, 200, { routine: serializePrescription(db, prescription) });
   },
 
+  'GET /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.list.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.list.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active training relationship required');
+    }
+    const assessments = db.coachAssessments
+      .filter(item => item.coachId === coach.id && item.athleteId === req.athleteId)
+      .sort((left, right) => Date.parse(right.assessedAt) - Date.parse(left.assessedAt))
+      .map(serializeAssessment);
+    audit(req, 'b2b2c.assessment.list', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: String(assessments.length) });
+    json(res, 200, { assessments });
+  },
+
+  'POST /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active training relationship required');
+    }
+    const assessment = validateAssessment(await readBody(req));
+    if (!assessment) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'invalid_assessment');
+      return b2bError(res, 400, 'invalid_assessment', 'invalid physical assessment');
+    }
+    const forAthlete = db.coachAssessments.filter(item => item.athleteId === req.athleteId).length;
+    if (forAthlete >= B2B2C_LIMITS.maxAssessmentsPerAthlete || db.coachAssessments.length >= B2B2C_LIMITS.maxAssessments) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'assessment_capacity');
+      return b2bError(res, 409, 'assessment_capacity', 'assessment storage capacity reached');
+    }
+    const now = new Date().toISOString();
+    const results = assessmentResults(assessment);
+    const row = {
+      id: makeEntityId('cas', db.coachAssessments),
+      coachId: coach.id,
+      athleteId: req.athleteId,
+      ...assessment,
+      assessedAt: assessment.assessedAt || now,
+      ...(results ? { results } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.coachAssessments.push(row);
+    saveDb();
+    audit(req, 'b2b2c.assessment.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: row.id });
+    json(res, 201, { assessment: serializeAssessment(row) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active training relationship required');
+    }
+    const item = db.coachAssessments.find(assessment => assessment.id === req.assessmentId
+      && assessment.coachId === coach.id && assessment.athleteId === req.athleteId);
+    if (!item) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
+    audit(req, 'b2b2c.assessment.read', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: item.id });
+    json(res, 200, { assessment: serializeAssessment(item) });
+  },
+
+  'DELETE /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active training relationship required');
+    }
+    const index = db.coachAssessments.findIndex(assessment => assessment.id === req.assessmentId
+      && assessment.coachId === coach.id && assessment.athleteId === req.athleteId);
+    if (index < 0) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
+    const [item] = db.coachAssessments.splice(index, 1);
+    saveDb();
+    audit(req, 'b2b2c.assessment.delete', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: item.id });
+    json(res, 200, { assessment: serializeAssessment(item) });
+  },
+
+  'GET /api/athlete/assessments': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const assessments = db.coachAssessments
+      .filter(item => item.athleteId === athlete.id)
+      .sort((left, right) => Date.parse(right.assessedAt) - Date.parse(left.assessedAt))
+      .map(serializeAssessment);
+    audit(req, 'b2b2c.assessment.athlete-list', { user: athlete, msg: String(assessments.length) });
+    json(res, 200, { assessments });
+  },
+
   'GET /api/athlete/prescriptions': async (req, res) => {
     const athlete = readSession(req);
     if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
@@ -3596,6 +3755,17 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
     req.athleteId = coachRoutineItem[1];
     req.routineId = coachRoutineItem[2];
+  }
+  const coachAssessment = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments$/.exec(url.pathname);
+  if (coachAssessment) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/assessments';
+    req.athleteId = coachAssessment[1];
+  }
+  const coachAssessmentItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachAssessmentItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/assessments/{assessmentId}';
+    req.athleteId = coachAssessmentItem[1];
+    req.assessmentId = coachAssessmentItem[2];
   }
   const athletePrescription = /^\/api\/athlete\/prescriptions\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);
   if (athletePrescription) {

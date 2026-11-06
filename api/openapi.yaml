@@ -558,6 +558,100 @@ paths:
         '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Relationship or routine absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /api/coach/athletes/{athleteId}/assessments:
+    parameters:
+      - in: path
+        name: athleteId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [professionals]
+      operationId: listPhysicalAssessments
+      summary: List physical assessments created for one linked athlete
+      description: Requires an active relationship whose scope includes `training`.
+      responses:
+        '200':
+          description: Assessments created by the signed-in professional, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessments: { type: array, items: { $ref: '#/components/schemas/PhysicalAssessment' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    post:
+      tags: [professionals]
+      operationId: createPhysicalAssessment
+      summary: Record a physical assessment for one linked athlete
+      description: >-
+        Validates skinfolds, circumferences, bioimpedance and PAR-Q. A named skinfold
+        protocol also calculates body density, fat percentage, fat mass and lean mass.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhysicalAssessmentInput' }
+      responses:
+        '201':
+          description: Assessment persisted in the bounded server collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
+        '400': { description: Invalid assessment fields., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Per-athlete or global assessment capacity reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/coach/athletes/{athleteId}/assessments/{assessmentId}:
+    parameters:
+      - in: path
+        name: athleteId
+        required: true
+        schema: { type: string }
+      - in: path
+        name: assessmentId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [professionals]
+      operationId: getPhysicalAssessment
+      summary: Read one physical assessment
+      responses:
+        '200':
+          description: Assessment created by the signed-in professional for this athlete.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or assessment absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      tags: [professionals]
+      operationId: deletePhysicalAssessment
+      summary: Delete one physical assessment
+      description: Requires the creating professional and an active `training:write` relationship.
+      responses:
+        '200':
+          description: Deleted assessment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or assessment absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   /api/athlete/coaches:
     get:
       tags: [professionals]
@@ -592,6 +686,23 @@ paths:
                 type: object
                 properties:
                   prescriptions: { type: array, items: { $ref: '#/components/schemas/TrainingPrescription' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/athlete/assessments:
+    get:
+      tags: [professionals]
+      operationId: listAthleteAssessments
+      summary: List the signed-in athlete's physical assessment history
+      description: Returns only rows whose athlete id is the signed-in account.
+      responses:
+        '200':
+          description: Assessments from every professional, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessments: { type: array, items: { $ref: '#/components/schemas/PhysicalAssessment' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
 
   /api/athlete/prescriptions/{routineId}/adopt:
@@ -4548,6 +4659,103 @@ components:
           description: OpenGym routine ids added for the prescribed divisions, in division order.
           items: { type: string }
         withdrawnAt: { type: string, format: date-time }
+
+    SkinfoldAssessment:
+      type: object
+      minProperties: 1
+      properties:
+        protocol: { type: string, enum: [pollock3, pollock7, faulkner4] }
+        sex: { type: string, enum: [male, female] }
+        age: { type: integer, minimum: 1, maximum: 120 }
+        abdomen: { type: number, minimum: 0.1, maximum: 100 }
+        biceps: { type: number, minimum: 0.1, maximum: 100 }
+        calf: { type: number, minimum: 0.1, maximum: 100 }
+        chest: { type: number, minimum: 0.1, maximum: 100 }
+        midaxillary: { type: number, minimum: 0.1, maximum: 100 }
+        subscapular: { type: number, minimum: 0.1, maximum: 100 }
+        suprailiac: { type: number, minimum: 0.1, maximum: 100 }
+        thigh: { type: number, minimum: 0.1, maximum: 100 }
+        triceps: { type: number, minimum: 0.1, maximum: 100 }
+      additionalProperties: false
+
+    CircumferenceAssessment:
+      type: object
+      minProperties: 1
+      properties:
+        abdomen: { type: number, minimum: 1, maximum: 300 }
+        ankle: { type: number, minimum: 1, maximum: 300 }
+        arm: { type: number, minimum: 1, maximum: 300 }
+        calf: { type: number, minimum: 1, maximum: 300 }
+        chest: { type: number, minimum: 1, maximum: 300 }
+        forearm: { type: number, minimum: 1, maximum: 300 }
+        hip: { type: number, minimum: 1, maximum: 300 }
+        neck: { type: number, minimum: 1, maximum: 300 }
+        thigh: { type: number, minimum: 1, maximum: 300 }
+        waist: { type: number, minimum: 1, maximum: 300 }
+        wrist: { type: number, minimum: 1, maximum: 300 }
+      additionalProperties: false
+
+    BioimpedanceAssessment:
+      type: object
+      minProperties: 1
+      properties:
+        bodyFatPercent: { type: number, minimum: 0, maximum: 100 }
+        boneMassKg: { type: number, minimum: 0, maximum: 10000 }
+        bmrKcal: { type: number, minimum: 0, maximum: 10000 }
+        metabolicAge: { type: integer, minimum: 0, maximum: 120 }
+        muscleMassKg: { type: number, minimum: 0, maximum: 10000 }
+        visceralFat: { type: number, minimum: 0, maximum: 100 }
+        waterPercent: { type: number, minimum: 0, maximum: 100 }
+      additionalProperties: false
+
+    ParqAssessment:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          minItems: 7
+          maxItems: 7
+          items: { type: boolean }
+        notes: { type: string, maxLength: 1000 }
+      additionalProperties: false
+
+    PhysicalAssessmentInput:
+      type: object
+      description: At least one of skinfolds, circumferences, bioimpedance or PAR-Q is required.
+      properties:
+        assessedAt: { type: string, format: date-time }
+        weightKg: { type: number, minimum: 1, maximum: 500 }
+        heightCm: { type: number, minimum: 30, maximum: 300 }
+        skinfolds: { $ref: '#/components/schemas/SkinfoldAssessment' }
+        circumferences: { $ref: '#/components/schemas/CircumferenceAssessment' }
+        bioimpedance: { $ref: '#/components/schemas/BioimpedanceAssessment' }
+        parq: { $ref: '#/components/schemas/ParqAssessment' }
+        notes: { type: string, maxLength: 2000 }
+      additionalProperties: false
+
+    AssessmentResults:
+      type: object
+      required: [bodyFatPercent]
+      properties:
+        density: { type: number }
+        bodyFatPercent: { type: number }
+        fatMassKg: { type: number }
+        leanMassKg: { type: number }
+
+    PhysicalAssessment:
+      allOf:
+        - $ref: '#/components/schemas/PhysicalAssessmentInput'
+        - type: object
+          required: [id, assessedAt, coach, athlete, createdAt, updatedAt]
+          properties:
+            id: { type: string }
+            assessedAt: { type: string, format: date-time }
+            results: { $ref: '#/components/schemas/AssessmentResults' }
+            coach: { $ref: '#/components/schemas/SessionUser' }
+            athlete: { $ref: '#/components/schemas/SessionUser' }
+            createdAt: { type: string, format: date-time }
+            updatedAt: { type: string, format: date-time }
 
     # ------------------------------------------------------------------ WebAuthn
     # These mirror @simplewebauthn/server v13's JSON shapes (themselves the W3C
