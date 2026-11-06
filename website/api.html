@@ -248,7 +248,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.3</span>
-    <span>104 endpoints</span>
+    <span>116 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -3619,6 +3619,284 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
 </details>
 
+<details class="ep" id="op-getAssessmentConfig">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/assessments/config</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read the physical-assessment questionnaire and limits</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns the stable PAR-Q version/questions and the configured date/photo limits used by the web form.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Assessment form configuration.<span class="r-sig">{ parq: object, limits: object }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listPhysicalAssessments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/assessments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List physical assessments created for one linked athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Requires an active relationship whose scope includes the athlete-granted <code>assessments</code> consent.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Assessments created by the signed-in professional, newest first.<span class="r-sig">{ assessments: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a>[] }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Professional profile</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">The athlete is not linked to this professional.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createPhysicalAssessment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/assessments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Record a physical assessment for one linked athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Validates skinfolds, circumferences, bioimpedance and PAR-Q. A named skinfold protocol also calculates body density, fat percentage, fat mass and lean mass. Calculated values outside the supported 0–100% body-fat domain are rejected instead of persisted. Creation is rate limited per professional account and client address.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-PhysicalAssessmentInput">PhysicalAssessmentInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">201</span>
+    <span class="p-desc">Assessment persisted in the bounded server collection.<span class="r-sig">{ assessment: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid assessment fields.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Professional profile</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">The athlete is not linked to this professional.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Per professional/athlete pair or global assessment capacity reached.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Per-account or per-address creation rate limit reached.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The assessment could not be persisted atomically.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getPhysicalAssessment">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/assessments/{assessmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read one physical assessment</span>
+  </summary>
+  <div class="ep-body">
+
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Assessment created by the signed-in professional for this athlete.<span class="r-sig">{ assessment: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Professional profile</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship or assessment absent or outside this professional's scope.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-correctPhysicalAssessment">
+  <summary>
+    <span class="m patch">PATCH</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/assessments/{assessmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Replace a physical assessment with a corrected record</span>
+  </summary>
+  <div class="ep-body">
+<p>Requires the creating professional and current <code>assessments:write</code> consent. The replacement is persisted atomically and keeps the original id and creation time.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-PhysicalAssessmentInput">PhysicalAssessmentInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Corrected assessment.<span class="r-sig">{ assessment: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid assessment</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Professional profile</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship or assessment absent or outside this professional's scope.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The correction could not be persisted atomically.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-deletePhysicalAssessment">
+  <summary>
+    <span class="m delete">DELETE</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/assessments/{assessmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Delete one physical assessment</span>
+  </summary>
+  <div class="ep-body">
+<p>Requires the creating professional and an active <code>assessments:write</code> relationship. Unreferenced progress-photo blobs are removed after the database commit.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Deleted assessment.<span class="r-sig">{ assessment: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Professional profile</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship or assessment absent or outside this professional's scope.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The deletion could not be persisted atomically.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-updateAssessmentConsent">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/athlete/coaches/{linkId}/assessment-consent</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Grant or revoke assessment access for one professional</span>
+  </summary>
+  <div class="ep-body">
+<p>Only the athlete participant may change this sensitive scope. Granting requires an active relationship and a professional profile that currently offers assessments. Revocation blocks future professional reads/writes without deleting the athlete's history.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">linkId <span class="p-hint">(path)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">granted<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Updated relationship scope.<span class="r-sig">{ link: <a href="#schema-CoachAthleteLink">CoachAthleteLink</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid consent body.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">The relationship is not owned by the signed-in athlete.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Relationship inactive or professional no longer eligible.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Consent could not be persisted atomically.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
 <details class="ep" id="op-listAthleteCoaches">
   <summary>
     <span class="m get">GET</span>
@@ -3666,6 +3944,123 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">401</span>
     <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteAssessments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/assessments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List the signed-in athlete's physical assessment history</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns only rows whose athlete id is the signed-in account.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Assessments from every professional, newest first.<span class="r-sig">{ assessments: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a>[] }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-deleteOwnPhysicalAssessment">
+  <summary>
+    <span class="m delete">DELETE</span>
+    <span class="ep-path"><code>/api/athlete/assessments/{assessmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Permanently delete one own physical assessment</span>
+  </summary>
+  <div class="ep-body">
+<p>The signed-in athlete must repeat the assessment id in the JSON body. The deletion is atomic and audited; unreferenced photo blobs are removed after commit.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">assessmentId <span class="p-hint">(path)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body <span class="p-hint">(JSON)</span></p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">confirmation<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Must exactly equal the path assessmentId.</span>
+  </div>
+</div>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Assessment deleted.<span class="r-sig">{ deleted: always true, assessment: <a href="#schema-PhysicalAssessment">PhysicalAssessment</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Exact id confirmation missing.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Assessment absent or owned by another athlete.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The deletion could not be persisted atomically.</span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAssessmentPhoto">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/assessments/{assessmentId}/photos/{hash}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read an authorized assessment progress photo</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns a private, no-store image only to its athlete or to the creating professional while the active relationship still has assessment consent. Unauthorized references are answered as missing. Binary data remains in the media store, never in db.json.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">assessmentId <span class="p-hint">(path)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hash <span class="p-hint">(path)</span><em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Progress-photo bytes with private no-store and nosniff headers.</span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Photo absent or not authorized.</span>
   </div>
     </div>
   </div>
@@ -4887,7 +5282,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <div class="prow">
     <span class="p-name">coachSpecialties<em class="p-req" title="required">required</em></span>
-    <span class="p-type">(&quot;training&quot; | &quot;nutrition&quot;)[]</span>
+    <span class="p-type">(&quot;training&quot; | &quot;nutrition&quot; | &quot;assessments&quot;)[]</span>
     <span class="p-desc"></span>
   </div>
 </div>
@@ -5158,6 +5553,491 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-desc"></span>
   </div>
 </div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SkinfoldAssessment">
+  <summary>
+    <span class="sch-name"><code>SkinfoldAssessment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">protocol</span>
+    <span class="p-type">&quot;pollock3&quot; | &quot;pollock7&quot; | &quot;faulkner4&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sex</span>
+    <span class="p-type">&quot;male&quot; | &quot;female&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">age</span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;120)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">abdomen</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">biceps</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">calf</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">chest</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">midaxillary</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">subscapular</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">suprailiac</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">thigh</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">triceps</span>
+    <span class="p-type">number <span class="p-hint">(0.1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CircumferenceAssessment">
+  <summary>
+    <span class="sch-name"><code>CircumferenceAssessment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">abdomen</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">ankle</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">arm</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">calf</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">chest</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">forearm</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hip</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">neck</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">thigh</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">waist</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">wrist</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-BioimpedanceAssessment">
+  <summary>
+    <span class="sch-name"><code>BioimpedanceAssessment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">bodyFatPercent</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">boneMassKg</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;10000)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">bmrKcal</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;10000)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metabolicAge</span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;120)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">muscleMassKg</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;10000)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">visceralFat</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">waterPercent</span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ParqQuestion">
+  <summary>
+    <span class="sch-name"><code>ParqQuestion</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Stable versioned question identifier.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">text<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ParqAnswer">
+  <summary>
+    <span class="sch-name"><code>ParqAnswer</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">questionId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Stable id from the configured PAR-Q version.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">answer<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">text</span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Question text included in serialized assessments.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ParqAssessment">
+  <summary>
+    <span class="sch-name"><code>ParqAssessment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">version</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">answers<em class="p-req" title="required">required</em></span>
+    <span class="p-type">(boolean | <a href="#schema-ParqAnswer">ParqAnswer</a>)[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">notes</span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">acknowledged</span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc">Records that the non-diagnostic medical-clearance guidance was presented.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AssessmentAnamnesis">
+  <summary>
+    <span class="sch-name"><code>AssessmentAnamnesis</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">healthHistory</span>
+    <span class="p-type">string <span class="p-hint">(&le; 2000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">injuries</span>
+    <span class="p-type">string <span class="p-hint">(&le; 2000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">medications</span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">goals</span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">contraindications</span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AssessmentPhoto">
+  <summary>
+    <span class="sch-name"><code>AssessmentPhoto</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">kind<em class="p-req" title="required">required</em></span>
+    <span class="p-type">always &quot;image&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hash<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">mime<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;image/jpeg&quot; | &quot;image/png&quot; | &quot;image/webp&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">size<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;20971520)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">width<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;16384)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">height<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;16384)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">url</span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Authorized assessment-photo route.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-PhysicalAssessmentInput">
+  <summary>
+    <span class="sch-name"><code>PhysicalAssessmentInput</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">At least one measurement, PAR-Q, weight or height is required.</span>
+  </summary>
+  <div class="ep-body">
+<p><code>assessedAt</code> may not be older than the configured maximum age or farther in the future than the configured clock skew. Named skinfold protocols must produce a body-fat result in the supported 0–100% domain.</p>
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">assessedAt</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">weightKg</span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;500)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">heightCm</span>
+    <span class="p-type">number <span class="p-hint">(30&ndash;300)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">skinfolds</span>
+    <span class="p-type"><a href="#schema-SkinfoldAssessment">SkinfoldAssessment</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">circumferences</span>
+    <span class="p-type"><a href="#schema-CircumferenceAssessment">CircumferenceAssessment</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">bioimpedance</span>
+    <span class="p-type"><a href="#schema-BioimpedanceAssessment">BioimpedanceAssessment</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">parq</span>
+    <span class="p-type"><a href="#schema-ParqAssessment">ParqAssessment</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">anamnesis</span>
+    <span class="p-type"><a href="#schema-AssessmentAnamnesis">AssessmentAnamnesis</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">photos</span>
+    <span class="p-type"><a href="#schema-AssessmentPhoto">AssessmentPhoto</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">notes</span>
+    <span class="p-type">string <span class="p-hint">(&le; 2000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AssessmentResults">
+  <summary>
+    <span class="sch-name"><code>AssessmentResults</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">density</span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">bodyFatPercent<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number <span class="p-hint">(0&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">fatMassKg</span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">leanMassKg</span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AssessmentParty">
+  <summary>
+    <span class="sch-name"><code>AssessmentParty</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">name<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-PhysicalAssessment">
+  <summary>
+    <span class="sch-name"><code>PhysicalAssessment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
   </div>
 </details>
 

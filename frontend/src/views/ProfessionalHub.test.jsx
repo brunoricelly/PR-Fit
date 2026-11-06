@@ -63,6 +63,25 @@ const type = async (input, value) => {
 }
 
 describe('ProfessionalHub', () => {
+  it('lets an athlete grant and revoke assessment consent explicitly', async () => {
+    mocks.user = { id: 'u_athlete', name: 'Ana', admin: false }
+    const link = { id: 'cal_1', status: 'active', scopes: ['training'], coach: { name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['training', 'assessments'] } } }
+    mocks.answers['/api/athlete/coaches'] = { links: [link] }
+    mocks.answers['/api/athlete/assessments'] = { assessments: [] }
+    mocks.answers['/api/assessments/config'] = { parq: { version: '2024.1', questions: [] }, limits: {} }
+    mocks.answers['/api/athlete/coaches/cal_1/assessment-consent'] = body => ({ link: { ...link, scopes: body.granted ? ['training', 'assessments'] : ['training'] } })
+    await mount('/professionals')
+
+    await act(async () => { button('Grant assessment consent').click() })
+    await settle()
+    expect(mocks.calls).toContainEqual({ path: '/api/athlete/coaches/cal_1/assessment-consent', method: 'POST', body: { granted: true } })
+    expect(button('Revoke assessment consent')).toBeDefined()
+
+    await act(async () => { button('Revoke assessment consent').click() })
+    await settle()
+    expect(mocks.calls).toContainEqual({ path: '/api/athlete/coaches/cal_1/assessment-consent', method: 'POST', body: { granted: false } })
+  })
+
   it('shows the athlete surface, captures an invite without accepting automatically, and hides coach controls', async () => {
     mocks.user = { id: 'u_athlete', name: 'Ana', admin: false }
     mocks.answers['/api/athlete/coaches'] = { links: [] }

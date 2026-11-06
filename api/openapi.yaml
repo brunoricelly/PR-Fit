@@ -558,6 +558,35 @@ paths:
         '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Relationship or routine absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /api/assessments/config:
+    get:
+      tags: [professionals]
+      operationId: getAssessmentConfig
+      summary: Read the physical-assessment questionnaire and limits
+      description: Returns the stable PAR-Q version/questions and the configured date/photo limits used by the web form.
+      responses:
+        '200':
+          description: Assessment form configuration.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [parq, limits]
+                properties:
+                  parq:
+                    type: object
+                    required: [version, questions]
+                    properties:
+                      version: { type: string, example: '2024.1' }
+                      questions: { type: array, items: { $ref: '#/components/schemas/ParqQuestion' } }
+                  limits:
+                    type: object
+                    properties:
+                      photos: { type: integer, example: 6 }
+                      futureSkewSeconds: { type: integer, example: 300 }
+                      maxAgeYears: { type: integer, example: 100 }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
   /api/coach/athletes/{athleteId}/assessments:
     parameters:
       - in: path
@@ -568,7 +597,7 @@ paths:
       tags: [professionals]
       operationId: listPhysicalAssessments
       summary: List physical assessments created for one linked athlete
-      description: Requires an active relationship whose scope includes `training`.
+      description: Requires an active relationship whose scope includes the athlete-granted `assessments` consent.
       responses:
         '200':
           description: Assessments created by the signed-in professional, newest first.
@@ -579,7 +608,7 @@ paths:
                 properties:
                   assessments: { type: array, items: { $ref: '#/components/schemas/PhysicalAssessment' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Professional profile, active relationship or assessment consent missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     post:
       tags: [professionals]
@@ -587,7 +616,9 @@ paths:
       summary: Record a physical assessment for one linked athlete
       description: >-
         Validates skinfolds, circumferences, bioimpedance and PAR-Q. A named skinfold
-        protocol also calculates body density, fat percentage, fat mass and lean mass.
+        protocol also calculates body density, fat percentage, fat mass and lean mass. Calculated
+        values outside the supported 0–100% body-fat domain are rejected instead of persisted.
+        Creation is rate limited per professional account and client address.
       requestBody:
         required: true
         content:
@@ -604,9 +635,11 @@ paths:
                   assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
         '400': { description: Invalid assessment fields., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Professional profile, active relationship or assessment consent missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
-        '409': { description: Per-athlete or global assessment capacity reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Per professional/athlete pair or global assessment capacity reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: Per-account or per-address creation rate limit reached., headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The assessment could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/coach/athletes/{athleteId}/assessments/{assessmentId}:
     parameters:
@@ -632,13 +665,37 @@ paths:
                 properties:
                   assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Professional profile, active relationship or assessment consent missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Relationship or assessment absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    patch:
+      tags: [professionals]
+      operationId: correctPhysicalAssessment
+      summary: Replace a physical assessment with a corrected record
+      description: Requires the creating professional and current `assessments:write` consent. The replacement is persisted atomically and keeps the original id and creation time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PhysicalAssessmentInput' }
+      responses:
+        '200':
+          description: Corrected assessment.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
+        '400': { description: Invalid assessment, calculated result or photo reference., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or assessment consent missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or assessment absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The correction could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
     delete:
       tags: [professionals]
       operationId: deletePhysicalAssessment
       summary: Delete one physical assessment
-      description: Requires the creating professional and an active `training:write` relationship.
+      description: Requires the creating professional and an active `assessments:write` relationship. Unreferenced progress-photo blobs are removed after the database commit.
       responses:
         '200':
           description: Deleted assessment.
@@ -649,8 +706,48 @@ paths:
                 properties:
                   assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Professional profile, active relationship or assessment consent missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Relationship or assessment absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The deletion could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/athlete/coaches/{linkId}/assessment-consent:
+    post:
+      tags: [professionals]
+      operationId: updateAssessmentConsent
+      summary: Grant or revoke assessment access for one professional
+      description: >-
+        Only the athlete participant may change this sensitive scope. Granting requires an active
+        relationship and a professional profile that currently offers assessments. Revocation
+        blocks future professional reads/writes without deleting the athlete's history.
+      parameters:
+        - in: path
+          name: linkId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [granted]
+              properties:
+                granted: { type: boolean }
+              additionalProperties: false
+      responses:
+        '200':
+          description: Updated relationship scope.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  link: { $ref: '#/components/schemas/CoachAthleteLink' }
+        '400': { description: Invalid consent body., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: The relationship is not owned by the signed-in athlete., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Relationship inactive or professional no longer eligible., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: Consent could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/athlete/coaches:
     get:
@@ -704,6 +801,70 @@ paths:
                 properties:
                   assessments: { type: array, items: { $ref: '#/components/schemas/PhysicalAssessment' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/athlete/assessments/{assessmentId}:
+    delete:
+      tags: [professionals]
+      operationId: deleteOwnPhysicalAssessment
+      summary: Permanently delete one own physical assessment
+      description: The signed-in athlete must repeat the assessment id in the JSON body. The deletion is atomic and audited; unreferenced photo blobs are removed after commit.
+      parameters:
+        - in: path
+          name: assessmentId
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirmation]
+              properties:
+                confirmation: { type: string, description: Must exactly equal the path assessmentId. }
+              additionalProperties: false
+      responses:
+        '200':
+          description: Assessment deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean, const: true }
+                  assessment: { $ref: '#/components/schemas/PhysicalAssessment' }
+        '400': { description: Exact id confirmation missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Assessment absent or owned by another athlete., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The deletion could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/assessments/{assessmentId}/photos/{hash}:
+    get:
+      tags: [professionals]
+      operationId: getAssessmentPhoto
+      summary: Read an authorized assessment progress photo
+      description: >-
+        Returns a private, no-store image only to its athlete or to the creating professional
+        while the active relationship still has assessment consent. Unauthorized references are
+        answered as missing. Binary data remains in the media store, never in db.json.
+      parameters:
+        - in: path
+          name: assessmentId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: hash
+          required: true
+          schema: { type: string, pattern: '^[0-9a-f]{64}$' }
+      responses:
+        '200':
+          description: Progress-photo bytes with private no-store and nosniff headers.
+          content:
+            image/jpeg: { schema: { type: string, format: binary } }
+            image/png: { schema: { type: string, format: binary } }
+            image/webp: { schema: { type: string, format: binary } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Photo absent or not authorized., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/athlete/prescriptions/{routineId}/adopt:
     post:
@@ -4572,13 +4733,13 @@ components:
         coachSpecialties:
           type: array
           uniqueItems: true
-          items: { type: string, enum: [training, nutrition] }
+          items: { type: string, enum: [training, nutrition, assessments] }
 
     CoachScopes:
       type: array
       minItems: 1
       uniqueItems: true
-      items: { type: string, enum: [training, nutrition] }
+      items: { type: string, enum: [training, nutrition, assessments] }
 
     CoachAthleteLink:
       type: object
@@ -4708,21 +4869,68 @@ components:
         waterPercent: { type: number, minimum: 0, maximum: 100 }
       additionalProperties: false
 
+    ParqQuestion:
+      type: object
+      required: [id, text]
+      properties:
+        id: { type: string, description: Stable versioned question identifier. }
+        text: { type: string }
+
+    ParqAnswer:
+      type: object
+      required: [questionId, answer]
+      properties:
+        questionId: { type: string, description: Stable id from the configured PAR-Q version. }
+        answer: { type: boolean }
+        text: { type: string, readOnly: true, description: Question text included in serialized assessments. }
+      additionalProperties: false
+
     ParqAssessment:
       type: object
       required: [answers]
       properties:
+        version: { type: string, example: '2024.1' }
         answers:
           type: array
           minItems: 7
           maxItems: 7
-          items: { type: boolean }
+          items:
+            oneOf:
+              - { type: boolean, description: Legacy input accepted for migration compatibility. }
+              - { $ref: '#/components/schemas/ParqAnswer' }
         notes: { type: string, maxLength: 1000 }
+        acknowledged: { type: boolean, description: Records that the non-diagnostic medical-clearance guidance was presented. }
+      additionalProperties: false
+
+    AssessmentAnamnesis:
+      type: object
+      properties:
+        healthHistory: { type: string, maxLength: 2000 }
+        injuries: { type: string, maxLength: 2000 }
+        medications: { type: string, maxLength: 1000 }
+        goals: { type: string, maxLength: 1000 }
+        contraindications: { type: string, maxLength: 1000 }
+      additionalProperties: false
+
+    AssessmentPhoto:
+      type: object
+      required: [kind, hash, mime, size, width, height]
+      properties:
+        kind: { type: string, const: image }
+        hash: { type: string, pattern: '^[0-9a-f]{64}$' }
+        mime: { type: string, enum: [image/jpeg, image/png, image/webp] }
+        size: { type: integer, minimum: 1, maximum: 20971520 }
+        width: { type: integer, minimum: 1, maximum: 16384 }
+        height: { type: integer, minimum: 1, maximum: 16384 }
+        url: { type: string, readOnly: true, description: Authorized assessment-photo route. }
       additionalProperties: false
 
     PhysicalAssessmentInput:
       type: object
-      description: At least one of skinfolds, circumferences, bioimpedance or PAR-Q is required.
+      description: >-
+        At least one measurement, PAR-Q, weight or height is required. `assessedAt` may not be
+        older than the configured maximum age or farther in the future than the configured clock
+        skew. Named skinfold protocols must produce a body-fat result in the supported 0–100% domain.
       properties:
         assessedAt: { type: string, format: date-time }
         weightKg: { type: number, minimum: 1, maximum: 500 }
@@ -4731,6 +4939,11 @@ components:
         circumferences: { $ref: '#/components/schemas/CircumferenceAssessment' }
         bioimpedance: { $ref: '#/components/schemas/BioimpedanceAssessment' }
         parq: { $ref: '#/components/schemas/ParqAssessment' }
+        anamnesis: { $ref: '#/components/schemas/AssessmentAnamnesis' }
+        photos:
+          type: array
+          maxItems: 6
+          items: { $ref: '#/components/schemas/AssessmentPhoto' }
         notes: { type: string, maxLength: 2000 }
       additionalProperties: false
 
@@ -4739,9 +4952,16 @@ components:
       required: [bodyFatPercent]
       properties:
         density: { type: number }
-        bodyFatPercent: { type: number }
+        bodyFatPercent: { type: number, minimum: 0, maximum: 100 }
         fatMassKg: { type: number }
         leanMassKg: { type: number }
+
+    AssessmentParty:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+      additionalProperties: false
 
     PhysicalAssessment:
       allOf:
@@ -4752,8 +4972,11 @@ components:
             id: { type: string }
             assessedAt: { type: string, format: date-time }
             results: { $ref: '#/components/schemas/AssessmentResults' }
-            coach: { $ref: '#/components/schemas/SessionUser' }
-            athlete: { $ref: '#/components/schemas/SessionUser' }
+            coach: { $ref: '#/components/schemas/AssessmentParty' }
+            athlete: { $ref: '#/components/schemas/AssessmentParty' }
+            requiresMedicalClearance: { type: boolean }
+            medicalClearanceNotice: { type: string, readOnly: true }
+            medicalAdviceAcknowledgedAt: { type: string, format: date-time }
             createdAt: { type: string, format: date-time }
             updatedAt: { type: string, format: date-time }
 

@@ -43,6 +43,9 @@ for (const [name, db] of [
   ['future schema', { schemaVersion: 999, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [] }],
   ['corrupt B2B2C collection', { schemaVersion: 3, users: [], creds: [], subs: [], invites: [], coachInvites: {}, coachAthleteLinks: [], coachPrescriptions: [] }],
   ['corrupt prescription collection', { schemaVersion: 3, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: {} }],
+  ['corrupt assessment collection', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: {} }],
+  ['corrupt assessment record', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'bad' }] }],
+  ['corrupt assessment payload', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'cas_bad', coachId: 'u_c', athleteId: 'u_a', assessedAt: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', parq: { version: '2024.1', answers: [] } }] }],
   ['corrupt baseline collection', { schemaVersion: 3, users: null, creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [] }],
 ]) {
   test(`${name} refuses boot without overwriting db.json or db.json.bak`, async t => {
@@ -61,20 +64,43 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 3);
+  assert.equal(stored.schemaVersion, 4);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
+  assert.deepEqual(stored.coachAssessments, []);
 });
 
-test('known schema versions migrate to version 3', async t => {
+test('known schema versions migrate to version 4', async t => {
   const sample = fixture(t, { schemaVersion: 1, users: [], creds: [], subs: [], invites: [] });
   const server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 3);
+  assert.equal(stored.schemaVersion, 4);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
+  assert.deepEqual(stored.coachAssessments, []);
+});
+
+test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {
+  const sample = fixture(t, {
+    schemaVersion: 3,
+    users: [], creds: [], subs: [], invites: [], coachInvites: [], coachPrescriptions: [],
+    coachAthleteLinks: [{ id: 'cal_1', coachId: 'u_coach', athleteId: 'u_athlete', scopes: ['training'], status: 'active' }],
+    coachAssessments: [{
+      id: 'cas_1', coachId: 'u_coach', athleteId: 'u_athlete', assessedAt: '2026-01-01T00:00:00.000Z',
+      createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      parq: { answers: [false, false, false, false, false, false, true], notes: 'legacy' },
+    }],
+  });
+  const server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+  assert.deepEqual(stored.coachAthleteLinks[0].scopes, ['training']);
+  assert.equal(stored.coachAssessments[0].parq.version, '2024.1');
+  assert.equal(stored.coachAssessments[0].parq.answers[6].questionId, 'other_reason');
+  assert.equal(stored.coachAssessments[0].requiresMedicalClearance, true);
 });

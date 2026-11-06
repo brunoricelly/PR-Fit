@@ -52,4 +52,30 @@
 .pro-exercise-summary strong{flex-basis:100%}.pro-exercise-summary span,.pro-exercise-summary small{color:var(--label-2)}.pro-exercise-summary small{flex-basis:100%}
 .pro-routine-note{margin-top:10px}.pro-empty-inline{margin:12px 0 0}
 .pro-load-inline{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:12px;color:var(--label-2);font-size:var(--fs-footnote)}
+.assessment-panel{margin-top:16px;padding-top:14px;border-top:1px solid var(--separator)}
+.assessment-panel>.pro-panel-head{margin-bottom:12px}.assessment-panel>.pro-panel-head>strong{font-size:var(--fs-subhead)}
+.assessment-form{margin:12px 0;background:var(--surface-2)}
+.assessment-form fieldset{margin:16px 0;padding:12px;border:1px solid var(--separator);border-radius:var(--r-sm)}
+.assessment-form legend{padding:0 6px;font-weight:700;font-size:var(--fs-subhead)}
+.assessment-form select{width:100%;min-height:44px;margin-top:6px;padding:0 10px;border:1px solid var(--separator);border-radius:var(--r-xs);background:var(--surface);color:var(--label)}
+.assessment-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 10px}
+.assessment-question{display:flex;align-items:flex-start;gap:10px;min-height:44px;padding:8px 0;font-size:var(--fs-footnote);line-height:1.4}
+.assessment-question input{flex:none;width:20px;height:20px;margin-top:1px;accent-color:var(--acc)}
+.assessment-warning{margin:12px 0;padding:12px;border-left:4px solid var(--orange);border-radius:var(--r-xs);background:var(--surface);font-size:var(--fs-footnote);line-height:1.45}
+.assessment-alert{color:var(--orange)}
+.assessment-upload{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:14px 0}.assessment-upload input{position:absolute;width:1px;height:1px;opacity:0}
+.assessment-upload span{color:var(--label-2);font-size:var(--fs-footnote)}
+.assessment-photo-refs{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px}.assessment-photo-refs button{padding:7px 9px;border-radius:var(--r-xs);background:var(--surface);color:var(--label-2);font-size:var(--fs-caption1)}
+.assessment-evolution{margin:14px 0}.assessment-evolution h3{margin:0 0 8px;font-size:var(--fs-subhead)}
+.assessment-evolution-help{margin:0 0 8px;color:var(--label-2);font-size:var(--fs-caption1)}
+.assessment-table-wrap{overflow-x:auto;border:1px solid var(--separator);border-radius:var(--r-sm)}
+.assessment-table-wrap table{width:100%;border-collapse:collapse;white-space:nowrap;font-size:var(--fs-footnote)}
+.assessment-table-wrap th,.assessment-table-wrap td{padding:9px;text-align:start;border-bottom:1px solid var(--separator)}.assessment-table-wrap tbody tr:last-child td{border-bottom:0}
+.assessment-delta{display:block;margin-top:2px;color:var(--label-2);font-size:var(--fs-caption1)}
+.assessment-history{display:grid;gap:12px}.assessment-detail{margin:0;background:var(--surface-2)}.assessment-detail h3{margin:0 0 4px;font-size:var(--fs-title3)}
+.assessment-metrics{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.assessment-metric{display:flex;flex-direction:column;padding:10px;border-radius:var(--r-xs);background:var(--surface)}.assessment-metric span{color:var(--label-2);font-size:var(--fs-caption1)}
+.assessment-values{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:12px 0}.assessment-values>div{display:flex;justify-content:space-between;gap:8px}.assessment-values dt{color:var(--label-2)}.assessment-values dd{margin:0;font-weight:600}
+.assessment-notes{font-size:var(--fs-footnote);line-height:1.45}.assessment-photos{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-top:12px}.assessment-photos img{width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--r-xs);background:var(--surface)}
+.assessment-parq-list{display:grid;gap:6px;margin:8px 0;padding:0;list-style:none}.assessment-parq-list li{display:flex;justify-content:space-between;gap:12px;padding:8px;border-radius:var(--r-xs);background:var(--surface)}.assessment-parq-list strong{flex:none}
 @media (max-width:420px){.pro-hero>.icn{display:none}.pro-actions{flex-direction:column}.pro-actions .btn{width:100%;flex:auto}.pro-grid-fields{grid-template-columns:1fr}.pro-panel-head,.pro-editor-title{align-items:stretch;flex-direction:column}.pro-panel-head .btn,.pro-editor-title .btn{width:100%}}
+@media (max-width:420px){.assessment-form-grid{grid-template-columns:1fr}.assessment-photos{grid-template-columns:repeat(2,minmax(0,1fr))}.assessment-values{grid-template-columns:1fr}}

@@ -10,9 +10,10 @@ import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
+import AssessmentPanel from './AssessmentPanel.jsx'
 import './ProfessionalHub.css'
 
-const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : p('Training')
+const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === 'assessments' ? p('Physical assessments') : p('Training')
 const statusLabel = status => ({
   pending: p('Pending'), active: p('Active'), suspended: p('Suspended'), ended: p('Ended'),
 }[status] || status)
@@ -223,7 +224,7 @@ function ProfileSetup({ user }) {
     {kind === 'coach' && <>
       <p className="pro-trust-note">{p('This professional profile is self-declared and is not verified by PR Fit.')}</p>
       <div className="pro-label">{p('Specialties')}</div>
-      <ScopeChoices allowed={['training', 'nutrition']} value={specialties} onChange={setSpecialties} />
+      <ScopeChoices allowed={['training', 'nutrition', 'assessments']} value={specialties} onChange={setSpecialties} />
     </>}
     {(!user.profile || dirty) && <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Save profile')}</Button>}
   </section>
@@ -329,6 +330,7 @@ function CoachPortfolio({ user }) {
             canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
             canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
             {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
+            {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
           </RelationshipCard>)}</div>}
     </section>
   </>
@@ -418,6 +420,13 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
       } catch (error) { toast(professionalError(error)) }
     },
   })
+  const assessmentConsent = async (link, granted) => {
+    try {
+      const result = await api(`/api/athlete/coaches/${link.id}/assessment-consent`, { method: 'POST', body: JSON.stringify({ granted }) })
+      setLinks(current => current.map(item => item.id === link.id ? { ...item, ...result.link } : item))
+      toast(granted ? p('Physical assessment consent granted.') : p('Physical assessment consent revoked.'))
+    } catch (error) { toast(professionalError(error)) }
+  }
 
   return <>
     {embedded && <h2 className="pro-section-title">{p('My professionals')}</h2>}
@@ -429,13 +438,20 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
       <Button variant="primary" disabled={accepting || !token.trim()} onClick={accept}>{accepting ? p('Accepting…') : p('Accept invitation')}</Button>
     </section>
     <AthletePrescriptions userId={userId} />
+    <section aria-labelledby="athlete-assessments-title"><h2 className="pro-section-title" id="athlete-assessments-title">{p('My physical assessments')}</h2><AssessmentPanel athlete /></section>
     <section aria-labelledby="pro-athlete-list-title">
       <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>
       {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>
         : loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load your professional relationships.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
         : links.length === 0 ? <EmptyState icon="personCircle" title={p('No linked professionals')} text={p('When you accept an invitation, the professional and authorized scope appear here.')} />
           : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="athlete" onStatus={end}
-            canSuspend={false} canEnd={link.status !== 'ended'} />)}</div>}
+            canSuspend={false} canEnd={link.status !== 'ended'}>
+            {link.status === 'active' && link.coach?.profile?.coachSpecialties?.includes('assessments') && <div className="pro-actions">
+              <Button size="sm" variant={link.scopes.includes('assessments') ? 'danger' : 'primary'} onClick={() => assessmentConsent(link, !link.scopes.includes('assessments'))}>
+                {link.scopes.includes('assessments') ? p('Revoke assessment consent') : p('Grant assessment consent')}
+              </Button>
+            </div>}
+          </RelationshipCard>)}</div>}
     </section>
   </>
 }
