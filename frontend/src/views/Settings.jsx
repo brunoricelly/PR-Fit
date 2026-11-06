@@ -29,6 +29,7 @@ import { api, webauthnOK, passkeyRegister, passkeyError, IS_ANDROID } from '../l
 import { pushSupported, enablePush, disablePush, sendTestPush, syncPushSubscription } from '../lib/push.js'
 import { wakeLockSupported } from '../lib/wakelock.js'
 import { t, tn, LANGS, INSTR_LANGS, EXERCISE_NAME_LANGS, baseLang, dateLocale } from '../lib/i18n.js'
+import { professionalText as p } from '../lib/professional-copy.js'
 import { effectiveLang } from '../lib/default-lang.js'
 import { DEMO, REPO } from '../lib/demo.js'
 import { MOBILE, isAndroid, shareExport, shareExportBlob, syncReminder } from '../lib/mobile.js'
@@ -1318,6 +1319,10 @@ function SettingsRoot({ ctx, preview, open, user, sync, home, go, entryKey }) {
           <span className="lrow-m"><span className="lrow-t">{acct.title}</span><span className="lrow-s">{acct.sub}</span></span>
           <Icon name="chevronRight" className="lrow-c" />
         </button>
+        {user && !DEMO && <Row icon="person" iconTint="var(--green)"
+          title={user.profile?.kind === 'coach' ? p('My athletes') : user.profile ? p('My professionals') : p('Professional profile')}
+          subtitle={user.profile?.kind === 'coach' ? p('Invitations, portfolio and relationship status') : p('Profile, invitations and linked professionals')}
+          accessory="chevron" onClick={() => nav('/professionals')} />}
       </Section>
       {ROOT_GROUPS.map(g => g.filter(id => pageVisible(id, ctx))).filter(g => g.length).map(g => (
         <Section key={g[0]}>
