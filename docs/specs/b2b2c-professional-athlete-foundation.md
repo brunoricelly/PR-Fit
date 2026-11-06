@@ -471,7 +471,7 @@ consentimento sem abandonar a jornada profissional.
 
 1. **Fundação** — perfis, especialidades, vínculos, convites, autorização central, auditoria, UI mínima e migração aditiva.
 2. **Treino** — templates, rotinas atribuíveis, biblioteca do profissional, prescrição com revisão, progresso e comentários, sem acesso global ao documento do atleta.
-3. **Avaliações** — anamnese, PAR-Q, medidas, fotos, evolução, consentimento granular e retenção de dados sensíveis.
+3. **Avaliações (implementada)** — anamnese, PAR-Q, medidas, fotos, evolução, consentimento granular e retenção de dados sensíveis; contrato em [`phase-3-assessments-engine.md`](./phase-3-assessments-engine.md).
 4. **Nutrição** — plano alimentar, metas de macros, substituições, check-ins e escopo nutricional independente.
 5. **Comunicação e hábitos** — mensagens, check-ins, hábitos, lembretes, gamificação e automações de retenção com opt-out.
 6. **Agenda** — disponibilidade, agendamentos, sessões e acompanhamento em tempo real com timezone e cancelamento.

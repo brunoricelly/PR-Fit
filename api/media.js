@@ -745,6 +745,19 @@ export function createMediaStore({ dir, limits, now = Date.now, readState = () =
       if (st.size !== f.size) { e.bytes += st.size - f.size; f.size = st.size; }
       return { path: p, ext: f.ext, mime: EXT_MIME[f.ext], size: st.size };
     },
+    /** Remove one exact blob after its owning feature has durably removed its final reference.
+     * The caller is responsible for checking every reference domain first. */
+    remove(uid, hash) {
+      const e = entry(uid);
+      const f = e.hashes.get(hash);
+      if (!f) return false;
+      try { fs.unlinkSync(path.join(e.dir, `${hash}.${f.ext}`)); }
+      catch (error) { if (error.code !== 'ENOENT') throw error; }
+      forget(e, hash);
+      const marks = readMarks(e);
+      if (hash in marks) { delete marks[hash]; writeMarks(e, marks); }
+      return true;
+    },
     receive,
     missing(uid, hashes) {
       const e = entry(uid);

@@ -1,7 +1,23 @@
 import crypto from 'node:crypto';
 
-export const B2B2C_SCHEMA_VERSION = 3;
-export const COACH_SCOPES = ['training', 'nutrition'];
+export const B2B2C_SCHEMA_VERSION = 4;
+export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
+export const B2B2C_LIMITS = {
+  maxAssessmentsPerAthlete: 200,
+  maxAssessments: 10000,
+  assessmentRetentionDays: 3650,
+};
+
+export const PARQ_VERSION = '2024.1';
+export const PARQ_QUESTIONS = Object.freeze([
+  { id: 'heart_condition', text: 'Has a doctor ever said that you have a heart condition and should only do physical activity recommended by a doctor?' },
+  { id: 'chest_pain_activity', text: 'Do you feel pain in your chest when you do physical activity?' },
+  { id: 'chest_pain_rest', text: 'In the past month, have you had chest pain when you were not doing physical activity?' },
+  { id: 'balance_consciousness', text: 'Do you lose your balance because of dizziness or have you ever lost consciousness?' },
+  { id: 'bone_joint', text: 'Do you have a bone or joint problem that could be made worse by a change in physical activity?' },
+  { id: 'blood_pressure_medicine', text: 'Is a doctor currently prescribing medication for your blood pressure or heart condition?' },
+  { id: 'other_reason', text: 'Do you know of any other reason why you should not do physical activity?' },
+]);
 
 export class B2B2CDataError extends Error {
   constructor(message) {
@@ -31,7 +47,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -39,9 +55,35 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  for (const item of db.coachAssessments) {
+    if (!record(item) || typeof item.id !== 'string' || typeof item.coachId !== 'string' || typeof item.athleteId !== 'string') {
+      throw new B2B2CDataError('coachAssessments contains an invalid record');
+    }
+    if (!Number.isFinite(Date.parse(item.assessedAt)) || !Number.isFinite(Date.parse(item.createdAt))) {
+      throw new B2B2CDataError('coachAssessments contains an invalid date');
+    }
+    if (item.parq?.answers?.every(answer => typeof answer === 'boolean')) {
+      if (item.parq.answers.length !== PARQ_QUESTIONS.length) throw new B2B2CDataError('coachAssessments contains an invalid PAR-Q');
+      item.parq = {
+        version: PARQ_VERSION,
+        answers: PARQ_QUESTIONS.map((question, index) => ({ questionId: question.id, answer: item.parq.answers[index] })),
+        notes: typeof item.parq.notes === 'string' ? item.parq.notes : '',
+        acknowledged: false,
+      };
+      item.requiresMedicalClearance = item.parq.answers.some(answer => answer.answer);
+      changed = true;
+    }
+    const {
+      id, coachId, athleteId, createdAt, updatedAt, results, requiresMedicalClearance,
+      medicalAdviceAcknowledgedAt, photoOwnerId, ...payload
+    } = item;
+    if (!validateAssessment(payload, { allowStoredDate: true })) {
+      throw new B2B2CDataError('coachAssessments contains invalid assessment data');
+    }
   }
   return changed;
 }
@@ -152,7 +194,32 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   const keptPrescriptions = [...livePrescriptions, ...withdrawnPrescriptions];
   if (keptPrescriptions.length !== db.coachPrescriptions.length) changed = true;
   db.coachPrescriptions = keptPrescriptions;
-  return { changed, invites: keptInvites.length, links: keptLinks.length, prescriptions: keptPrescriptions.length };
+  const assessmentRetentionDays = limits.assessmentRetentionDays ?? B2B2C_LIMITS.assessmentRetentionDays;
+  let expiredAssessments = [];
+  if (assessmentRetentionDays > 0) {
+    const assessmentCutoff = nowMs - assessmentRetentionDays * 86400000;
+    expiredAssessments = db.coachAssessments.filter(item => Date.parse(item.assessedAt) < assessmentCutoff);
+    const keptAssessments = db.coachAssessments.filter(item => Date.parse(item.assessedAt) >= assessmentCutoff);
+    if (keptAssessments.length !== db.coachAssessments.length) changed = true;
+    db.coachAssessments = keptAssessments;
+  }
+  if (db.coachAssessments.length > (limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments)) {
+    throw new B2B2CDataError(`coachAssessments exceed configured limit ${limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments}`);
+  }
+  const pairCounts = new Map();
+  for (const assessment of db.coachAssessments) {
+    const key = `${assessment.coachId}\0${assessment.athleteId}`;
+    const count = (pairCounts.get(key) || 0) + 1;
+    if (count > (limits.maxAssessmentsPerAthlete ?? B2B2C_LIMITS.maxAssessmentsPerAthlete)) {
+      throw new B2B2CDataError(`coachAssessments pair exceeds configured limit ${limits.maxAssessmentsPerAthlete ?? B2B2C_LIMITS.maxAssessmentsPerAthlete}`);
+    }
+    pairCounts.set(key, count);
+  }
+  return {
+    changed, invites: keptInvites.length, links: keptLinks.length,
+    prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
+    expiredAssessments,
+  };
 }
 
 export function profileOf(user) {
@@ -225,6 +292,182 @@ const cleanText = (value, max, { required = false } = {}) => {
   return normalized;
 };
 
+const assessmentNumber = (value, min, max) => (
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null
+);
+
+const normalizeNumberFields = (value, allowed, min, max) => {
+  if (!record(value) || !Object.keys(value).length || Object.keys(value).some(key => !allowed.includes(key))) return null;
+  const out = {};
+  for (const [key, measurement] of Object.entries(value)) {
+    const normalized = assessmentNumber(measurement, min, max);
+    if (normalized === null) return null;
+    out[key] = normalized;
+  }
+  return out;
+};
+
+const SKINFOLD_SITES = [
+  'abdomen', 'biceps', 'calf', 'chest', 'midaxillary', 'subscapular', 'suprailiac', 'thigh', 'triceps',
+];
+const CIRCUMFERENCE_SITES = [
+  'abdomen', 'ankle', 'arm', 'calf', 'chest', 'forearm', 'hip', 'neck', 'thigh', 'waist', 'wrist',
+];
+const BIOIMPEDANCE_FIELDS = [
+  'bodyFatPercent', 'boneMassKg', 'bmrKcal', 'metabolicAge', 'muscleMassKg', 'visceralFat', 'waterPercent',
+];
+const SKINFOLD_PROTOCOLS = {
+  pollock3: {
+    male: ['chest', 'abdomen', 'thigh'],
+    female: ['triceps', 'suprailiac', 'thigh'],
+  },
+  pollock7: {
+    male: ['chest', 'midaxillary', 'triceps', 'subscapular', 'abdomen', 'suprailiac', 'thigh'],
+    female: ['chest', 'midaxillary', 'triceps', 'subscapular', 'abdomen', 'suprailiac', 'thigh'],
+  },
+  faulkner4: ['triceps', 'subscapular', 'suprailiac', 'abdomen'],
+};
+
+function normalizeSkinfolds(value) {
+  if (!record(value)) return null;
+  const { protocol, sex, age, ...measurements } = value;
+  if (protocol !== undefined && !Object.hasOwn(SKINFOLD_PROTOCOLS, protocol)) return null;
+  if (sex !== undefined && !['male', 'female'].includes(sex)) return null;
+  const normalizedAge = age === undefined ? undefined : assessmentNumber(age, 1, 120);
+  if (age !== undefined && (!Number.isInteger(age) || normalizedAge === null)) return null;
+  const normalized = normalizeNumberFields(measurements, SKINFOLD_SITES, 0.1, 100);
+  if (!normalized) return null;
+  if (protocol) {
+    if (protocol !== 'faulkner4' && (!sex || normalizedAge === undefined)) return null;
+    const requiredSites = protocol === 'faulkner4' ? SKINFOLD_PROTOCOLS.faulkner4 : SKINFOLD_PROTOCOLS[protocol][sex];
+    if (!requiredSites.every(site => normalized[site] !== undefined)) return null;
+  }
+  return {
+    ...(protocol ? { protocol } : {}),
+    ...(sex ? { sex } : {}),
+    ...(normalizedAge === undefined ? {} : { age: normalizedAge }),
+    ...normalized,
+  };
+}
+
+function normalizeBioimpedance(value) {
+  const normalized = normalizeNumberFields(value, BIOIMPEDANCE_FIELDS, 0, 10000);
+  if (!normalized) return null;
+  for (const field of ['bodyFatPercent', 'waterPercent']) {
+    if (normalized[field] !== undefined && normalized[field] > 100) return null;
+  }
+  if (normalized.metabolicAge !== undefined && (!Number.isInteger(normalized.metabolicAge) || normalized.metabolicAge > 120)) return null;
+  if (normalized.visceralFat !== undefined && normalized.visceralFat > 100) return null;
+  return normalized;
+}
+
+function normalizeParq(value) {
+  if (!record(value) || Object.keys(value).some(key => !['acknowledged', 'answers', 'notes', 'version'].includes(key))) return null;
+  if (!Array.isArray(value.answers) || value.answers.length !== PARQ_QUESTIONS.length) return null;
+  let answers;
+  if (value.answers.every(answer => typeof answer === 'boolean')) {
+    answers = PARQ_QUESTIONS.map((question, index) => ({ questionId: question.id, answer: value.answers[index] }));
+  } else {
+    if (!value.answers.every(record)) return null;
+    answers = PARQ_QUESTIONS.map(question => {
+      const answer = value.answers.find(item => item.questionId === question.id);
+      return answer && typeof answer.answer === 'boolean' && Object.keys(answer).every(key => ['answer', 'questionId'].includes(key))
+        ? { questionId: question.id, answer: answer.answer } : null;
+    });
+    if (answers.some(answer => !answer) || value.answers.length !== answers.length) return null;
+  }
+  if (value.version !== undefined && value.version !== PARQ_VERSION) return null;
+  if (value.acknowledged !== undefined && typeof value.acknowledged !== 'boolean') return null;
+  const notes = cleanText(value.notes, 1000);
+  if (notes === null) return null;
+  return { version: PARQ_VERSION, answers, notes, acknowledged: value.acknowledged === true };
+}
+
+const ANAMNESIS_FIELDS = {
+  healthHistory: 2000,
+  injuries: 2000,
+  medications: 1000,
+  goals: 1000,
+  contraindications: 1000,
+};
+
+function normalizeAnamnesis(value) {
+  if (!record(value) || Object.keys(value).some(key => !Object.hasOwn(ANAMNESIS_FIELDS, key))) return null;
+  const out = {};
+  for (const [key, max] of Object.entries(ANAMNESIS_FIELDS)) {
+    const normalized = cleanText(value[key], max);
+    if (normalized === null) return null;
+    out[key] = normalized;
+  }
+  return out;
+}
+
+function normalizePhotos(value) {
+  if (!Array.isArray(value) || value.length > 6) return null;
+  const seen = new Set();
+  const out = [];
+  for (const photo of value) {
+    if (!record(photo) || Object.keys(photo).some(key => !['hash', 'height', 'kind', 'mime', 'size', 'width'].includes(key))) return null;
+    if (photo.kind !== 'image' || !['image/jpeg', 'image/png', 'image/webp'].includes(photo.mime)) return null;
+    if (typeof photo.hash !== 'string' || !/^[0-9a-f]{64}$/.test(photo.hash) || seen.has(photo.hash)) return null;
+    if (!Number.isInteger(photo.size) || photo.size < 1 || photo.size > 20 * 1024 * 1024) return null;
+    if (!Number.isInteger(photo.width) || photo.width < 1 || photo.width > 16384
+        || !Number.isInteger(photo.height) || photo.height < 1 || photo.height > 16384) return null;
+    seen.add(photo.hash);
+    out.push({ kind: 'image', hash: photo.hash, mime: photo.mime, size: photo.size, width: photo.width, height: photo.height });
+  }
+  return out;
+}
+
+export function validateAssessment(payload, {
+  nowMs = Date.now(), futureSkewMs = 5 * 60000, maxAgeYears = 100, allowStoredDate = false,
+} = {}) {
+  if (!record(payload)) return null;
+  const allowed = ['anamnesis', 'assessedAt', 'bioimpedance', 'circumferences', 'heightCm', 'notes', 'parq', 'photos', 'skinfolds', 'weightKg'];
+  if (Object.keys(payload).some(key => !allowed.includes(key))) return null;
+  const assessedAt = payload.assessedAt === undefined ? undefined : cleanText(payload.assessedAt, 40, { required: true });
+  if (assessedAt === null || (assessedAt !== undefined && !Number.isFinite(Date.parse(assessedAt)))) return null;
+  if (assessedAt !== undefined && !allowStoredDate) {
+    const timestamp = Date.parse(assessedAt);
+    const oldest = nowMs - maxAgeYears * 365.2425 * 86400000;
+    if (timestamp > nowMs + futureSkewMs || timestamp < oldest) return null;
+  }
+  const notes = cleanText(payload.notes, 2000);
+  if (notes === null) return null;
+  const weightKg = payload.weightKg === undefined ? undefined : assessmentNumber(payload.weightKg, 1, 500);
+  const heightCm = payload.heightCm === undefined ? undefined : assessmentNumber(payload.heightCm, 30, 300);
+  if ((payload.weightKg !== undefined && weightKg === null) || (payload.heightCm !== undefined && heightCm === null)) return null;
+
+  const skinfolds = payload.skinfolds === undefined ? undefined : normalizeSkinfolds(payload.skinfolds);
+  const circumferences = payload.circumferences === undefined
+    ? undefined
+    : normalizeNumberFields(payload.circumferences, CIRCUMFERENCE_SITES, 1, 300);
+  const bioimpedance = payload.bioimpedance === undefined ? undefined : normalizeBioimpedance(payload.bioimpedance);
+  const parq = payload.parq === undefined ? undefined : normalizeParq(payload.parq);
+  const anamnesis = payload.anamnesis === undefined ? undefined : normalizeAnamnesis(payload.anamnesis);
+  const photos = payload.photos === undefined ? undefined : normalizePhotos(payload.photos);
+  if ((payload.skinfolds !== undefined && !skinfolds)
+      || (payload.circumferences !== undefined && !circumferences)
+      || (payload.bioimpedance !== undefined && !bioimpedance)
+      || (payload.parq !== undefined && !parq)
+      || (payload.anamnesis !== undefined && !anamnesis)
+      || (payload.photos !== undefined && !photos)) return null;
+  if (!skinfolds && !circumferences && !bioimpedance && !parq && weightKg === undefined && heightCm === undefined) return null;
+
+  return {
+    ...(assessedAt === undefined ? {} : { assessedAt: new Date(assessedAt).toISOString() }),
+    ...(weightKg === undefined ? {} : { weightKg }),
+    ...(heightCm === undefined ? {} : { heightCm }),
+    ...(skinfolds ? { skinfolds } : {}),
+    ...(circumferences ? { circumferences } : {}),
+    ...(bioimpedance ? { bioimpedance } : {}),
+    ...(parq ? { parq } : {}),
+    ...(anamnesis ? { anamnesis } : {}),
+    ...(photos ? { photos } : {}),
+    notes,
+  };
+}
+
 export function validatePrescriptionRoutine(body) {
   if (!record(body) || !record(body.routine)) return null;
   if (Object.keys(body).some(key => key !== 'routine')) return null;
@@ -293,7 +536,7 @@ export function authorizeAthleteAccess(db, actor, athleteId, capability) {
   if (!actor) return { ok: false, code: 'not_signed_in' };
   if (actor.id === athleteId) return { ok: true, own: true, link: null };
   if (profileOf(actor).kind !== 'coach') return { ok: false, code: 'relationship_not_found' };
-  const match = /^athlete:(training|nutrition):(read|write)$/.exec(capability);
+  const match = /^athlete:(training|nutrition|assessments):(read|write)$/.exec(capability);
   if (!match || !capabilitiesFor(actor).includes(capability)) return { ok: false, code: 'scope_forbidden' };
   const links = db.coachAthleteLinks.filter(item => item.coachId === actor.id && item.athleteId === athleteId);
   const link = links.find(item => item.status === 'active') || links.find(item => item.status !== 'ended') || links.at(-1);
@@ -325,4 +568,5 @@ export function removeB2B2CUser(db, userId) {
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
+  db.coachAssessments = db.coachAssessments.filter(item => item.coachId !== userId && item.athleteId !== userId);
 }

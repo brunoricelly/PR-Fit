@@ -34,7 +34,7 @@ import {
   dropWatchLinks, boxOf, putSnapshot, pushEvents, queuedEvents, ackEvents
 } from './watch-relay.js';
 import { startAdminSocket } from './admin-socket.js';
-import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from './media.js';
+import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE, referencedHashes } from './media.js';
 import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
@@ -46,10 +46,15 @@ import { integrationRoutes } from './integrations/routes.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
 import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from './wrapped.js';
 import {
-  B2B2CDataError, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
+  B2B2CDataError, B2B2C_LIMITS as B2B2C_DEFAULT_LIMITS, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
-  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, removeB2B2CUser,
+  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, validateAssessment, removeB2B2CUser,
+  PARQ_QUESTIONS, PARQ_VERSION,
 } from './b2b2c.js';
+import {
+  pollock3Men, pollock3Women, pollock7Men, pollock7Women, faulkner4,
+  siri, bodyComposition,
+} from './anthropometrics.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -111,6 +116,9 @@ const B2B2C_LIMITS = {
   maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
   maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
   prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
+  maxAssessmentsPerAthlete: envInt('B2B2C_ASSESSMENTS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxAssessmentsPerAthlete, { min: 1, max: 10000 }),
+  maxAssessments: envInt('B2B2C_MAX_ASSESSMENTS', B2B2C_DEFAULT_LIMITS.maxAssessments, { min: 1, max: 1000000 }),
+  assessmentRetentionDays: envInt('B2B2C_ASSESSMENT_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.assessmentRetentionDays, { min: 30, max: 36500 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -122,7 +130,11 @@ const B2B2C_RATE = {
   createIp: envInt('B2B2C_INVITE_CREATE_IP_MAX', 100, { min: 1, max: 100000 }),
   acceptAccount: envInt('B2B2C_INVITE_ACCEPT_ACCOUNT_MAX', 30, { min: 1, max: 10000 }),
   acceptIp: envInt('B2B2C_INVITE_ACCEPT_IP_MAX', 200, { min: 1, max: 100000 }),
+  assessmentAccount: envInt('B2B2C_ASSESSMENT_CREATE_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
+  assessmentIp: envInt('B2B2C_ASSESSMENT_CREATE_IP_MAX', 300, { min: 1, max: 100000 }),
 };
+const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
+const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
 // cookie staying good for a year. Overridable because a family instance and one on the open
 // internet don't want the same number. Only affects cookies minted from now on — the expiry is
@@ -219,6 +231,11 @@ const isOwner = user => !!user && isAdmin(user) && user.id === ownerId();
 // whatever the last save wrote (a profile just created) when db.json was later found unreadable.
 // A write cut short leaves the previous db.json.bak whole (temporary file and rename).
 function saveDb() {
+  const failMarker = process.env.B2B2C_DB_FAIL_FILE;
+  if (failMarker && fs.existsSync(failMarker)) {
+    fs.unlinkSync(failMarker);
+    throw new Error('injected db write failure');
+  }
   const text = JSON.stringify(db, null, 2);
   atomicWrite(dbFile, text, 0o600);
   try { atomicWrite(dbFile + '.bak', text, 0o600); }
@@ -1289,9 +1306,12 @@ const B2B2C_CREATE_ACCOUNT = createWindow({ max: B2B2C_RATE.createAccount, windo
 const B2B2C_CREATE_IP = createWindow({ max: B2B2C_RATE.createIp, windowMs: B2B2C_RATE.windowMs });
 const B2B2C_ACCEPT_ACCOUNT = createWindow({ max: B2B2C_RATE.acceptAccount, windowMs: B2B2C_RATE.windowMs });
 const B2B2C_ACCEPT_IP = createWindow({ max: B2B2C_RATE.acceptIp, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_ASSESSMENT_ACCOUNT = createWindow({ max: B2B2C_RATE.assessmentAccount, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_ASSESSMENT_IP = createWindow({ max: B2B2C_RATE.assessmentIp, windowMs: B2B2C_RATE.windowMs });
 setInterval(() => {
   B2B2C_CREATE_ACCOUNT.sweep(); B2B2C_CREATE_IP.sweep();
   B2B2C_ACCEPT_ACCOUNT.sweep(); B2B2C_ACCEPT_IP.sweep();
+  B2B2C_ASSESSMENT_ACCOUNT.sweep(); B2B2C_ASSESSMENT_IP.sweep();
 }, Math.min(B2B2C_RATE.windowMs, 60000)).unref();
 
 function b2b2cThrottle(req, res, user, action) {
@@ -1304,14 +1324,105 @@ function b2b2cThrottle(req, res, user, action) {
   return true;
 }
 
+function assessmentThrottle(req, res, user) {
+  const wait = Math.max(B2B2C_ASSESSMENT_ACCOUNT.take(user.id), B2B2C_ASSESSMENT_IP.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, 'b2b2c.assessment.create.throttled', { ok: false, user, msg: 'rate_limited' });
+  b2bError(res, 429, 'rate_limited', 'too many assessment attempts, try again later', { 'Retry-After': String(wait) });
+  return true;
+}
+
+function commitAssessmentCollection(next) {
+  const previous = db.coachAssessments;
+  db.coachAssessments = next;
+  try { saveDb(); }
+  catch (error) {
+    db.coachAssessments = previous;
+    throw error;
+  }
+}
+
+function commitAssessmentConsent(link, scopes, now) {
+  const previousScopes = link.scopes;
+  const previousUpdatedAt = link.updatedAt;
+  link.scopes = scopes;
+  link.updatedAt = now;
+  try { saveDb(); }
+  catch (error) {
+    link.scopes = previousScopes;
+    link.updatedAt = previousUpdatedAt;
+    throw error;
+  }
+}
+
 function compactRelationships() {
   const result = compactB2B2C(db, B2B2C_LIMITS);
+  if (result?.expiredAssessments?.length) {
+    for (const item of result.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+  }
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
   if (result.changed) saveDb();
   return result;
 }
 
 function auditB2B2CDenied(req, event, user, reason, target) {
   auditFail(req, event, { ok: false, user, ...(target ? { target } : {}), msg: reason });
+}
+
+function assessmentResults(assessment) {
+  let density;
+  let bodyFatPercent;
+  const skinfolds = assessment.skinfolds;
+  if (skinfolds?.protocol) {
+    const { protocol, sex, age, ...measurements } = skinfolds;
+    if (protocol === 'pollock3') density = sex === 'male'
+      ? pollock3Men(measurements, age)
+      : pollock3Women(measurements, age);
+    if (protocol === 'pollock7') density = sex === 'male'
+      ? pollock7Men(measurements, age)
+      : pollock7Women(measurements, age);
+    if (protocol === 'faulkner4') bodyFatPercent = faulkner4(measurements);
+    else if (density !== undefined) bodyFatPercent = siri(density);
+  } else if (assessment.bioimpedance?.bodyFatPercent !== undefined) {
+    bodyFatPercent = assessment.bioimpedance.bodyFatPercent;
+  }
+  if (bodyFatPercent === undefined) return undefined;
+  if (!Number.isFinite(bodyFatPercent) || bodyFatPercent < 0 || bodyFatPercent > 100
+      || (density !== undefined && (!Number.isFinite(density) || density <= 0))) return null;
+  let composition = {};
+  try { if (assessment.weightKg !== undefined) composition = bodyComposition(assessment.weightKg, bodyFatPercent); }
+  catch { return null; }
+  return {
+    ...(density === undefined ? {} : { density }),
+    bodyFatPercent,
+    ...composition,
+  };
+}
+
+function serializeAssessment(item) {
+  const { coachId, athleteId, photoOwnerId, ...assessment } = item;
+  const coach = db.users.find(user => user.id === coachId);
+  const athlete = db.users.find(user => user.id === athleteId);
+  return {
+    ...structuredClone(assessment),
+    coach: coach ? { name: coach.name } : { name: 'Unavailable account' },
+    athlete: athlete ? { name: athlete.name } : { name: 'Unavailable account' },
+    ...(Array.isArray(assessment.photos) ? { photos: assessment.photos.map(photo => ({
+      ...photo, url: `/api/assessments/${assessment.id}/photos/${photo.hash}`,
+    })) } : {}),
+    ...(assessment.parq ? { parq: {
+      ...structuredClone(assessment.parq),
+      answers: assessment.parq.answers.map(answer => ({
+        ...answer,
+        text: PARQ_QUESTIONS.find(question => question.id === answer.questionId)?.text || answer.questionId,
+      })),
+    } } : {}),
+    ...(assessment.requiresMedicalClearance ? {
+      medicalClearanceNotice: 'One or more PAR-Q answers require evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.',
+    } : {}),
+  };
 }
 
 /* ---------- password sign-in (#118) ---------- */
@@ -1542,23 +1653,35 @@ async function removeEmail(req, res, user, body) {
 // device links and live presence, and outside db.json their training history, any Coach
 // credential and their photos and videos. The admin's delete and the account's own both end here.
 function removeAccount(u) {
-  db.users = db.users.filter(x => x.id !== u.id);
-  db.creds = (db.creds || []).filter(c => c.userId !== u.id);
-  db.subs = (db.subs || []).filter(x => x.userId !== u.id);
-  removeB2B2CUser(db, u.id);
-  dropDeviceLinks(db, u.id);
-  dropWatchLinks(db, u.id);
-  dropWatchCodes(watchCodes, u.id);
-  presence.delete(u.id);
-  // The training history and any Coach credential of theirs, both outside db.json.
+  const snapshot = {
+    users: [...db.users],
+    creds: db.creds ? [...db.creds] : [],
+    subs: db.subs ? [...db.subs] : [],
+    coachInvites: db.coachInvites ? [...db.coachInvites] : [],
+    coachAthleteLinks: db.coachAthleteLinks ? [...db.coachAthleteLinks] : [],
+    coachPrescriptions: db.coachPrescriptions ? [...db.coachPrescriptions] : [],
+    coachAssessments: db.coachAssessments ? [...db.coachAssessments] : [],
+  };
+  try {
+    db.users = db.users.filter(x => x.id !== u.id);
+    db.creds = (db.creds || []).filter(c => c.userId !== u.id);
+    db.subs = (db.subs || []).filter(x => x.userId !== u.id);
+    removeB2B2CUser(db, u.id);
+    dropDeviceLinks(db, u.id);
+    dropWatchLinks(db, u.id);
+    dropWatchCodes(watchCodes, u.id);
+    presence.delete(u.id);
+    saveDb();
+  } catch (err) {
+    Object.assign(db, snapshot);
+    throw err;
+  }
+  // External resources are only deleted after saveDb succeeds
   try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
   try { fs.unlinkSync(watchFile(u.id)); } catch { /* never had a watch */ }
   try { coachConfig.clearProfileAuth(u.id); } catch { /* nothing stored */ }
-  // Their photos and videos — the one place a profile's folder under uploads/ is removed.
   try { MEDIA.removeUser(u.id); } catch (e) { console.error('media: could not remove uploads of', u.id, e.message); }
-  // Their integrations: connections, sealed secrets and anything still waiting to be sent.
   try { integrations.removeUser(u.id); } catch (e) { console.error('integrations: could not remove', u.id, e.message); }
-  saveDb();
 }
 
 const passwordRoutes = {
@@ -2125,7 +2248,29 @@ const passkeyRoutes = {
 // either way: an admin deleting a profile must still remove files uploaded while it was on.
 const MEDIA_LIMITS = mediaLimits(process.env);
 const MEDIA_ON = MEDIA_LIMITS.enabled;
-const MEDIA = createMediaStore({ dir: path.join(DATA, 'uploads'), limits: MEDIA_LIMITS, readState });
+const readStateWithAssessmentMedia = uid => {
+  const state = readState(uid);
+  const assessmentMedia = db.coachAssessments
+    .filter(item => item.photoOwnerId === uid && Array.isArray(item.photos))
+    .flatMap(item => item.photos)
+    .map(media => ({ media }));
+  if (!assessmentMedia.length) return state;
+  const base = state && typeof state === 'object' && !Array.isArray(state) ? state : {};
+  return { ...base, customEx: [...(Array.isArray(base.customEx) ? base.customEx : []), ...assessmentMedia] };
+};
+const MEDIA = createMediaStore({ dir: path.join(DATA, 'uploads'), limits: MEDIA_LIMITS, readState: readStateWithAssessmentMedia });
+function removeOrphanedAssessmentPhotos(item) {
+  if (!item?.photoOwnerId || !Array.isArray(item.photos)) return;
+  const stateRefs = referencedHashes(readState(item.photoOwnerId));
+  for (const photo of item.photos) {
+    const stillAssessed = db.coachAssessments.some(assessment => assessment.photoOwnerId === item.photoOwnerId
+      && assessment.photos?.some(candidate => candidate.hash === photo.hash));
+    if (!stillAssessed && !stateRefs.has(photo.hash)) {
+      try { MEDIA.remove(item.photoOwnerId, photo.hash); }
+      catch (error) { console.error('assessment media cleanup failed', error.message); }
+    }
+  }
+}
 // Leftovers of uploads the previous process was receiving when it stopped.
 try { MEDIA.cleanTmp(); } catch (e) { console.error('media: boot cleanup failed', e.message); }
 // Per profile, not per address: every upload is signed in, and behind a proxy one address can be
@@ -2402,7 +2547,10 @@ const routes = {
     };
     db.coachAthleteLinks.push(link);
     db.coachInvites.push(invite);
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     audit(req, 'b2b2c.invite.create', { user: coach, msg: `${link.id}:${scopes.join(',')}` });
     json(res, 201, { invite: { id: invite.id, linkId: link.id, token: opaque.token, scopes, expiresAt } });
@@ -2462,7 +2610,10 @@ const routes = {
     link.updatedAt = now;
     invite.acceptedAt = now;
     invite.acceptedBy = athlete.id;
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     const coach = db.users.find(user => user.id === link.coachId);
     audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: link.id });
@@ -2535,7 +2686,10 @@ const routes = {
       updatedAt: now,
     };
     db.coachPrescriptions.push(prescription);
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     audit(req, 'b2b2c.prescription.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     json(res, 201, { routine: serializePrescription(db, prescription) });
@@ -2561,11 +2715,266 @@ const routes = {
       prescription.state = 'withdrawn';
       prescription.updatedAt = now;
       prescription.withdrawnAt = now;
-      compactB2B2C(db, B2B2C_LIMITS);
+      const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
       saveDb();
       audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     }
     json(res, 200, { routine: serializePrescription(db, prescription) });
+  },
+
+  'GET /api/assessments/config': async (req, res) => {
+    if (!readSession(req)) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    json(res, 200, {
+      parq: { version: PARQ_VERSION, questions: PARQ_QUESTIONS },
+      limits: { photos: 6, futureSkewSeconds: ASSESSMENT_FUTURE_SKEW_MS / 1000, maxAgeYears: ASSESSMENT_MAX_AGE_YEARS },
+    });
+  },
+
+  'POST /api/athlete/coaches/{linkId}/assessment-consent': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const body = await readBody(req);
+    if (typeof body.granted !== 'boolean' || Object.keys(body).some(key => key !== 'granted')) {
+      return b2bError(res, 400, 'invalid_consent', 'granted must be a boolean');
+    }
+    const link = db.coachAthleteLinks.find(item => item.id === req.linkId && item.athleteId === athlete.id);
+    if (!link) return b2bError(res, 404, 'relationship_not_found', 'relationship not found');
+    if (link.status !== 'active') return b2bError(res, 409, 'relationship_inactive', 'relationship is not active');
+    const coach = db.users.find(user => user.id === link.coachId);
+    if (body.granted && !profileOf(coach).coachSpecialties.includes('assessments')) {
+      return b2bError(res, 409, 'coach_not_eligible', 'professional profile does not offer assessments');
+    }
+    const now = new Date().toISOString();
+    const scopes = body.granted ? [...new Set([...link.scopes, 'assessments'])] : link.scopes.filter(scope => scope !== 'assessments');
+    try { commitAssessmentConsent(link, scopes, now); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'consent could not be saved'); }
+    audit(req, body.granted ? 'b2b2c.assessment.consent.grant' : 'b2b2c.assessment.consent.revoke', { user: athlete, target: coach, msg: link.id });
+    json(res, 200, { link: serializeLink(db, link, athlete) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.list.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.list.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
+    const assessments = db.coachAssessments
+      .filter(item => item.coachId === coach.id && item.athleteId === req.athleteId)
+      .sort((left, right) => Date.parse(right.assessedAt) - Date.parse(left.assessedAt))
+      .map(serializeAssessment);
+    audit(req, 'b2b2c.assessment.list', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: String(assessments.length) });
+    json(res, 200, { assessments });
+  },
+
+  'POST /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    if (assessmentThrottle(req, res, coach)) return;
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
+    const assessment = validateAssessment(await readBody(req), {
+      futureSkewMs: ASSESSMENT_FUTURE_SKEW_MS, maxAgeYears: ASSESSMENT_MAX_AGE_YEARS,
+    });
+    if (!assessment) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'invalid_assessment');
+      return b2bError(res, 400, 'invalid_assessment', 'invalid physical assessment');
+    }
+    const forRelationship = db.coachAssessments.filter(item => item.coachId === coach.id && item.athleteId === req.athleteId).length;
+    if (forRelationship >= B2B2C_LIMITS.maxAssessmentsPerAthlete || db.coachAssessments.length >= B2B2C_LIMITS.maxAssessments) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'assessment_capacity');
+      return b2bError(res, 409, 'assessment_capacity', 'assessment storage capacity reached');
+    }
+    const now = new Date().toISOString();
+    const results = assessmentResults(assessment);
+    if (results === null) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.create.denied', coach, 'invalid_assessment');
+      return b2bError(res, 400, 'invalid_assessment', 'calculated result is outside the supported clinical domain');
+    }
+    for (const photo of assessment.photos || []) {
+      const stored = MEDIA_ON && MEDIA.file(coach.id, photo.hash);
+      if (!stored || stored.mime !== photo.mime || stored.size !== photo.size) {
+        return b2bError(res, 400, 'invalid_assessment_photo', 'assessment photo is missing or does not match');
+      }
+    }
+    const requiresMedicalClearance = assessment.parq?.answers.some(answer => answer.answer) || false;
+    if (requiresMedicalClearance && !assessment.parq?.acknowledged) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.' + (req.assessmentId ? 'correct' : 'create') + '.denied', coach, 'medical_clearance_unacknowledged');
+      return b2bError(res, 400, 'invalid_assessment', 'medical clearance guidance must be acknowledged when PAR-Q is positive');
+    }
+    const row = {
+      id: makeEntityId('cas', db.coachAssessments),
+      coachId: coach.id,
+      athleteId: req.athleteId,
+      ...assessment,
+      assessedAt: assessment.assessedAt || now,
+      ...(results ? { results } : {}),
+      ...(assessment.photos?.length ? { photoOwnerId: coach.id } : {}),
+      requiresMedicalClearance,
+      ...(requiresMedicalClearance && assessment.parq.acknowledged ? { medicalAdviceAcknowledgedAt: now } : {}),
+      createdAt: now,
+      updatedAt: now,
+    };
+    try { commitAssessmentCollection([...db.coachAssessments, row]); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'assessment could not be saved'); }
+    audit(req, 'b2b2c.assessment.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: row.id });
+    json(res, 201, { assessment: serializeAssessment(row) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
+    const item = db.coachAssessments.find(assessment => assessment.id === req.assessmentId
+      && assessment.coachId === coach.id && assessment.athleteId === req.athleteId);
+    if (!item) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.read.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
+    audit(req, 'b2b2c.assessment.read', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: item.id });
+    json(res, 200, { assessment: serializeAssessment(item) });
+  },
+
+  'PATCH /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
+    const index = db.coachAssessments.findIndex(item => item.id === req.assessmentId && item.coachId === coach.id && item.athleteId === req.athleteId);
+    if (index < 0) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.correct.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
+    const assessment = validateAssessment(await readBody(req), {
+      futureSkewMs: ASSESSMENT_FUTURE_SKEW_MS, maxAgeYears: ASSESSMENT_MAX_AGE_YEARS,
+    });
+    if (!assessment) return b2bError(res, 400, 'invalid_assessment', 'invalid physical assessment');
+    const results = assessmentResults(assessment);
+    if (results === null) return b2bError(res, 400, 'invalid_assessment', 'calculated result is outside the supported clinical domain');
+    for (const photo of assessment.photos || []) {
+      const stored = MEDIA_ON && MEDIA.file(coach.id, photo.hash);
+      if (!stored || stored.mime !== photo.mime || stored.size !== photo.size) return b2bError(res, 400, 'invalid_assessment_photo', 'assessment photo is missing or does not match');
+    }
+    const previous = db.coachAssessments[index];
+    const now = new Date().toISOString();
+    const requiresMedicalClearance = assessment.parq?.answers.some(answer => answer.answer) || false;
+    if (requiresMedicalClearance && !assessment.parq?.acknowledged) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.' + (req.assessmentId ? 'correct' : 'create') + '.denied', coach, 'medical_clearance_unacknowledged');
+      return b2bError(res, 400, 'invalid_assessment', 'medical clearance guidance must be acknowledged when PAR-Q is positive');
+    }
+    const row = {
+      id: previous.id, coachId: previous.coachId, athleteId: previous.athleteId, ...assessment,
+      assessedAt: assessment.assessedAt || previous.assessedAt,
+      ...(results ? { results } : {}),
+      ...(assessment.photos?.length ? { photoOwnerId: coach.id } : {}),
+      requiresMedicalClearance,
+      ...(requiresMedicalClearance && assessment.parq.acknowledged ? { medicalAdviceAcknowledgedAt: previous.medicalAdviceAcknowledgedAt || now } : {}),
+      createdAt: previous.createdAt, updatedAt: now,
+    };
+    const next = [...db.coachAssessments]; next[index] = row;
+    try { commitAssessmentCollection(next); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'assessment correction could not be saved'); }
+    removeOrphanedAssessmentPhotos(previous);
+    audit(req, 'b2b2c.assessment.correct', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: row.id });
+    json(res, 200, { assessment: serializeAssessment(row) });
+  },
+
+  'DELETE /api/coach/athletes/{athleteId}/assessments/{assessmentId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, 'role_forbidden');
+      return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    }
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:assessments:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'assessment consent required');
+    }
+    const index = db.coachAssessments.findIndex(assessment => assessment.id === req.assessmentId
+      && assessment.coachId === coach.id && assessment.athleteId === req.athleteId);
+    if (index < 0) {
+      auditB2B2CDenied(req, 'b2b2c.assessment.delete.denied', coach, 'assessment_not_found');
+      return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    }
+    const item = db.coachAssessments[index];
+    try { commitAssessmentCollection(db.coachAssessments.filter((_, itemIndex) => itemIndex !== index)); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'assessment could not be deleted'); }
+    removeOrphanedAssessmentPhotos(item);
+    audit(req, 'b2b2c.assessment.delete', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: item.id });
+    json(res, 200, { assessment: serializeAssessment(item) });
+  },
+
+  'GET /api/athlete/assessments': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const assessments = db.coachAssessments
+      .filter(item => item.athleteId === athlete.id)
+      .sort((left, right) => Date.parse(right.assessedAt) - Date.parse(left.assessedAt))
+      .map(serializeAssessment);
+    audit(req, 'b2b2c.assessment.athlete-list', { user: athlete, msg: String(assessments.length) });
+    json(res, 200, { assessments });
+  },
+
+  'DELETE /api/athlete/assessments/{assessmentId}': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const body = await readBody(req);
+    if (body.confirmation !== req.assessmentId || Object.keys(body).some(key => key !== 'confirmation')) {
+      return b2bError(res, 400, 'confirmation_required', 'assessment id confirmation required');
+    }
+    const index = db.coachAssessments.findIndex(item => item.id === req.assessmentId && item.athleteId === athlete.id);
+    if (index < 0) return b2bError(res, 404, 'assessment_not_found', 'physical assessment not found');
+    const item = db.coachAssessments[index];
+    try { commitAssessmentCollection(db.coachAssessments.filter((_, itemIndex) => itemIndex !== index)); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'assessment could not be deleted'); }
+    removeOrphanedAssessmentPhotos(item);
+    audit(req, 'b2b2c.assessment.athlete-delete', { user: athlete, target: db.users.find(user => user.id === item.coachId), msg: item.id });
+    json(res, 200, { deleted: true, assessment: serializeAssessment(item) });
+  },
+
+  'GET /api/assessments/{assessmentId}/photos/{hash}': async (req, res) => {
+    const user = readSession(req);
+    if (!user) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const item = db.coachAssessments.find(assessment => assessment.id === req.assessmentId
+      && assessment.photos?.some(photo => photo.hash === req.mediaHash));
+    if (!item) throw new MediaError(404, 'media-missing');
+    const own = item.athleteId === user.id;
+    const coachAccess = item.coachId === user.id && authorizeAthleteAccess(db, user, item.athleteId, 'athlete:assessments:read').ok;
+    if (!own && !coachAccess) throw new MediaError(404, 'media-missing');
+    const file = MEDIA.file(item.photoOwnerId, req.mediaHash);
+    if (!file) throw new MediaError(404, 'media-missing');
+    await sendMediaFile(res, file, req.mediaHash);
   },
 
   'GET /api/athlete/prescriptions': async (req, res) => {
@@ -2655,7 +3064,10 @@ const routes = {
     link.updatedAt = now;
     if (body.status === 'suspended') { link.suspendedAt = now; link.suspendedBy = actor.id; }
     if (body.status === 'ended') { link.endedAt = now; link.endedBy = actor.id; }
-    compactB2B2C(db, B2B2C_LIMITS);
+    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    if (compactionResult?.expiredAssessments?.length) {
+      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+    }
     saveDb();
     const targetId = actor.id === link.coachId ? link.athleteId : link.coachId;
     audit(req, body.status === 'suspended' ? 'b2b2c.link.suspend' : 'b2b2c.link.end', {
@@ -3561,7 +3973,7 @@ const server = http.createServer(async (req, res) => {
     const pna = String(req.headers['access-control-request-private-network'] || '').toLowerCase() === 'true'
       && APP_ORIGINS.has(origin);
     res.writeHead(204, {
-      'Access-Control-Allow-Methods': 'GET,POST,PUT,DELETE,OPTIONS',
+      'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       // The CF-Access-* pair: a phone's Cloudflare Access service token (frontend lib/cf-access.js),
       // for an Access application that passes OPTIONS through to the origin.
       'Access-Control-Allow-Headers': 'Content-Type, Authorization, CF-Access-Client-Id, CF-Access-Client-Secret',
@@ -3596,6 +4008,33 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
     req.athleteId = coachRoutineItem[1];
     req.routineId = coachRoutineItem[2];
+  }
+  const coachAssessment = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments$/.exec(url.pathname);
+  if (coachAssessment) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/assessments';
+    req.athleteId = coachAssessment[1];
+  }
+  const coachAssessmentItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachAssessmentItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/assessments/{assessmentId}';
+    req.athleteId = coachAssessmentItem[1];
+    req.assessmentId = coachAssessmentItem[2];
+  }
+  const athleteAssessment = /^\/api\/athlete\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteAssessment) {
+    key = req.method + ' /api/athlete/assessments/{assessmentId}';
+    req.assessmentId = athleteAssessment[1];
+  }
+  const assessmentPhoto = /^\/api\/assessments\/([A-Za-z0-9_-]+)\/photos\/([0-9a-f]{64})$/.exec(url.pathname);
+  if (assessmentPhoto) {
+    key = req.method + ' /api/assessments/{assessmentId}/photos/{hash}';
+    req.assessmentId = assessmentPhoto[1];
+    req.mediaHash = assessmentPhoto[2];
+  }
+  const assessmentConsent = /^\/api\/athlete\/coaches\/([A-Za-z0-9_-]+)\/assessment-consent$/.exec(url.pathname);
+  if (assessmentConsent) {
+    key = req.method + ' /api/athlete/coaches/{linkId}/assessment-consent';
+    req.linkId = assessmentConsent[1];
   }
   const athletePrescription = /^\/api\/athlete\/prescriptions\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);
   if (athletePrescription) {
