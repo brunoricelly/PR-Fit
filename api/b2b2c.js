@@ -243,16 +243,18 @@ export function validatePrescriptionRoutine(body) {
     const exercises = [];
     for (let exerciseIndex = 0; exerciseIndex < input.exercises.length; exerciseIndex++) {
       const exercise = input.exercises[exerciseIndex];
-      if (!record(exercise) || Object.keys(exercise).some(key => !['load', 'name', 'notes', 'reps', 'restSeconds', 'sets'].includes(key))) return null;
+      if (!record(exercise) || Object.keys(exercise).some(key => !['catalogueId', 'load', 'name', 'notes', 'reps', 'restSeconds', 'sets'].includes(key))) return null;
       const exerciseName = cleanText(exercise.name, 120, { required: true });
+      const catalogueId = cleanText(exercise.catalogueId, 64);
       const reps = cleanText(exercise.reps, 40, { required: true });
       const load = cleanText(exercise.load, 40);
       const exerciseNotes = cleanText(exercise.notes, 500);
-      if (!exerciseName || !reps || load === null || exerciseNotes === null) return null;
+      if (!exerciseName || catalogueId === null || !reps || load === null || exerciseNotes === null) return null;
       if (!Number.isInteger(exercise.sets) || exercise.sets < 1 || exercise.sets > 20) return null;
       if (!Number.isInteger(exercise.restSeconds) || exercise.restSeconds < 0 || exercise.restSeconds > 3600) return null;
       exercises.push({
         id: `exercise_${divisionIndex + 1}_${exerciseIndex + 1}`,
+        ...(catalogueId ? { catalogueId } : {}),
         name: exerciseName,
         sets: exercise.sets,
         reps,
@@ -276,6 +278,7 @@ export function serializePrescription(db, prescription) {
     createdAt: prescription.createdAt,
     updatedAt: prescription.updatedAt,
     ...(prescription.adoptedAt ? { adoptedAt: prescription.adoptedAt } : {}),
+    ...(Array.isArray(prescription.adoptedRoutineIds) ? { adoptedRoutineIds: [...prescription.adoptedRoutineIds] } : {}),
     ...(prescription.withdrawnAt ? { withdrawnAt: prescription.withdrawnAt } : {}),
   };
 }

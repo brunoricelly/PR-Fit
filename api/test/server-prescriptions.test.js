@@ -75,7 +75,7 @@ const routine = {
     notes: 'Progredir quando completar a faixa.',
     divisions: [
       { name: 'A — Peito e tríceps', exercises: [
-        { name: 'Supino reto', sets: 4, reps: '8-10', load: '60 kg', restSeconds: 90, notes: 'RIR 2' },
+        { catalogueId: '0025', name: 'Supino reto', sets: 4, reps: '8-10', load: '60 kg', restSeconds: 90, notes: 'RIR 2' },
         { name: 'Tríceps corda', sets: 3, reps: '12', load: '25 kg', restSeconds: 60, notes: '' },
       ] },
       { name: 'B — Costas e bíceps', exercises: [
@@ -91,6 +91,12 @@ const routine = {
 test('prescriptions persist, require active training scope, and can be adopted and withdrawn', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-'));
   seed(dataDir);
+  const existingRoutine = { id: 'mine', name: 'Minha rotina', ex: [{ id: '0027', sets: 3, reps: 8, weight: 40 }], _ts: 90 };
+  const existingCustom = { id: 'my_row', n: 'Remada baixa', bp: 'back', eq: 'cable', custom: true, _ts: 91 };
+  fs.writeFileSync(path.join(dataDir, `state-${IDS.athlete}.json`), JSON.stringify({
+    _rev: 7, _wid: 'wid-before', _wids: ['wid-ancestor'], _ts: 100, unit: 'kg', workouts: [],
+    routines: [existingRoutine], customEx: [existingCustom],
+  }));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   let server = await launch(dataDir);
   t.after(async () => stop(server));
@@ -130,6 +136,40 @@ test('prescriptions persist, require active training scope, and can be adopted a
   assert.equal(result.status, 200);
   assert.equal(result.body.prescription.state, 'adopted');
   assert.ok(result.body.prescription.adoptedAt);
+  assert.deepEqual(result.body.routineIds, result.body.prescription.adoptedRoutineIds);
+  assert.equal(result.body.routineIds.length, 3);
+
+  const adoptedStateFile = path.join(dataDir, `state-${IDS.athlete}.json`);
+  const adoptedState = JSON.parse(fs.readFileSync(adoptedStateFile, 'utf8'));
+  assert.equal(adoptedState._rev, 8);
+  assert.notEqual(adoptedState._wid, 'wid-before');
+  assert.deepEqual(adoptedState._wids, ['wid-ancestor', 'wid-before']);
+  assert.deepEqual(adoptedState.routines[0], existingRoutine);
+  assert.equal(adoptedState.routines.length, 4);
+  const adopted = result.body.routineIds.map(id => adoptedState.routines.find(item => item.id === id));
+  assert.deepEqual(adopted.map(item => item.name), ['A — Peito e tríceps', 'B — Costas e bíceps', 'C — Pernas']);
+  assert.ok(adopted.every(item => item.prescriptionId === routineId));
+  assert.deepEqual(adopted[0].ex[0], {
+    id: '0025', sets: 4, reps: 10, repsMin: 8, weight: 60, mode: 'reps', restSec: 90, note: 'RIR 2',
+  });
+  assert.equal(adopted[0].ex[1].sets, 3);
+  assert.equal(adopted[0].ex[1].reps, 12);
+  assert.equal(adopted[0].ex[1].weight, 25);
+  assert.equal(adopted[0].ex[1].restSec, 60);
+  assert.equal(adopted[1].ex[0].id, existingCustom.id);
+  assert.equal(adopted[1].ex[0].note, 'Segurar 1 s');
+  assert.equal(adopted[2].ex[0].repsMin, 6);
+  assert.equal(adopted[2].ex[0].reps, 8);
+  assert.equal(adopted[2].ex[0].weight, 80);
+  assert.equal(adoptedState.customEx.filter(item => item.prescriptionId === routineId).length, 2);
+
+  const stateAfterFirstAdoption = fs.readFileSync(adoptedStateFile, 'utf8');
+  const adoptedAt = result.body.prescription.adoptedAt;
+  result = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${routineId}/adopt`, {});
+  assert.equal(result.status, 200);
+  assert.equal(result.body.prescription.adoptedAt, adoptedAt);
+  assert.deepEqual(result.body.routineIds, adopted.map(item => item.id));
+  assert.equal(fs.readFileSync(adoptedStateFile, 'utf8'), stateAfterFirstAdoption);
 
   const otherAthlete = await request(server, IDS.otherAthlete, 'POST', `/api/athlete/prescriptions/${routineId}/adopt`, {});
   assert.deepEqual([otherAthlete.status, otherAthlete.body.code], [404, 'routine_not_found']);
@@ -156,4 +196,45 @@ test('prescriptions persist, require active training scope, and can be adopted a
   }
   assert.match(audit, /scope_forbidden/);
   assert.match(audit, /relationship_not_found/);
+});
+
+test('adoption refuses an unreadable state without replacing it', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-corrupt-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  let server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  const file = path.join(dataDir, `state-${IDS.athlete}.json`);
+  const corrupt = '{"routines":[';
+  fs.writeFileSync(file, corrupt);
+
+  const result = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.deepEqual([result.status, result.body.code], [503, 'state_unreadable']);
+  assert.equal(fs.readFileSync(file, 'utf8'), corrupt);
+  const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.coachPrescriptions[0].state, 'available');
+});
+
+test('adoption fails closed when the training relationship is no longer active', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-inactive-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  let server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  const created = await request(server, IDS.coach, 'POST', `/api/coach/athletes/${IDS.athlete}/routines`, routine);
+  assert.equal(created.status, 201);
+  await stop(server);
+  const dbFile = path.join(dataDir, 'db.json');
+  const stored = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+  stored.coachAthleteLinks.find(link => link.id === 'cal_training').status = 'suspended';
+  fs.writeFileSync(dbFile, JSON.stringify(stored, null, 2));
+  server = await launch(dataDir);
+
+  const result = await request(server, IDS.athlete, 'POST', `/api/athlete/prescriptions/${created.body.routine.id}/adopt`, {});
+  assert.equal(result.status, 403);
+  assert.equal(fs.existsSync(path.join(dataDir, `state-${IDS.athlete}.json`)), false);
 });

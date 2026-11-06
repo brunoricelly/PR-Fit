@@ -38,6 +38,7 @@ import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from 
 import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
+import { adoptPrescriptionState, prescriptionStateReadable } from './prescription-adoption.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT } from './net-guard.js';
 import { createIntegrations } from './integrations/index.js';
 import { integrationRoutes } from './integrations/routes.js';
@@ -2458,15 +2459,44 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, access.code);
       return b2bError(res, 403, access.code, 'active training relationship required');
     }
-    if (prescription.state !== 'adopted') {
+    const current = readStateStrict(athlete.id);
+    if (current === UNREADABLE || !prescriptionStateReadable(current)) {
+      console.error('state file unreadable for', athlete.id);
+      return b2bError(res, 503, 'state_unreadable', 'state unreadable');
+    }
+    let adoption;
+    try { adoption = adoptPrescriptionState(current, prescription); }
+    catch (error) {
+      if (error instanceof RangeError) return b2bError(res, 503, 'state_unreadable', 'state unreadable');
+      throw error;
+    }
+    if (adoption.changed) {
+      let text;
+      try { text = JSON.stringify(adoption.state); }
+      catch (error) {
+        if (error instanceof RangeError) return b2bError(res, 503, 'state_unreadable', 'state unreadable');
+        throw error;
+      }
+      atomicWrite(stateFile(athlete.id), text);
+      stateCache.delete(athlete.id);
+      if (MEDIA_ON) {
+        try { MEDIA.noteState(athlete.id, adoption.state); } catch (error) { console.error('media noteState', error); }
+      }
+      try { integrations.onStateWrite(athlete.id, current, adoption.state); } catch (error) { console.error('integrations onStateWrite', error); }
+    }
+    const sameRoutineIds = Array.isArray(prescription.adoptedRoutineIds) &&
+      prescription.adoptedRoutineIds.length === adoption.routineIds.length &&
+      prescription.adoptedRoutineIds.every((id, index) => id === adoption.routineIds[index]);
+    if (prescription.state !== 'adopted' || !sameRoutineIds) {
       const now = new Date().toISOString();
       prescription.state = 'adopted';
       prescription.updatedAt = now;
-      prescription.adoptedAt = now;
+      prescription.adoptedAt ||= now;
+      prescription.adoptedRoutineIds = adoption.routineIds;
       saveDb();
       audit(req, 'b2b2c.prescription.adopt', { user: athlete, target: coach, msg: prescription.id });
     }
-    json(res, 200, { prescription: serializePrescription(db, prescription) });
+    json(res, 200, { prescription: serializePrescription(db, prescription), routineIds: [...prescription.adoptedRoutineIds] });
   },
 
   'POST /api/coach/links/status': async (req, res) => {

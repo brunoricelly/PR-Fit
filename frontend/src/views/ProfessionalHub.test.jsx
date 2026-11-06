@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const mocks = vi.hoisted(() => ({
-  user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), confirms: [], copied: [],
+  user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [],
 }))
 
 vi.mock('../store/useStore.js', () => {
-  const snap = () => ({ user: mocks.user, setUser: mocks.setUser })
+  const snap = () => ({ user: mocks.user, setUser: mocks.setUser, pullState: mocks.pullState })
   const useStore = selector => (selector ? selector(snap()) : snap())
   useStore.getState = snap
   return { useStore }
@@ -38,7 +38,7 @@ import ProfessionalHub from './ProfessionalHub.jsx'
 
 let host, root
 beforeEach(() => {
-  Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), confirms: [], copied: [] })
+  Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -266,19 +266,22 @@ describe('ProfessionalHub', () => {
     }
     mocks.answers['/api/athlete/prescriptions'] = { prescriptions: [available] }
     mocks.answers['/api/athlete/prescriptions/cpr_1/adopt'] = {
-      prescription: { ...available, state: 'adopted', adoptedAt: '2026-11-06T12:00:00.000Z' },
+      prescription: { ...available, state: 'adopted', adoptedAt: '2026-11-06T12:00:00.000Z', adoptedRoutineIds: ['r_adopted'] },
+      routineIds: ['r_adopted'],
     }
     await mount('/professionals')
 
     expect(host.textContent).toContain('Supino reto')
     expect(host.textContent).toContain('4 sets · 8-10 reps · 90s rest')
     expect(host.textContent).toContain('Load: 60 kg')
-    await act(async () => { button('Adopt prescription').click() })
+    expect(button('Add to my routines')).toBeDefined()
+    await act(async () => { button('Add to my routines').click() })
     await settle()
 
     expect(mocks.calls).toContainEqual({ path: '/api/athlete/prescriptions/cpr_1/adopt', method: 'POST', body: {} })
+    expect(mocks.pullState).toHaveBeenCalledTimes(1)
     expect(host.textContent).toContain('Adopted')
-    expect(button('Adopt prescription')).toBeUndefined()
-    expect(mocks.toast).toHaveBeenCalledWith('Workout prescription adopted.')
+    expect(button('Add to my routines')).toBeUndefined()
+    expect(mocks.toast).toHaveBeenCalledWith('Added to your routines.')
   })
 })

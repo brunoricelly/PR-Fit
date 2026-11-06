@@ -336,6 +336,7 @@ function CoachPortfolio({ user }) {
 
 function AthletePrescriptions({ userId }) {
   const toast = useUI(state => state.toast)
+  const pullState = useStore(state => state.pullState)
   const [prescriptions, setPrescriptions] = useState(null)
   const [loadError, setLoadError] = useState(false)
   const [adopting, setAdopting] = useState(null)
@@ -352,7 +353,8 @@ function AthletePrescriptions({ userId }) {
     try {
       const result = await api(`/api/athlete/prescriptions/${prescription.id}/adopt`, { method: 'POST', body: '{}' })
       setPrescriptions(current => current.map(item => item.id === prescription.id ? result.prescription : item))
-      toast(p('Workout prescription adopted.'))
+      await pullState()
+      toast(p('Added to your routines.'))
     } catch (error) { toast(professionalError(error)) }
     finally { setAdopting(null) }
   }
@@ -362,8 +364,8 @@ function AthletePrescriptions({ userId }) {
       : prescriptions === null ? <div className="pro-loading">{p('Loading…')}</div>
         : prescriptions.length === 0 ? <EmptyState icon="dumbbell" title={p('No workout prescriptions')} text={p('Training prescriptions from linked professionals appear here.')} />
           : <div className="pro-prescription-list">{prescriptions.map(item => <PrescriptionSummary key={item.id} prescription={item}
-            action={item.state === 'available'
-              ? <Button variant="primary" disabled={adopting === item.id} onClick={() => adopt(item)}>{adopting === item.id ? p('Adopting…') : p('Adopt prescription')}</Button>
+            action={item.state === 'available' || !item.adoptedRoutineIds?.length
+              ? <Button variant="primary" disabled={adopting === item.id} onClick={() => adopt(item)}>{adopting === item.id ? p('Adding…') : p('Add to my routines')}</Button>
               : null} />)}</div>}
   </section>
 }

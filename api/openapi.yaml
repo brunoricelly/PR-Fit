@@ -598,8 +598,11 @@ paths:
     post:
       tags: [professionals]
       operationId: adoptAthletePrescription
-      summary: Adopt one prescribed routine
-      description: Idempotently marks the athlete's own prescription as adopted; an active `training` relationship is required.
+      summary: Add one prescription to the athlete's routines
+      description: >-
+        Idempotently adds every prescribed division as a new openGym routine in the athlete's
+        synced state, without replacing existing routines, and marks the prescription adopted.
+        Repeating the request returns the same routine ids. An active `training` relationship is required.
       parameters:
         - in: path
           name: routineId
@@ -607,16 +610,20 @@ paths:
           schema: { type: string }
       responses:
         '200':
-          description: Adopted prescription with its adoption timestamp.
+          description: Adopted prescription and the openGym routine ids created for its divisions.
           content:
             application/json:
               schema:
                 type: object
                 properties:
                   prescription: { $ref: '#/components/schemas/TrainingPrescription' }
+                  routineIds:
+                    type: array
+                    items: { type: string }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: The active training relationship no longer authorizes adoption., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Prescription absent, withdrawn or owned by another athlete., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The athlete state file is unreadable and was not rewritten., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
   /api/coach/links/status:
     post:
@@ -4449,6 +4456,7 @@ components:
       required: [name, sets, reps, restSeconds]
       properties:
         id: { type: string }
+        catalogueId: { type: string, description: Optional openGym catalogue id to reuse instead of creating a custom exercise. }
         name: { type: string, maxLength: 120 }
         sets: { type: integer, minimum: 1, maximum: 20 }
         reps: { type: string, maxLength: 40, example: '8-12' }
@@ -4492,6 +4500,10 @@ components:
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
         adoptedAt: { type: string, format: date-time }
+        adoptedRoutineIds:
+          type: array
+          description: OpenGym routine ids added for the prescribed divisions, in division order.
+          items: { type: string }
         withdrawnAt: { type: string, format: date-time }
 
     # ------------------------------------------------------------------ WebAuthn
