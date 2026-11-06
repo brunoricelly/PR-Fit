@@ -149,6 +149,12 @@ test('B2B2C profile, invite, relationship isolation and persistence', async t =>
   assert.equal(athleteLinks.body.links.length, 1);
   assert.equal(athleteLinks.body.links[0].coach.id, IDS.coachA);
 
+  result = await request(server, IDS.athleteA, 'POST', '/api/profile', { kind: 'coach', coachSpecialties: ['nutrition'] });
+  assert.equal(result.status, 200);
+  const dualRoleLinks = await request(server, IDS.athleteA, 'GET', '/api/athlete/coaches');
+  assert.equal(dualRoleLinks.body.links[0].status, 'active');
+  assert.equal(dualRoleLinks.body.links[0].coach.id, IDS.coachA);
+
   result = await request(server, IDS.coachB, 'POST', '/api/coach/links/status', { linkId, status: 'suspended' });
   assert.deepEqual([result.status, result.body.code], [404, 'relationship_not_found']);
   result = await request(server, IDS.coachA, 'POST', '/api/coach/links/status', { linkId, status: 'suspended' });
@@ -172,7 +178,15 @@ test('B2B2C profile, invite, relationship isolation and persistence', async t =>
   assert.equal(replayAfterRestart.body.link.id, linkId);
 
   const audit = fs.readFileSync(path.join(dataDir, 'audit.log'), 'utf8');
-  for (const event of ['b2b2c.invite.create', 'b2b2c.invite.accept', 'b2b2c.link.suspend', 'b2b2c.link.end']) {
+  for (const event of [
+    'b2b2c.invite.create', 'b2b2c.invite.accept', 'b2b2c.invite.accept.denied',
+    'b2b2c.link.suspend', 'b2b2c.link.end', 'b2b2c.link.transition.denied',
+  ]) {
     assert.match(audit, new RegExp(event));
+  }
+  assert.doesNotMatch(audit, new RegExp(inviteToken));
+  assert.match(audit, /athlete\[\]->coach\[nutrition\]/);
+  for (const reason of ['invite_invalid', 'invite_expired', 'invite_used', 'relationship_not_found', 'invalid_transition']) {
+    assert.match(audit, new RegExp(reason));
   }
 });

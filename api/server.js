@@ -44,8 +44,9 @@ import { integrationRoutes } from './integrations/routes.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
 import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from './wrapped.js';
 import {
-  migrateB2B2C, profileOf, validateProfile, validateScopes, capabilitiesFor, makeOpaqueInvite,
-  hashInviteToken, makeEntityId, linkForActor, serializeLink, removeB2B2CUser,
+  B2B2CDataError, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
+  capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
+  removeB2B2CUser,
 } from './b2b2c.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -98,6 +99,25 @@ const DEFAULT_LANG = (() => {
 // sign-in throttle asks (limitAddress below); the bundled compose file sets it, because the API
 // is reachable there only through the web container, which overwrites those headers.
 const TRUST_PROXY = /^(1|true|yes|on)$/i.test(process.env.TRUST_PROXY || '');
+const envInt = (name, fallback, { min = 0, max = 1000000 } = {}) => {
+  const parsed = Number(process.env[name]);
+  return Number.isInteger(parsed) ? Math.min(max, Math.max(min, parsed)) : fallback;
+};
+const B2B2C_LIMITS = {
+  pendingPerCoach: envInt('B2B2C_PENDING_INVITES_PER_COACH', 10, { min: 1, max: 1000 }),
+  maxInvites: envInt('B2B2C_MAX_INVITES', 5000, { min: 10, max: 1000000 }),
+  maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
+  terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
+  terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
+  terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
+};
+const B2B2C_RATE = {
+  windowMs: envInt('B2B2C_RATE_WINDOW_MS', 3600000, { min: 1000, max: 86400000 }),
+  createAccount: envInt('B2B2C_INVITE_CREATE_ACCOUNT_MAX', 20, { min: 1, max: 10000 }),
+  createIp: envInt('B2B2C_INVITE_CREATE_IP_MAX', 100, { min: 1, max: 100000 }),
+  acceptAccount: envInt('B2B2C_INVITE_ACCEPT_ACCOUNT_MAX', 30, { min: 1, max: 10000 }),
+  acceptIp: envInt('B2B2C_INVITE_ACCEPT_IP_MAX', 200, { min: 1, max: 100000 }),
+};
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
 // cookie staying good for a year. Overridable because a family instance and one on the open
 // internet don't want the same number. Only affects cookies minted from now on — the expiry is
@@ -157,12 +177,19 @@ function loadDb() {
   }
 }
 let db = loadDb();
-db.users = db.users || [];
-db.creds = db.creds || [];
-db.subs = db.subs || [];
-db.invites = db.invites || [];
-db.deviceLinks = db.deviceLinks || [];   // unused one-time device links, hashed (device-link.js)
-const b2b2cMigrated = migrateB2B2C(db);
+let b2b2cMigrated = false;
+try {
+  for (const key of ['users', 'creds', 'subs', 'invites', 'deviceLinks']) {
+    if (db[key] === undefined) { db[key] = []; b2b2cMigrated = true; continue; }
+    if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  b2b2cMigrated = migrateB2B2C(db) || b2b2cMigrated;
+  b2b2cMigrated = compactB2B2C(db, B2B2C_LIMITS).changed || b2b2cMigrated;
+} catch (error) {
+  if (!(error instanceof B2B2CDataError)) throw error;
+  console.error(`db.json B2B2C data is invalid (${error.message}). Refusing to start; db.json and db.json.bak were not changed.`);
+  process.exit(1);
+}
 const isAdmin = user => !!user && (user.admin === true || ADMIN_UIDS.includes(user.id));
 // One owner per instance, any number of admins. Admins run the place day to day (users, invites,
 // the Coach); the owner is the one admin the others cannot act on: only the owner appoints or
@@ -1118,6 +1145,35 @@ function auditFail(req, ev, f) {
   audit(req, ev, f);
 }
 
+const B2B2C_CREATE_ACCOUNT = createWindow({ max: B2B2C_RATE.createAccount, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_CREATE_IP = createWindow({ max: B2B2C_RATE.createIp, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_ACCEPT_ACCOUNT = createWindow({ max: B2B2C_RATE.acceptAccount, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_ACCEPT_IP = createWindow({ max: B2B2C_RATE.acceptIp, windowMs: B2B2C_RATE.windowMs });
+setInterval(() => {
+  B2B2C_CREATE_ACCOUNT.sweep(); B2B2C_CREATE_IP.sweep();
+  B2B2C_ACCEPT_ACCOUNT.sweep(); B2B2C_ACCEPT_IP.sweep();
+}, Math.min(B2B2C_RATE.windowMs, 60000)).unref();
+
+function b2b2cThrottle(req, res, user, action) {
+  const accountWindow = action === 'create' ? B2B2C_CREATE_ACCOUNT : B2B2C_ACCEPT_ACCOUNT;
+  const ipWindow = action === 'create' ? B2B2C_CREATE_IP : B2B2C_ACCEPT_IP;
+  const wait = Math.max(accountWindow.take(user.id), ipWindow.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, `b2b2c.invite.${action}.throttled`, { ok: false, user, msg: 'rate_limited' });
+  b2bError(res, 429, 'rate_limited', 'too many relationship attempts, try again later', { 'Retry-After': String(wait) });
+  return true;
+}
+
+function compactRelationships() {
+  const result = compactB2B2C(db, B2B2C_LIMITS);
+  if (result.changed) saveDb();
+  return result;
+}
+
+function auditB2B2CDenied(req, event, user, reason, target) {
+  auditFail(req, event, { ok: false, user, ...(target ? { target } : {}), msg: reason });
+}
+
 /* ---------- password sign-in (#118) ---------- */
 // Optional, per instance (PASSWORD_LOGIN) and per profile: nobody has a password until they set
 // one. Passkeys stay the default and the recommended way in. What a password needs that a
@@ -1201,7 +1257,7 @@ const publicUser = u => ({
   id: u.id, name: u.name, admin: isAdmin(u), ...(isOwner(u) ? { owner: true } : {}),
   ...(u.profile ? { profile: profileOf(u), capabilities: capabilitiesFor(u) } : {}),
 });
-const b2bError = (res, status, code, error) => json(res, status, { error, code });
+const b2bError = (res, status, code, error, headers) => json(res, status, { error, code }, headers);
 const POLICY_ERRORS = {
   'too-short': `the password needs at least ${MIN_LENGTH} characters`,
   'too-long': `the password can have at most ${MAX_LENGTH} characters`,
@@ -2151,14 +2207,19 @@ const routes = {
     const body = await readBody(req);
     const profile = validateProfile(body);
     if (!profile) return b2bError(res, 400, 'invalid_profile', 'invalid profile');
+    const previous = profileOf(user);
     const incompatibleLink = db.coachAthleteLinks.some(link => link.coachId === user.id && link.status !== 'ended'
       && link.scopes.some(scope => !profile.coachSpecialties.includes(scope)));
     if (incompatibleLink) {
+      auditB2B2CDenied(req, 'b2b2c.profile.update.denied', user, 'relationships_active');
       return b2bError(res, 409, 'relationships_active', 'end professional relationships before removing their specialties');
     }
     user.profile = profile;
     saveDb();
-    audit(req, 'b2b2c.profile.update', { user, msg: profile.kind });
+    audit(req, 'b2b2c.profile.update', {
+      user,
+      msg: `${previous.kind}[${previous.coachSpecialties.join(',')}]->${profile.kind}[${profile.coachSpecialties.join(',')}]`,
+    });
     json(res, 200, { user: publicUser(user) });
   },
 
@@ -2167,12 +2228,25 @@ const routes = {
     if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
     const profile = profileOf(coach);
     if (profile.kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    if (b2b2cThrottle(req, res, coach, 'create')) return;
+    compactRelationships();
     const body = await readBody(req);
     const scopes = validateScopes(body.scopes, profile.coachSpecialties);
     if (!scopes) return b2bError(res, 400, 'invalid_scope', 'invalid relationship scope');
     const expiresInDays = body.expiresInDays === undefined ? 7 : body.expiresInDays;
     if (!Number.isInteger(expiresInDays) || expiresInDays < 1 || expiresInDays > 30) {
       return b2bError(res, 400, 'invalid_expiry', 'expiry must be from 1 to 30 days');
+    }
+    const pendingForCoach = db.coachAthleteLinks.filter(link => link.coachId === coach.id && link.status === 'pending').length;
+    if (pendingForCoach >= B2B2C_LIMITS.pendingPerCoach) {
+      auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'pending_invite_limit');
+      return b2bError(res, 409, 'pending_invite_limit', 'too many pending invitations');
+    }
+    const liveLinks = db.coachAthleteLinks.filter(link => link.status !== 'ended').length;
+    const pendingInvites = db.coachInvites.filter(invite => db.coachAthleteLinks.some(link => link.id === invite.linkId && link.status === 'pending')).length;
+    if (liveLinks >= B2B2C_LIMITS.maxLinks || pendingInvites >= B2B2C_LIMITS.maxInvites) {
+      auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'relationship_capacity');
+      return b2bError(res, 409, 'relationship_capacity', 'relationship storage capacity reached');
     }
     const now = new Date();
     const createdAt = now.toISOString();
@@ -2188,6 +2262,7 @@ const routes = {
     };
     db.coachAthleteLinks.push(link);
     db.coachInvites.push(invite);
+    compactB2B2C(db, B2B2C_LIMITS);
     saveDb();
     audit(req, 'b2b2c.invite.create', { user: coach, msg: `${link.id}:${scopes.join(',')}` });
     json(res, 201, { invite: { id: invite.id, linkId: link.id, token: opaque.token, scopes, expiresAt } });
@@ -2196,16 +2271,29 @@ const routes = {
   'POST /api/coach/invites/accept': async (req, res) => {
     const athlete = readSession(req);
     if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
-    if (profileOf(athlete).kind !== 'athlete') return b2bError(res, 403, 'role_forbidden', 'athlete profile required');
+    if (b2b2cThrottle(req, res, athlete, 'accept')) return;
+    compactRelationships();
     const body = await readBody(req);
     const token = typeof body.token === 'string' ? body.token.trim() : '';
-    if (!token || token.length > 256) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    if (!token || token.length > 256) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'invite_invalid');
+      return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    }
     const invite = db.coachInvites.find(item => item.tokenHash === hashInviteToken(token));
-    if (!invite) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    if (!invite) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'invite_invalid');
+      return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    }
     const link = db.coachAthleteLinks.find(item => item.id === invite.linkId);
-    if (!link) return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    if (!link) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'invite_invalid');
+      return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
+    }
     if (invite.acceptedAt) {
-      if (invite.acceptedBy !== athlete.id) return b2bError(res, 409, 'invite_used', 'invite was already used');
+      if (invite.acceptedBy !== athlete.id) {
+        auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'invite_used');
+        return b2bError(res, 409, 'invite_used', 'invite was already used');
+      }
       return json(res, 200, { link: serializeLink(db, link, athlete) });
     }
     if (Date.parse(invite.expiresAt) <= Date.now() || link.status !== 'pending') {
@@ -2215,10 +2303,16 @@ const routes = {
         invite.expiredAt = now;
         saveDb();
       }
+      const reason = invite.expiredAt || Date.parse(invite.expiresAt) <= Date.now() ? 'invite_expired' : 'invite_invalid';
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, reason);
       return b2bError(res, 410, 'invite_invalid', 'invite is invalid or expired');
     }
-    if (link.coachId === athlete.id) return b2bError(res, 409, 'self_relationship', 'a professional cannot accept their own invite');
+    if (link.coachId === athlete.id) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'self_relationship');
+      return b2bError(res, 409, 'self_relationship', 'a professional cannot accept their own invite');
+    }
     if (db.coachAthleteLinks.some(item => item.id !== link.id && item.coachId === link.coachId && item.athleteId === athlete.id && item.status !== 'ended')) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'relationship_exists');
       return b2bError(res, 409, 'relationship_exists', 'a relationship already exists');
     }
     const now = new Date().toISOString();
@@ -2228,6 +2322,7 @@ const routes = {
     link.updatedAt = now;
     invite.acceptedAt = now;
     invite.acceptedBy = athlete.id;
+    compactB2B2C(db, B2B2C_LIMITS);
     saveDb();
     const coach = db.users.find(user => user.id === link.coachId);
     audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: link.id });
@@ -2238,16 +2333,7 @@ const routes = {
     const coach = readSession(req);
     if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
     if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
-    let changed = false;
-    const now = new Date().toISOString();
-    for (const invite of db.coachInvites) {
-      if (invite.coachId !== coach.id || invite.acceptedAt || invite.expiredAt || Date.parse(invite.expiresAt) > Date.now()) continue;
-      const link = db.coachAthleteLinks.find(item => item.id === invite.linkId);
-      if (link?.status === 'pending') { link.status = 'ended'; link.updatedAt = now; link.endedAt = now; }
-      invite.expiredAt = now;
-      changed = true;
-    }
-    if (changed) saveDb();
+    compactRelationships();
     const links = db.coachAthleteLinks.filter(link => link.coachId === coach.id).map(link => {
       const out = serializeLink(db, link, coach);
       const invite = db.coachInvites.find(item => item.linkId === link.id);
@@ -2259,6 +2345,7 @@ const routes = {
   'GET /api/athlete/coaches': async (req, res) => {
     const athlete = readSession(req);
     if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    compactRelationships();
     const links = db.coachAthleteLinks.filter(link => link.athleteId === athlete.id).map(link => serializeLink(db, link, athlete));
     json(res, 200, { links });
   },
@@ -2268,17 +2355,27 @@ const routes = {
     if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
     const body = await readBody(req);
     const link = linkForActor(db, actor, typeof body.linkId === 'string' ? body.linkId : '');
-    if (!link) return b2bError(res, 404, 'relationship_not_found', 'relationship not found');
-    if (!['suspended', 'ended'].includes(body.status)) return b2bError(res, 400, 'invalid_status', 'invalid relationship status');
+    if (!link) {
+      auditB2B2CDenied(req, 'b2b2c.link.transition.denied', actor, 'relationship_not_found');
+      return b2bError(res, 404, 'relationship_not_found', 'relationship not found');
+    }
+    if (!['suspended', 'ended'].includes(body.status)) {
+      auditB2B2CDenied(req, 'b2b2c.link.transition.denied', actor, 'invalid_status');
+      return b2bError(res, 400, 'invalid_status', 'invalid relationship status');
+    }
     if (link.status === body.status) return json(res, 200, { link: serializeLink(db, link, actor) });
     const allowed = (body.status === 'suspended' && link.status === 'active')
       || (body.status === 'ended' && ['pending', 'active', 'suspended'].includes(link.status));
-    if (!allowed) return b2bError(res, 409, 'invalid_transition', 'invalid relationship transition');
+    if (!allowed) {
+      auditB2B2CDenied(req, 'b2b2c.link.transition.denied', actor, 'invalid_transition');
+      return b2bError(res, 409, 'invalid_transition', 'invalid relationship transition');
+    }
     const now = new Date().toISOString();
     link.status = body.status;
     link.updatedAt = now;
     if (body.status === 'suspended') { link.suspendedAt = now; link.suspendedBy = actor.id; }
     if (body.status === 'ended') { link.endedAt = now; link.endedBy = actor.id; }
+    compactB2B2C(db, B2B2C_LIMITS);
     saveDb();
     const targetId = actor.id === link.coachId ? link.athleteId : link.coachId;
     audit(req, body.status === 'suspended' ? 'b2b2c.link.suspend' : 'b2b2c.link.end', {

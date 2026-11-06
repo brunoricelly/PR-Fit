@@ -3,6 +3,13 @@ import crypto from 'node:crypto';
 export const B2B2C_SCHEMA_VERSION = 2;
 export const COACH_SCOPES = ['training', 'nutrition'];
 
+export class B2B2CDataError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'B2B2CDataError';
+  }
+}
+
 const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
 const uniqueAllowed = (value, allowed) => {
   if (!Array.isArray(value)) return null;
@@ -16,13 +23,121 @@ const uniqueAllowed = (value, allowed) => {
 
 export function migrateB2B2C(db) {
   let changed = false;
-  if (!Number.isInteger(db.schemaVersion) || db.schemaVersion < B2B2C_SCHEMA_VERSION) {
+  if (db.schemaVersion === undefined) {
     db.schemaVersion = B2B2C_SCHEMA_VERSION;
     changed = true;
+  } else {
+    if (!Number.isInteger(db.schemaVersion)) throw new B2B2CDataError('schemaVersion must be an integer');
+    if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
+      throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
+    }
+    if (![1, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+      throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
+    }
+    if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
+      db.schemaVersion = B2B2C_SCHEMA_VERSION;
+      changed = true;
+    }
   }
-  if (!Array.isArray(db.coachInvites)) { db.coachInvites = []; changed = true; }
-  if (!Array.isArray(db.coachAthleteLinks)) { db.coachAthleteLinks = []; changed = true; }
+  for (const key of ['coachInvites', 'coachAthleteLinks']) {
+    if (db[key] === undefined) { db[key] = []; changed = true; continue; }
+    if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
   return changed;
+}
+
+const rowTime = row => {
+  for (const value of [row.updatedAt, row.endedAt, row.acceptedAt, row.expiredAt, row.closedAt, row.createdAt]) {
+    const parsed = Date.parse(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return 0;
+};
+const newestFirst = (left, right) => rowTime(right) - rowTime(left) || String(left.id).localeCompare(String(right.id));
+const oldestFirst = (left, right) => rowTime(left) - rowTime(right) || String(left.id).localeCompare(String(right.id));
+
+function closePending(link, invite, nowIso, reason) {
+  if (link.status !== 'pending') return false;
+  link.status = 'ended';
+  link.updatedAt = nowIso;
+  link.endedAt = nowIso;
+  link.endedReason = reason;
+  if (invite) {
+    if (reason === 'invite_expired') invite.expiredAt ||= nowIso;
+    else {
+      invite.closedAt ||= nowIso;
+      invite.closedReason ||= reason;
+    }
+  }
+  return true;
+}
+
+export function compactB2B2C(db, limits, nowMs = Date.now()) {
+  const nowIso = new Date(nowMs).toISOString();
+  const cutoff = nowMs - limits.terminalRetentionDays * 86400000;
+  let changed = false;
+  let linksById = new Map(db.coachAthleteLinks.map(link => [link.id, link]));
+
+  for (const invite of db.coachInvites) {
+    const link = linksById.get(invite.linkId);
+    if (!link || invite.acceptedAt) continue;
+    const expiry = Date.parse(invite.expiresAt);
+    if (!Number.isFinite(expiry) || expiry <= nowMs || link.status !== 'pending') {
+      changed = closePending(link, invite, nowIso, 'invite_expired') || changed;
+      if (!invite.expiredAt) { invite.expiredAt = nowIso; changed = true; }
+    }
+  }
+
+  const inviteForLink = new Map(db.coachInvites.map(invite => [invite.linkId, invite]));
+  const pendingLinks = () => db.coachAthleteLinks.filter(link => link.status === 'pending').sort(oldestFirst);
+  const pendingInvites = () => db.coachInvites.filter(invite => linksById.get(invite.linkId)?.status === 'pending');
+
+  while (pendingInvites().length > limits.maxInvites) {
+    const link = pendingLinks()[0];
+    if (!link) break;
+    changed = closePending(link, inviteForLink.get(link.id), nowIso, 'storage_capacity') || changed;
+  }
+  while (db.coachAthleteLinks.filter(link => link.status !== 'ended').length > limits.maxLinks) {
+    const link = pendingLinks()[0];
+    if (!link) break;
+    changed = closePending(link, inviteForLink.get(link.id), nowIso, 'storage_capacity') || changed;
+  }
+
+  const liveLinks = db.coachAthleteLinks.filter(link => link.status !== 'ended');
+  if (liveLinks.length > limits.maxLinks) {
+    throw new B2B2CDataError(`live coachAthleteLinks exceed configured limit ${limits.maxLinks}`);
+  }
+
+  const terminalSlots = Math.max(0, limits.maxLinks - liveLinks.length);
+  const terminalLinks = db.coachAthleteLinks
+    .filter(link => link.status === 'ended' && limits.terminalRetentionDays > 0 && rowTime(link) >= cutoff)
+    .sort(newestFirst)
+    .slice(0, Math.min(limits.terminalLinksKeep, terminalSlots));
+  const keptLinks = [...liveLinks, ...terminalLinks];
+  const keptLinkIds = new Set(keptLinks.map(link => link.id));
+  if (keptLinks.length !== db.coachAthleteLinks.length) changed = true;
+  db.coachAthleteLinks = keptLinks;
+  linksById = new Map(keptLinks.map(link => [link.id, link]));
+
+  const pending = db.coachInvites
+    .filter(invite => linksById.get(invite.linkId)?.status === 'pending')
+    .sort(newestFirst);
+  if (pending.length > limits.maxInvites) throw new B2B2CDataError(`pending coachInvites exceed configured limit ${limits.maxInvites}`);
+  const remaining = Math.max(0, limits.maxInvites - pending.length);
+  const acceptedLive = db.coachInvites
+    .filter(invite => invite.acceptedAt && keptLinkIds.has(invite.linkId) && linksById.get(invite.linkId)?.status !== 'ended')
+    .sort(newestFirst)
+    .slice(0, remaining);
+  const terminalRemaining = Math.max(0, remaining - acceptedLive.length);
+  const terminalInvites = db.coachInvites
+    .filter(invite => linksById.get(invite.linkId)?.status === 'ended'
+      && limits.terminalRetentionDays > 0 && rowTime(invite) >= cutoff)
+    .sort(newestFirst)
+    .slice(0, Math.min(limits.terminalInvitesKeep, terminalRemaining));
+  const keptInvites = [...pending, ...acceptedLive, ...terminalInvites];
+  if (keptInvites.length !== db.coachInvites.length) changed = true;
+  db.coachInvites = keptInvites;
+  return { changed, invites: keptInvites.length, links: keptLinks.length };
 }
 
 export function profileOf(user) {

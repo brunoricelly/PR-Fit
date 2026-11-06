@@ -33,3 +33,15 @@ test('authorization uses current specialties and the current live relationship',
   assert.equal(access.ok, true);
   assert.equal(access.link.id, 'cal_2');
 });
+
+test('a professional may remain an athlete in another scoped relationship', () => {
+  const dualRoleAthlete = { id: athlete.id, profile: { kind: 'coach', coachSpecialties: ['nutrition'] } };
+  const linked = authorizeAthleteAccess(dbWith('active'), coach, dualRoleAthlete.id, 'athlete:training:read');
+  assert.equal(linked.ok, true);
+
+  const unrelated = authorizeAthleteAccess(dbWith('active'), dualRoleAthlete, 'u_someone_else', 'athlete:nutrition:read');
+  assert.equal(unrelated.code, 'relationship_not_found');
+
+  const ended = authorizeAthleteAccess(dbWith('ended'), coach, dualRoleAthlete.id, 'athlete:training:read');
+  assert.equal(ended.code, 'relationship_inactive');
+});
