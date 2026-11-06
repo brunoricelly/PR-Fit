@@ -1647,23 +1647,35 @@ async function removeEmail(req, res, user, body) {
 // device links and live presence, and outside db.json their training history, any Coach
 // credential and their photos and videos. The admin's delete and the account's own both end here.
 function removeAccount(u) {
-  db.users = db.users.filter(x => x.id !== u.id);
-  db.creds = (db.creds || []).filter(c => c.userId !== u.id);
-  db.subs = (db.subs || []).filter(x => x.userId !== u.id);
-  removeB2B2CUser(db, u.id);
-  dropDeviceLinks(db, u.id);
-  dropWatchLinks(db, u.id);
-  dropWatchCodes(watchCodes, u.id);
-  presence.delete(u.id);
-  // The training history and any Coach credential of theirs, both outside db.json.
+  const snapshot = {
+    users: [...db.users],
+    creds: db.creds ? [...db.creds] : [],
+    subs: db.subs ? [...db.subs] : [],
+    coachInvites: db.coachInvites ? [...db.coachInvites] : [],
+    coachAthleteLinks: db.coachAthleteLinks ? [...db.coachAthleteLinks] : [],
+    coachPrescriptions: db.coachPrescriptions ? [...db.coachPrescriptions] : [],
+    coachAssessments: db.coachAssessments ? [...db.coachAssessments] : [],
+  };
+  try {
+    db.users = db.users.filter(x => x.id !== u.id);
+    db.creds = (db.creds || []).filter(c => c.userId !== u.id);
+    db.subs = (db.subs || []).filter(x => x.userId !== u.id);
+    removeB2B2CUser(db, u.id);
+    dropDeviceLinks(db, u.id);
+    dropWatchLinks(db, u.id);
+    dropWatchCodes(watchCodes, u.id);
+    presence.delete(u.id);
+    saveDb();
+  } catch (err) {
+    Object.assign(db, snapshot);
+    throw err;
+  }
+  // External resources are only deleted after saveDb succeeds
   try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
   try { fs.unlinkSync(watchFile(u.id)); } catch { /* never had a watch */ }
   try { coachConfig.clearProfileAuth(u.id); } catch { /* nothing stored */ }
-  // Their photos and videos — the one place a profile's folder under uploads/ is removed.
   try { MEDIA.removeUser(u.id); } catch (e) { console.error('media: could not remove uploads of', u.id, e.message); }
-  // Their integrations: connections, sealed secrets and anything still waiting to be sent.
   try { integrations.removeUser(u.id); } catch (e) { console.error('integrations: could not remove', u.id, e.message); }
-  saveDb();
 }
 
 const passwordRoutes = {
