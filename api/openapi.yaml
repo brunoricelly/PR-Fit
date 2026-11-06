@@ -476,6 +476,88 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: The caller is not a professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /api/coach/athletes/{athleteId}/routines:
+    parameters:
+      - in: path
+        name: athleteId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [professionals]
+      operationId: listPrescribedRoutines
+      summary: List routines prescribed to one linked athlete
+      description: Requires an active relationship whose scope includes `training`.
+      responses:
+        '200':
+          description: Current available and adopted routines created by this professional.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routines: { type: array, items: { $ref: '#/components/schemas/TrainingPrescription' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    post:
+      tags: [professionals]
+      operationId: createPrescribedRoutine
+      summary: Prescribe an A/B/C-style routine to one linked athlete
+      description: Requires an active relationship whose scope includes `training`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [routine]
+              properties:
+                routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+      responses:
+        '201':
+          description: Prescription persisted in the server JSON collection.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routine: { $ref: '#/components/schemas/TrainingPrescription' }
+        '400': { description: Invalid routine, division or exercise fields., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Prescription storage capacity reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/coach/athletes/{athleteId}/routines/{routineId}:
+    delete:
+      tags: [professionals]
+      operationId: withdrawPrescribedRoutine
+      summary: Withdraw a prescribed routine
+      description: >-
+        Requires the same active training relationship as creation. The persisted row becomes
+        `withdrawn` so dates and lifecycle state remain auditable, and disappears from list routes.
+      parameters:
+        - in: path
+          name: athleteId
+          required: true
+          schema: { type: string }
+        - in: path
+          name: routineId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Withdrawn prescription.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  routine: { $ref: '#/components/schemas/TrainingPrescription' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or routine absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   /api/athlete/coaches:
     get:
       tags: [professionals]
@@ -494,6 +576,61 @@ paths:
                 properties:
                   links: { type: array, items: { $ref: '#/components/schemas/CoachAthleteLink' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/athlete/prescriptions:
+    get:
+      tags: [professionals]
+      operationId: listAthletePrescriptions
+      summary: List the signed-in athlete's training prescriptions
+      description: Returns non-withdrawn prescriptions backed by a currently active `training` relationship.
+      responses:
+        '200':
+          description: Available and adopted prescriptions for this athlete.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prescriptions: { type: array, items: { $ref: '#/components/schemas/TrainingPrescription' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/athlete/prescriptions/{routineId}/adopt:
+    post:
+      tags: [professionals]
+      operationId: adoptAthletePrescription
+      summary: Add one prescription to the athlete's routines
+      description: >-
+        Idempotently adds every prescribed division as a new openGym routine in the athlete's
+        synced state, without replacing existing routines, and marks the prescription adopted.
+        Repeating the request returns the same routine ids. State and prescription metadata are
+        committed through a durable journal, so a retry or restart completes an interrupted
+        adoption without duplicating routines. An active `training` relationship is required.
+      parameters:
+        - in: path
+          name: routineId
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Adopted prescription and the openGym routine ids created for its divisions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  prescription: { $ref: '#/components/schemas/TrainingPrescription' }
+                  routineIds:
+                    type: array
+                    items: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: The active training relationship no longer authorizes adoption., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Prescription absent, withdrawn or owned by another athlete., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/StateWriteBusy' }
+        '503':
+          description: >-
+            The athlete state file is unreadable, the global state-write backlog is full, or an
+            adoption journal could not yet be completed. No retry can duplicate adopted routines.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
 
   /api/coach/links/status:
     post:
@@ -2012,10 +2149,15 @@ paths:
         With `baseRev` the write is conditional: it goes through only when `baseRev`
         equals the document's current revision, and answers 409 with the current
         document otherwise; the client merges the two and pushes again with the
-        revision it was given. Without `baseRev` the write is unconditional (clients
-        from before revisions, and deliberate replaces such as a backup import). The
-        server stamps the new revision into the document as `_rev`; a `_rev` sent by
-        the client is ignored.
+        revision it was given. Without `baseRev`, a legacy writer may create the first
+        document only. Once any document exists, the server answers 428 with its current
+        copy instead of allowing an unnamed stale base to erase a device or server-side
+        mutation. The server stamps the new revision into the document as `_rev`; a
+        `_rev` sent by the client is ignored.
+
+        State writes have bounded admission before the request body is retained: at most
+        `STATE_WRITE_PER_USER_MAX` requests per profile and `STATE_WRITE_GLOBAL_MAX` across
+        the process. Excess per-profile work answers 429; a full global backlog answers 503.
 
         The records of removals (`deleted`) and of edits (`edited`) never shrink: the
         stored ones are joined into the write (a reset keeps its own). A writer that does
@@ -2055,8 +2197,8 @@ paths:
                 baseRev:
                   oneOf: [{ type: integer }, { type: 'null' }]
                   description: >-
-                    The revision this client last read or wrote. Omit or null for an
-                    unconditional overwrite.
+                    The revision this client last read or wrote. Omit or null only when creating
+                    a profile that has no stored state yet; otherwise the server answers 428.
                 baseWid:
                   type: string
                   description: >-
@@ -2106,6 +2248,19 @@ paths:
                     oneOf:
                       - $ref: '#/components/schemas/State'
                       - type: 'null'
+        '428':
+          description: >-
+            A stored document exists but the writer omitted `baseRev`. Carries the current
+            revision and document so the caller can reconcile and retry conditionally.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error: { type: string, const: revision required }
+                  code: { type: string, const: revision-required }
+                  rev: { type: integer }
+                  state: { $ref: '#/components/schemas/State' }
         '400':
           description: >-
             `state` missing or not an object, `state` an array or an object with nothing of
@@ -2120,6 +2275,8 @@ paths:
                 missing: { value: { error: "state required" } }
                 invalid: { value: { error: "invalid state" } }
         '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/StateWriteBusy' }
+        '503': { $ref: '#/components/responses/StateWriteGlobalBusy' }
 
   /api/data/rev:
     get:
@@ -4120,6 +4277,22 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: "the server is busy, try again in a moment", code: "busy" }
+    StateWriteBusy:
+      description: This profile already has the maximum admitted state writes. The body was not parsed; retry shortly.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds to wait before retrying. }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "too many state writes for this profile", code: "state-write-busy" }
+    StateWriteGlobalBusy:
+      description: The process-wide admitted state-write backlog is full. The body was not parsed; retry shortly.
+      headers:
+        Retry-After: { schema: { type: integer }, description: Seconds to wait before retrying. }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "the server is busy, try again in a moment", code: "busy" }
     PasswordPolicy:
       description: >-
         The new password breaks the policy (`too-short` under 10 characters,
@@ -4320,6 +4493,61 @@ components:
             id: { type: string }
             name: { type: string }
             profile: { $ref: '#/components/schemas/B2B2CProfile' }
+
+    PrescribedExercise:
+      type: object
+      required: [name, sets, reps, restSeconds]
+      properties:
+        id: { type: string }
+        catalogueId: { type: string, description: Optional openGym catalogue id to reuse instead of creating a custom exercise. }
+        name: { type: string, maxLength: 120 }
+        sets: { type: integer, minimum: 1, maximum: 20 }
+        reps: { type: string, maxLength: 40, example: '8-12' }
+        load: { type: string, maxLength: 40, example: '60 kg' }
+        restSeconds: { type: integer, minimum: 0, maximum: 3600 }
+        notes: { type: string, maxLength: 500 }
+
+    PrescribedDivision:
+      type: object
+      required: [name, exercises]
+      properties:
+        id: { type: string }
+        name: { type: string, maxLength: 80, example: 'A — Peito e tríceps' }
+        exercises:
+          type: array
+          minItems: 1
+          maxItems: 40
+          items: { $ref: '#/components/schemas/PrescribedExercise' }
+
+    PrescribedRoutine:
+      type: object
+      required: [name, divisions]
+      properties:
+        name: { type: string, maxLength: 120, example: 'Ficha hipertrofia ABC' }
+        notes: { type: string, maxLength: 1000 }
+        divisions:
+          type: array
+          minItems: 1
+          maxItems: 12
+          items: { $ref: '#/components/schemas/PrescribedDivision' }
+
+    TrainingPrescription:
+      type: object
+      required: [id, coach, athlete, routine, state, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        coach: { $ref: '#/components/schemas/SessionUser' }
+        athlete: { $ref: '#/components/schemas/SessionUser' }
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+        state: { type: string, enum: [available, adopted, withdrawn] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        adoptedAt: { type: string, format: date-time }
+        adoptedRoutineIds:
+          type: array
+          description: OpenGym routine ids added for the prescribed divisions, in division order.
+          items: { type: string }
+        withdrawnAt: { type: string, format: date-time }
 
     # ------------------------------------------------------------------ WebAuthn
     # These mirror @simplewebauthn/server v13's JSON shapes (themselves the W3C

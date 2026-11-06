@@ -1,6 +1,6 @@
-/* /api/data carries a server revision: GET hands it out, PUT with `baseRev` is refused (409, with
-   the current document) when another write landed in between, PUT without `baseRev` overwrites
-   as clients from before revisions always did. Real server.js in a child. */
+/* /api/data carries a server revision: GET hands it out, PUT with a stale `baseRev` is refused
+   with the current document, and a revision-less legacy write is accepted only for the first
+   document. Real server.js in a child. */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -41,7 +41,7 @@ async function startServer(t) {
   return h;
 }
 
-test('GET/PUT /api/data: revisions, conditional writes and the legacy overwrite', async t => {
+test('GET/PUT /api/data: revisions, conditional writes and fail-closed legacy writes', async t => {
   const h = await startServer(t);
   const uid = 'u_rev_1';
   const get = async () => { const r = await fetch(`${h.api}/api/data`, { headers: headers(uid) }); return { status: r.status, body: await r.json() }; };
@@ -53,8 +53,8 @@ test('GET/PUT /api/data: revisions, conditional writes and the legacy overwrite'
   assert.equal(r.status, 200);
   assert.deepEqual(r.body, { state: null, rev: 0 });
 
-  // first write against rev 0
-  r = await put({ state: { _ts: 100, workouts: [{ id: 'w1', d: '2026-09-01' }], routines: [], active: { id: 'running' } }, baseRev: 0 });
+  // A revision-less client can create the first document: there is nothing newer to erase.
+  r = await put({ state: { _ts: 100, workouts: [{ id: 'w1', d: '2026-09-01' }], routines: [], active: { id: 'running' } } });
   assert.equal(r.status, 200);
   assert.equal(r.body.ok, true);
   assert.equal(r.body.rev, 1);
@@ -76,32 +76,35 @@ test('GET/PUT /api/data: revisions, conditional writes and the legacy overwrite'
   assert.deepEqual(r.body.state.workouts.map(w => w.id), ['w1']);
   assert.deepEqual(onDisk().workouts.map(w => w.id), ['w1'], 'a refused write changes nothing');
 
-  // a client from before revisions sends no baseRev and overwrites, as it always did
+  // Once a document exists, a client from before revisions fails closed and gets the current
+  // copy to reconcile instead of silently overwriting it.
   r = await put({ state: { _ts: 300, workouts: [{ id: 'w2', d: '2026-09-02' }], routines: [] } });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.rev, 2);
-  assert.deepEqual(onDisk().workouts.map(w => w.id), ['w2']);
+  assert.equal(r.status, 428);
+  assert.equal(r.body.code, 'revision-required');
+  assert.equal(r.body.rev, 1);
+  assert.deepEqual(r.body.state.workouts.map(w => w.id), ['w1']);
+  assert.deepEqual(onDisk().workouts.map(w => w.id), ['w1']);
 
   // a matching baseRev goes through; a client-supplied _rev is ignored
-  r = await put({ state: { _ts: 400, _rev: 99, workouts: [{ id: 'w3', d: '2026-09-03' }], routines: [] }, baseRev: 2 });
+  r = await put({ state: { _ts: 400, _rev: 99, workouts: [{ id: 'w3', d: '2026-09-03' }], routines: [] }, baseRev: 1 });
   assert.equal(r.status, 200);
-  assert.equal(r.body.rev, 3);
-  assert.equal(onDisk()._rev, 3);
+  assert.equal(r.body.rev, 2);
+  assert.equal(onDisk()._rev, 2);
 
-  // an explicit null is "no baseRev", not "rev null"
+  // an explicit null is also revision-less and fails closed once state exists
   r = await put({ state: { _ts: 500, workouts: [], routines: [] }, baseRev: null });
-  assert.equal(r.status, 200);
-  assert.equal(r.body.rev, 4);
+  assert.equal(r.status, 428);
+  assert.equal(r.body.rev, 2);
 
   // a baseRev that is a string never matches (no coercion)
-  r = await put({ state: { _ts: 600, workouts: [], routines: [] }, baseRev: '4' });
+  r = await put({ state: { _ts: 600, workouts: [], routines: [] }, baseRev: '2' });
   assert.equal(r.status, 409);
 
   // the shape check still comes first
-  r = await put({ state: { workouts: 'nope' }, baseRev: 4 });
+  r = await put({ state: { workouts: 'nope' }, baseRev: 2 });
   assert.equal(r.status, 400);
   assert.equal(r.body.error, 'invalid state');
-  assert.equal(onDisk()._rev, 4);
+  assert.equal(onDisk()._rev, 2);
 });
 
 // `{}` keeps every rule this route has and still empties the profile: it is

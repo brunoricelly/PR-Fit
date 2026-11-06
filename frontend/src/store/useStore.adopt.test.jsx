@@ -82,7 +82,7 @@ describe('adoptProfile — sign-in takes the server profile', () => {
     await useStore.getState().adoptProfile(ask)
     expect(ask).not.toHaveBeenCalled()
     expect(puts()).toHaveLength(1)
-    expect(puts()[0].baseRev).toBeUndefined()   // a deliberate replace of an empty profile
+    expect(puts()[0].baseRev).toBe(0)
     expect(puts()[0].state.workouts.map(w => w.id)).toEqual(['w9'])
     expect(useStore.getState().S.unit).toBe('kg')
   })

@@ -56,7 +56,15 @@ async function start(t, env = {}) {
     fetch(`${h.api}/api/media/${hash}`, { method: 'PUT', headers: { ...(headers || cookie(uid)), 'Content-Type': declare }, body: bytes });
   h.get = (hash, uid = U1, headers) => fetch(`${h.api}/api/media/${hash}`, { headers: headers || cookie(uid) });
   h.post = (route, body, uid = U1) => fetch(`${h.api}${route}`, { method: 'POST', headers: { ...cookie(uid), 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  h.pushState = (state, uid = U1) => fetch(`${h.api}/api/data`, { method: 'PUT', headers: { ...cookie(uid), 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+  const stateRevs = new Map();
+  h.pushState = async (state, uid = U1) => {
+    const response = await fetch(`${h.api}/api/data`, {
+      method: 'PUT', headers: { ...cookie(uid), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state, baseRev: stateRevs.get(uid) || 0 }),
+    });
+    if (response.ok) stateRevs.set(uid, (await response.clone().json()).rev);
+    return response;
+  };
   h.files = uid => { try { return fs.readdirSync(path.join(h.uploads, uid)).filter(n => !n.startsWith('.')).sort(); } catch { return []; } };
   h.tmp = uid => { try { return fs.readdirSync(path.join(h.uploads, uid, '.tmp')); } catch { return []; } };
   h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;

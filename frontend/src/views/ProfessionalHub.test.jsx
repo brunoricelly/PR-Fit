@@ -7,11 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const mocks = vi.hoisted(() => ({
-  user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), confirms: [], copied: [],
+  user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [],
 }))
 
 vi.mock('../store/useStore.js', () => {
-  const snap = () => ({ user: mocks.user, setUser: mocks.setUser })
+  const snap = () => ({ user: mocks.user, setUser: mocks.setUser, pullState: mocks.pullState })
   const useStore = selector => (selector ? selector(snap()) : snap())
   useStore.getState = snap
   return { useStore }
@@ -38,7 +38,7 @@ import ProfessionalHub from './ProfessionalHub.jsx'
 
 let host, root
 beforeEach(() => {
-  Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), confirms: [], copied: [] })
+  Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -213,5 +213,75 @@ describe('ProfessionalHub', () => {
     const save = mocks.calls.find(call => call.path === '/api/profile')
     expect(save.body).toEqual({ kind: 'coach', coachSpecialties: ['training'] })
     expect(mocks.setUser).toHaveBeenCalledWith(mocks.answers['/api/profile'].user)
+  })
+
+  it('lets a training professional build and persist an A/B/C prescription', async () => {
+    mocks.user = {
+      id: 'u_coach', name: 'Coach', admin: false,
+      profile: { kind: 'coach', coachSpecialties: ['training'] },
+      capabilities: ['relationships:invite', 'relationships:list', 'relationships:suspend', 'relationships:end'],
+    }
+    const athlete = { id: 'u_athlete', name: 'Ana' }
+    mocks.answers['/api/coach/athletes'] = {
+      links: [{ id: 'cal_1', status: 'active', scopes: ['training'], athlete }],
+    }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/athlete/prescriptions'] = { prescriptions: [] }
+    const route = '/api/coach/athletes/u_athlete/routines'
+    mocks.answers[route] = body => body ? {
+      routine: {
+        id: 'cpr_1', state: 'available', createdAt: '2026-11-06T00:00:00.000Z', coach: { id: 'u_coach', name: 'Coach' }, athlete,
+        routine: body.routine,
+      },
+    } : { routines: [] }
+    await mount('/professionals')
+
+    await act(async () => { button('Prescribe workout').click() })
+    await type(host.querySelector('input[name="routineName"]'), 'Ficha ABC')
+    const names = [...host.querySelectorAll('input[name^="exercise-"]')]
+    await type(names[0], 'Supino reto')
+    await type(names[1], 'Remada baixa')
+    await type(names[2], 'Agachamento')
+    await act(async () => { button('Send prescription').click() })
+    await settle()
+
+    const create = mocks.calls.find(call => call.path === route && call.method === 'POST')
+    expect(create.body.routine.name).toBe('Ficha ABC')
+    expect(create.body.routine.divisions.map(division => division.name)).toEqual(['A', 'B', 'C'])
+    expect(create.body.routine.divisions.map(division => division.exercises[0].name)).toEqual(['Supino reto', 'Remada baixa', 'Agachamento'])
+    expect(create.body.routine.divisions[0].exercises[0]).toMatchObject({ sets: 3, reps: '8-12', restSeconds: 60 })
+    expect(host.textContent).toContain('Ficha ABC')
+    expect(mocks.toast).toHaveBeenCalledWith('Workout prescription saved.')
+  })
+
+  it('shows an athlete the full prescription and adopts it explicitly', async () => {
+    mocks.user = { id: 'u_athlete', name: 'Ana', admin: false }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    const available = {
+      id: 'cpr_1', state: 'available', createdAt: '2026-11-06T00:00:00.000Z',
+      coach: { id: 'u_coach', name: 'Coach' }, athlete: { id: 'u_athlete', name: 'Ana' },
+      routine: { name: 'Ficha ABC', notes: 'Progredir com técnica.', divisions: [
+        { id: 'division_1', name: 'A', exercises: [{ id: 'exercise_1_1', name: 'Supino reto', sets: 4, reps: '8-10', load: '60 kg', restSeconds: 90, notes: 'RIR 2' }] },
+      ] },
+    }
+    mocks.answers['/api/athlete/prescriptions'] = { prescriptions: [available] }
+    mocks.answers['/api/athlete/prescriptions/cpr_1/adopt'] = {
+      prescription: { ...available, state: 'adopted', adoptedAt: '2026-11-06T12:00:00.000Z', adoptedRoutineIds: ['r_adopted'] },
+      routineIds: ['r_adopted'],
+    }
+    await mount('/professionals')
+
+    expect(host.textContent).toContain('Supino reto')
+    expect(host.textContent).toContain('4 sets · 8-10 reps · 90s rest')
+    expect(host.textContent).toContain('Load: 60 kg')
+    expect(button('Add to my routines')).toBeDefined()
+    await act(async () => { button('Add to my routines').click() })
+    await settle()
+
+    expect(mocks.calls).toContainEqual({ path: '/api/athlete/prescriptions/cpr_1/adopt', method: 'POST', body: {} })
+    expect(mocks.pullState).toHaveBeenCalledTimes(1)
+    expect(host.textContent).toContain('Adopted')
+    expect(button('Add to my routines')).toBeUndefined()
+    expect(mocks.toast).toHaveBeenCalledWith('Added to your routines.')
   })
 })

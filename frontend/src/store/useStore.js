@@ -386,7 +386,6 @@ export const useStore = create((set, get) => {
   let pulling = null       // the GET in flight, so two resume signals make one request
   let configFetch = null   // the /api/config in flight, so two callers make one request
   let pushPending = false  // a change made before boot's pull — pushed once boot is through
-  let forceNext = false    // the next push replaces the server copy outright (reset)
   // A backup import's replace: pushed against the revision the import's check read (importRead),
   // so a change another device synced while the confirm was open is merged in, not wiped.
   let replaceRev = null
@@ -793,11 +792,6 @@ export const useStore = create((set, get) => {
   const doPush = async (attempt = 0) => {
     const S = get().S
     const { base } = metaOf()
-    // A forced push is one attempt. One that fails is retried as an ordinary push against the
-    // revision this copy descends from: kept armed, it went out later without a baseRev and
-    // replaced whatever another device had written in the meantime.
-    const force = forceNext
-    forceNext = false
     const asReplace = replaceRev
     replaceRev = null
     // `stamped`: this client stamps its own changes; the server stamps only for one that does not
@@ -807,7 +801,7 @@ export const useStore = create((set, get) => {
     const legacy = readLegacy()
     const body = { state: S, stamped: !(legacy && legacy.owner === get().user?.id) }
     if (asReplace != null) { body.baseRev = asReplace.rev; if (asReplace.wid) body.baseWid = asReplace.wid }
-    else if (!force && base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
+    else if (base) { body.baseRev = base.rev; if (base.wid) body.baseWid = base.wid }
     try {
       const r = await api('/api/data', { method: 'PUT', body: JSON.stringify(body) })
       // A server from before revisions answers without one — then there is nothing to hold the
@@ -825,7 +819,7 @@ export const useStore = create((set, get) => {
         import('./useUI.js').then(({ useUI }) => useUI.getState().toast(t('Back online and synced with the server.'))).catch(() => {})
       }
     } catch (e) {
-      if (e.status === 409 && e.data && attempt < 2) {
+      if ((e.status === 409 || e.status === 428) && e.data && attempt < 2) {
         // Another device wrote since this one last read. The server sent its document along;
         // merge and push once more against that revision. A second refusal in a row leaves the
         // copy owed and the next resume pull takes it from there. A backup import whose replace
@@ -1265,7 +1259,7 @@ export const useStore = create((set, get) => {
         return { adopted: true, added: false }
       }
       markOwed(false)
-      if (push) { if (rev != null) writeSync(rev, 0); forceNext = true; await get().pushState() }
+      if (push) { if (rev != null) writeSync(rev, 0); await get().pushState() }
       else { if (rev != null) writeSync(rev, 0); confirmed(get().S) }
       await applyStash()
       return { adopted: false, added: false }
@@ -1616,12 +1610,14 @@ export const useStore = create((set, get) => {
       persist(merged, true)
       if (mergeWith.rev != null) writeSync(mergeWith.rev, 0, mergeWith.state?._wid)
     },
-    // A replace that is meant to reach the server (backup import, reset) is a deliberate
-    // overwrite, not a change to merge: the push it arms goes without a baseRev — or, given one
-    // (an import), against that revision, so a 409 merges what another device wrote since. It
-    // never takes the reset stamp back (keepReset).
+    // A replace that is meant to reach the server (backup import, reset) is pushed against the
+    // revision the caller read, or this device's current base. A server-side mutation that landed
+    // since then answers with its current copy, which is merged before retry instead of erased.
     replaceState(S, push = false, { baseRev = null, baseWid } = {}) {
-      if (push) { if (baseRev != null) replaceRev = { rev: baseRev, wid: baseWid }; else forceNext = true }
+      if (push) {
+        const base = baseRev != null ? { rev: baseRev, wid: baseWid } : metaOf().base
+        if (base) replaceRev = { rev: base.rev, wid: base.wid }
+      }
       persist(keepReset(get().S, clone(S)), push)
     },
 

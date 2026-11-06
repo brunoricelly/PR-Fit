@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-export const B2B2C_SCHEMA_VERSION = 2;
+export const B2B2C_SCHEMA_VERSION = 3;
 export const COACH_SCOPES = ['training', 'nutrition'];
 
 export class B2B2CDataError extends Error {
@@ -31,7 +31,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -39,7 +39,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -73,6 +73,8 @@ function closePending(link, invite, nowIso, reason) {
 }
 
 export function compactB2B2C(db, limits, nowMs = Date.now()) {
+  const maxPrescriptions = limits.maxPrescriptions ?? 5000;
+  const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
   const cutoff = nowMs - limits.terminalRetentionDays * 86400000;
   let changed = false;
@@ -137,7 +139,20 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   const keptInvites = [...pending, ...acceptedLive, ...terminalInvites];
   if (keptInvites.length !== db.coachInvites.length) changed = true;
   db.coachInvites = keptInvites;
-  return { changed, invites: keptInvites.length, links: keptLinks.length };
+
+  const livePrescriptions = db.coachPrescriptions.filter(item => item.state !== 'withdrawn');
+  if (livePrescriptions.length > maxPrescriptions) {
+    throw new B2B2CDataError(`live coachPrescriptions exceed configured limit ${maxPrescriptions}`);
+  }
+  const prescriptionSlots = Math.max(0, maxPrescriptions - livePrescriptions.length);
+  const withdrawnPrescriptions = db.coachPrescriptions
+    .filter(item => item.state === 'withdrawn' && limits.terminalRetentionDays > 0 && rowTime(item) >= cutoff)
+    .sort(newestFirst)
+    .slice(0, Math.min(terminalPrescriptionsKeep, prescriptionSlots));
+  const keptPrescriptions = [...livePrescriptions, ...withdrawnPrescriptions];
+  if (keptPrescriptions.length !== db.coachPrescriptions.length) changed = true;
+  db.coachPrescriptions = keptPrescriptions;
+  return { changed, invites: keptInvites.length, links: keptLinks.length, prescriptions: keptPrescriptions.length };
 }
 
 export function profileOf(user) {
@@ -202,6 +217,72 @@ export function makeEntityId(prefix, rows) {
   return id;
 }
 
+const cleanText = (value, max, { required = false } = {}) => {
+  if (value === undefined || value === null) return required ? null : '';
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  if ((required && !normalized) || normalized.length > max) return null;
+  return normalized;
+};
+
+export function validatePrescriptionRoutine(body) {
+  if (!record(body) || !record(body.routine)) return null;
+  if (Object.keys(body).some(key => key !== 'routine')) return null;
+  const routine = body.routine;
+  if (Object.keys(routine).some(key => !['divisions', 'name', 'notes'].includes(key))) return null;
+  const name = cleanText(routine.name, 120, { required: true });
+  const notes = cleanText(routine.notes, 1000);
+  if (!name || notes === null || !Array.isArray(routine.divisions) || !routine.divisions.length || routine.divisions.length > 12) return null;
+
+  const divisions = [];
+  for (let divisionIndex = 0; divisionIndex < routine.divisions.length; divisionIndex++) {
+    const input = routine.divisions[divisionIndex];
+    if (!record(input) || Object.keys(input).some(key => !['exercises', 'name'].includes(key))) return null;
+    const divisionName = cleanText(input.name, 80, { required: true });
+    if (!divisionName || !Array.isArray(input.exercises) || !input.exercises.length || input.exercises.length > 40) return null;
+    const exercises = [];
+    for (let exerciseIndex = 0; exerciseIndex < input.exercises.length; exerciseIndex++) {
+      const exercise = input.exercises[exerciseIndex];
+      if (!record(exercise) || Object.keys(exercise).some(key => !['catalogueId', 'load', 'name', 'notes', 'reps', 'restSeconds', 'sets'].includes(key))) return null;
+      const exerciseName = cleanText(exercise.name, 120, { required: true });
+      const catalogueId = cleanText(exercise.catalogueId, 64);
+      const reps = cleanText(exercise.reps, 40, { required: true });
+      const load = cleanText(exercise.load, 40);
+      const exerciseNotes = cleanText(exercise.notes, 500);
+      if (!exerciseName || catalogueId === null || !reps || load === null || exerciseNotes === null) return null;
+      if (!Number.isInteger(exercise.sets) || exercise.sets < 1 || exercise.sets > 20) return null;
+      if (!Number.isInteger(exercise.restSeconds) || exercise.restSeconds < 0 || exercise.restSeconds > 3600) return null;
+      exercises.push({
+        id: `exercise_${divisionIndex + 1}_${exerciseIndex + 1}`,
+        ...(catalogueId ? { catalogueId } : {}),
+        name: exerciseName,
+        sets: exercise.sets,
+        reps,
+        load,
+        restSeconds: exercise.restSeconds,
+        notes: exerciseNotes,
+      });
+    }
+    divisions.push({ id: `division_${divisionIndex + 1}`, name: divisionName, exercises });
+  }
+  return { name, notes, divisions };
+}
+
+export function serializePrescription(db, prescription) {
+  return {
+    id: prescription.id,
+    coach: safeProfileUser(db.users.find(user => user.id === prescription.coachId)),
+    athlete: safeProfileUser(db.users.find(user => user.id === prescription.athleteId), { includeProfile: false }),
+    routine: structuredClone(prescription.routine),
+    state: prescription.state,
+    createdAt: prescription.createdAt,
+    updatedAt: prescription.updatedAt,
+    ...(prescription.adoptedAt ? { adoptedAt: prescription.adoptedAt } : {}),
+    ...(Array.isArray(prescription.adoptedRoutineIds) ? { adoptedRoutineIds: [...prescription.adoptedRoutineIds] } : {}),
+    ...(prescription.withdrawnAt ? { withdrawnAt: prescription.withdrawnAt } : {}),
+  };
+}
+
 export function linkForActor(db, actor, linkId) {
   const link = db.coachAthleteLinks.find(item => item.id === linkId);
   if (!link) return null;
@@ -243,4 +324,5 @@ export function serializeLink(db, link, viewer) {
 export function removeB2B2CUser(db, userId) {
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
+  db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
 }

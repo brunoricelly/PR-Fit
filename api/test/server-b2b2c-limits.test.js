@@ -27,8 +27,8 @@ function makeDataDir(t, db = {}) {
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
-    schemaVersion: 2, users: Object.values(USERS), creds: [], subs: [], invites: [],
-    coachInvites: [], coachAthleteLinks: [], ...db,
+    schemaVersion: 3, users: Object.values(USERS), creds: [], subs: [], invites: [],
+    coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], ...db,
   }, null, 2));
   return dataDir;
 }

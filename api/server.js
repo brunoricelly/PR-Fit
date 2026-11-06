@@ -38,6 +38,8 @@ import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE } from 
 import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
 import { atomicWrite as durableWrite } from './durable.js';
+import { adoptPrescriptionState, prescriptionStateReadable } from './prescription-adoption.js';
+import { StateWriteQueue, StateWriteQueueFullError } from './state-write-queue.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT } from './net-guard.js';
 import { createIntegrations } from './integrations/index.js';
 import { integrationRoutes } from './integrations/routes.js';
@@ -46,7 +48,7 @@ import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from '.
 import {
   B2B2CDataError, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
-  removeB2B2CUser,
+  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, removeB2B2CUser,
 } from './b2b2c.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -107,8 +109,11 @@ const B2B2C_LIMITS = {
   pendingPerCoach: envInt('B2B2C_PENDING_INVITES_PER_COACH', 10, { min: 1, max: 1000 }),
   maxInvites: envInt('B2B2C_MAX_INVITES', 5000, { min: 10, max: 1000000 }),
   maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
+  maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
+  prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
+  terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
   terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
 };
 const B2B2C_RATE = {
@@ -227,6 +232,45 @@ function atomicWrite(file, content, mode) { durableWrite(file, content, mode); }
 // synced more writes ago than this merges on its next pull instead of taking the server's copy.
 const WID_KEEP = 50;
 const stateFile = uid => path.join(DATA, 'state-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
+// Every read/transform/write of a profile document shares this queue. Entries exist only while a
+// user has an active or waiting write, so an instance that sees many users does not retain a lock
+// per user forever.
+const stateWrites = new StateWriteQueue({
+  perKeyLimit: envInt('STATE_WRITE_PER_USER_MAX', 4, { min: 1, max: 100 }),
+  globalLimit: envInt('STATE_WRITE_GLOBAL_MAX', 128, { min: 1, max: 10000 }),
+});
+function withStateWrite(uid, req, task) {
+  const controller = new AbortController();
+  const abort = () => controller.abort(Object.assign(new Error('client disconnected'), { clientGone: true }));
+  req.once('aborted', abort);
+  return stateWrites.run(stateFile(uid), task, { signal: controller.signal })
+    .finally(() => req.removeListener('aborted', abort));
+}
+const STATE_WRITE_TEST_DIR = process.env.STATE_WRITE_TEST_DIR || '';
+const stateWriteTestName = (point, uid) => path.join(STATE_WRITE_TEST_DIR, `${point}-${uid.replace(/[^a-zA-Z0-9_-]/g, '')}`);
+function stateWriteTestMark(point, uid) {
+  if (!STATE_WRITE_TEST_DIR) return;
+  const name = stateWriteTestName(point, uid);
+  if (fs.existsSync(name + '.watch')) fs.writeFileSync(name + '.reached', '');
+}
+async function stateWriteTestWait(point, uid) {
+  if (!STATE_WRITE_TEST_DIR) return;
+  const name = stateWriteTestName(point, uid);
+  if (!fs.existsSync(name + '.wait')) return;
+  fs.writeFileSync(name + '.reached', '');
+  const deadline = Date.now() + 30000;
+  while (!fs.existsSync(name + '.release')) {
+    if (Date.now() >= deadline) throw new Error(`state write test barrier timed out: ${point}`);
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+function stateWriteTestFail(point, uid) {
+  if (!STATE_WRITE_TEST_DIR) return;
+  const marker = stateWriteTestName(point, uid) + '.fail-once';
+  if (!fs.existsSync(marker)) return;
+  fs.unlinkSync(marker);
+  throw new Error(`injected state write failure: ${point}`);
+}
 // The watch relay's mailbox of a profile (watch-relay.js): the page's last snapshot and what its
 // Zepp OS watches sent. Small, rewritten whole like the state file.
 const watchFile = uid => path.join(DATA, 'watch-' + uid.replace(/[^a-zA-Z0-9_-]/g, '') + '.json');
@@ -477,6 +521,95 @@ function readStateCached(uid) {
   stateCache.set(uid, { mtimeMs: st.mtimeMs, size: st.size, hitAt: now, S });
   while (stateCache.size > STATE_CACHE_MAX) stateCache.delete(stateCache.keys().next().value);
   return S;
+}
+function commitState(uid, previous, next, text) {
+  atomicWrite(stateFile(uid), text);
+  // mtime granularity and equal-sized revisions can otherwise leave this cache on the old copy.
+  stateCache.delete(uid);
+  if (MEDIA_ON) {
+    try { MEDIA.noteState(uid, next); } catch (error) { console.error('media noteState', error); }
+  }
+  try { integrations.onStateWrite(uid, previous, next); } catch (error) { console.error('integrations onStateWrite', error); }
+}
+
+const ADOPTION_JOURNAL_PREFIX = 'prescription-adoption-';
+const adoptionJournalFile = (uid, prescriptionId) => path.join(DATA,
+  `${ADOPTION_JOURNAL_PREFIX}${uid.replace(/[^a-zA-Z0-9_-]/g, '')}-${prescriptionId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
+function readAdoptionJournal(file) {
+  const journal = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (journal?.version !== 1 || typeof journal.tx !== 'string' || typeof journal.uid !== 'string' ||
+      typeof journal.prescriptionId !== 'string' || !Array.isArray(journal.routineIds) ||
+      journal.routineIds.some(id => typeof id !== 'string') || typeof journal.at !== 'string') {
+    throw new Error(`invalid prescription adoption journal ${path.basename(file)}`);
+  }
+  return journal;
+}
+function adoptionJournalFor(uid, prescriptionId, routineIds) {
+  const file = adoptionJournalFile(uid, prescriptionId);
+  try { return { file, journal: readAdoptionJournal(file) }; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const journal = {
+    version: 1,
+    tx: crypto.randomBytes(12).toString('hex'),
+    uid,
+    prescriptionId,
+    routineIds: [...routineIds],
+    at: new Date().toISOString(),
+  };
+  atomicWrite(file, JSON.stringify(journal), 0o600);
+  return { file, journal };
+}
+function finishAdoptionJournal(file, journal, req) {
+  const prescription = db.coachPrescriptions.find(item => item.id === journal.prescriptionId && item.athleteId === journal.uid);
+  if (!prescription) throw new Error(`prescription ${journal.prescriptionId} from adoption journal is missing`);
+  const coach = db.users.find(user => user.id === prescription.coachId);
+  const current = readStateStrict(journal.uid);
+  if (current === UNREADABLE || !prescriptionStateReadable(current)) throw new Error(`state unreadable for ${journal.uid}`);
+  const adoption = adoptPrescriptionState(current, prescription, { now: Date.parse(journal.at) });
+  if (adoption.routineIds.length !== journal.routineIds.length ||
+      adoption.routineIds.some((id, index) => id !== journal.routineIds[index])) {
+    throw new Error(`prescription adoption journal ${journal.tx} no longer matches state`);
+  }
+  if (adoption.changed) {
+    const text = JSON.stringify(adoption.state);
+    commitState(journal.uid, current, adoption.state, text);
+    stateWriteTestFail('adoption-after-state', journal.uid);
+  }
+
+  const before = {
+    state: prescription.state,
+    updatedAt: prescription.updatedAt,
+    adoptedAt: prescription.adoptedAt,
+    adoptedRoutineIds: prescription.adoptedRoutineIds,
+  };
+  prescription.state = 'adopted';
+  prescription.updatedAt = journal.at;
+  prescription.adoptedAt ||= journal.at;
+  prescription.adoptedRoutineIds = [...journal.routineIds];
+  try { saveDb(); }
+  catch (error) {
+    for (const [key, value] of Object.entries(before)) {
+      if (value === undefined) delete prescription[key];
+      else prescription[key] = value;
+    }
+    throw error;
+  }
+
+  const alreadyAudited = AUDIT_ON && auditLines().some(row => row.ev === 'b2b2c.prescription.adopt' && row.tx === journal.tx);
+  if (!alreadyAudited && !audit(req, 'b2b2c.prescription.adopt', { user: db.users.find(user => user.id === journal.uid), target: coach, msg: prescription.id, tx: journal.tx })) {
+    throw new Error(`could not audit prescription adoption ${journal.tx}`);
+  }
+  fs.unlinkSync(file);
+  return { prescription, routineIds: [...journal.routineIds] };
+}
+function recoverAdoptionJournals() {
+  const files = fs.readdirSync(DATA).filter(name => name.startsWith(ADOPTION_JOURNAL_PREFIX) && name.endsWith('.json')).sort();
+  for (const name of files) {
+    const file = path.join(DATA, name);
+    const journal = readAdoptionJournal(file);
+    finishAdoptionJournal(file, journal, { headers: {}, socket: {} });
+    console.log('recovered prescription adoption', journal.prescriptionId, journal.uid);
+  }
 }
 // Missed-workout nudge (nudge.js): opt-in on top of the reminder, so it needs everything the
 // reminder does (a push subscription, the reminder on, a zone). Owed from 20:00 — or 2 h after the
@@ -999,7 +1132,7 @@ function compactAudit() {
 
 // Never throws: a log that can't be written must not break signing in.
 function audit(req, ev, f = {}) {
-  if (!AUDIT_ON) return;
+  if (!AUDIT_ON) return true;
   const rec = { id: ++auditSeq, ts: Date.now(), ev, ok: f.ok !== false };
   if (f.user) { rec.uid = f.user.id; rec.name = String(f.user.name || '').slice(0, 40); }
   else {
@@ -1008,18 +1141,25 @@ function audit(req, ev, f = {}) {
   }
   if (f.target) { rec.tgt = f.target.id; rec.tname = String(f.target.name || '').slice(0, 40); }
   if (f.msg) rec.msg = String(f.msg).slice(0, 120);
+  if (f.tx) rec.tx = String(f.tx).slice(0, 64);
   // What a failed proof of ownership was guarding (proveOwner): 'email', 'passkey-add', …
   if (f.act) rec.act = String(f.act).slice(0, 40);
   const ip = clientIp(req);
   if (ip) rec.ip = ip;
   try { fs.appendFileSync(auditFile, JSON.stringify(rec) + '\n'); }
-  catch (e) { return console.error('audit write failed', e.message); }
+  catch (e) { console.error('audit write failed', e.message); return false; }
   // Amortized: a 5000-event cap rewrites the file once per ~1250 events.
   if (AUDIT_MAX && ++auditCount > AUDIT_MAX * 1.25) compactAudit();
+  return true;
 }
 if (AUDIT_ON) {
   compactAudit();                                // prune on boot, seed auditSeq/auditCount
   setInterval(compactAudit, 3600000).unref();    // honour AUDIT_DAYS on an idle instance too
+}
+try { recoverAdoptionJournals(); }
+catch (error) {
+  console.error('prescription adoption recovery failed:', error.message);
+  process.exit(1);
 }
 
 /* ---------- sign-in throttle ---------- */
@@ -2350,6 +2490,146 @@ const routes = {
     json(res, 200, { links });
   },
 
+  'GET /api/coach/athletes/{athleteId}/routines': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.list.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'training relationship required');
+    }
+    const routines = db.coachPrescriptions
+      .filter(item => item.coachId === coach.id && item.athleteId === req.athleteId && item.state !== 'withdrawn')
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .map(item => serializePrescription(db, item));
+    json(res, 200, { routines });
+  },
+
+  'POST /api/coach/athletes/{athleteId}/routines': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.create.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'active training relationship required');
+    }
+    const routine = validatePrescriptionRoutine(await readBody(req));
+    if (!routine) return b2bError(res, 400, 'invalid_routine', 'invalid prescribed routine');
+    const activeForAthlete = db.coachPrescriptions.filter(item => item.athleteId === req.athleteId && item.state !== 'withdrawn').length;
+    if (activeForAthlete >= B2B2C_LIMITS.prescriptionsPerAthlete || db.coachPrescriptions.filter(item => item.state !== 'withdrawn').length >= B2B2C_LIMITS.maxPrescriptions) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.create.denied', coach, 'prescription_capacity');
+      return b2bError(res, 409, 'prescription_capacity', 'prescription storage capacity reached');
+    }
+    const now = new Date().toISOString();
+    const prescription = {
+      id: makeEntityId('cpr', db.coachPrescriptions),
+      coachId: coach.id,
+      athleteId: req.athleteId,
+      routine,
+      state: 'available',
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.coachPrescriptions.push(prescription);
+    compactB2B2C(db, B2B2C_LIMITS);
+    saveDb();
+    audit(req, 'b2b2c.prescription.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
+    json(res, 201, { routine: serializePrescription(db, prescription) });
+  },
+
+  'DELETE /api/coach/athletes/{athleteId}/routines/{routineId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.withdraw.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'active training relationship required');
+    }
+    const prescription = db.coachPrescriptions.find(item => item.id === req.routineId && item.coachId === coach.id && item.athleteId === req.athleteId);
+    if (!prescription) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.withdraw.denied', coach, 'routine_not_found');
+      return b2bError(res, 404, 'routine_not_found', 'prescribed routine not found');
+    }
+    if (prescription.state !== 'withdrawn') {
+      const now = new Date().toISOString();
+      prescription.state = 'withdrawn';
+      prescription.updatedAt = now;
+      prescription.withdrawnAt = now;
+      compactB2B2C(db, B2B2C_LIMITS);
+      saveDb();
+      audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
+    }
+    json(res, 200, { routine: serializePrescription(db, prescription) });
+  },
+
+  'GET /api/athlete/prescriptions': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const activeTrainingCoaches = new Set(db.coachAthleteLinks
+      .filter(link => link.athleteId === athlete.id && link.status === 'active' && link.scopes.includes('training'))
+      .map(link => link.coachId));
+    const prescriptions = db.coachPrescriptions
+      .filter(item => item.athleteId === athlete.id && item.state !== 'withdrawn' && activeTrainingCoaches.has(item.coachId))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .map(item => serializePrescription(db, item));
+    json(res, 200, { prescriptions });
+  },
+
+  'POST /api/athlete/prescriptions/{routineId}/adopt': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const result = await withStateWrite(athlete.id, req, async () => {
+      const prescription = db.coachPrescriptions.find(item => item.id === req.routineId && item.athleteId === athlete.id && item.state !== 'withdrawn');
+      if (!prescription) return { status: 404, code: 'routine_not_found', message: 'prescribed routine not found' };
+      const coach = db.users.find(user => user.id === prescription.coachId);
+      const access = authorizeAthleteAccess(db, coach, athlete.id, 'athlete:training:write');
+      if (!access.ok) return { status: 403, code: access.code, message: 'active training relationship required' };
+      const current = readStateStrict(athlete.id);
+      if (STATE_WRITE_TEST_DIR) await stateWriteTestWait('adoption-after-read', athlete.id);
+      if (current === UNREADABLE || !prescriptionStateReadable(current)) {
+        console.error('state file unreadable for', athlete.id);
+        return { status: 503, code: 'state_unreadable', message: 'state unreadable' };
+      }
+      let adoption;
+      try { adoption = adoptPrescriptionState(current, prescription); }
+      catch (error) {
+        if (error instanceof RangeError) return { status: 503, code: 'state_unreadable', message: 'state unreadable' };
+        throw error;
+      }
+      const sameRoutineIds = Array.isArray(prescription.adoptedRoutineIds) &&
+        prescription.adoptedRoutineIds.length === adoption.routineIds.length &&
+        prescription.adoptedRoutineIds.every((id, index) => id === adoption.routineIds[index]);
+      if (!adoption.changed && prescription.state === 'adopted' && sameRoutineIds &&
+          !fs.existsSync(adoptionJournalFile(athlete.id, prescription.id))) {
+        return { status: 200, prescription, routineIds: [...prescription.adoptedRoutineIds] };
+      }
+      let transaction;
+      try { transaction = adoptionJournalFor(athlete.id, prescription.id, adoption.routineIds); }
+      catch (error) {
+        console.error('could not create prescription adoption journal', error);
+        return { status: 503, code: 'adoption_pending', message: 'adoption could not be committed; retry' };
+      }
+      try {
+        const completed = finishAdoptionJournal(transaction.file, transaction.journal, req);
+        return { status: 200, ...completed };
+      } catch (error) {
+        console.error('prescription adoption pending recovery', transaction.journal.tx, error);
+        return { status: 503, code: 'adoption_pending', message: 'adoption is pending recovery; retry' };
+      }
+    });
+    if (result.status !== 200) {
+      if (result.code !== 'adoption_pending') auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, result.code);
+      return b2bError(res, result.status, result.code, result.message);
+    }
+    json(res, 200, { prescription: serializePrescription(db, result.prescription), routineIds: result.routineIds });
+  },
+
   'POST /api/coach/links/status': async (req, res) => {
     const actor = readSession(req);
     if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
@@ -2779,102 +3059,88 @@ const routes = {
   'PUT /api/data': async (req, res) => {
     const user = readSession(req);
     if (!user) return json(res, 401, { error: 'not signed in' });
-    const body = await readBody(req);
-    if (!body.state || typeof body.state !== 'object') return json(res, 400, { error: 'state required' });
-    // An object with nothing of the profile in it empties the document with the counter left
-    // intact: what lands on disk is `{"_rev":n+1}`, every routine, workout and weigh-in gone, and
-    // the next poll reports a revision the client accepts as its own. `_rev` and `_ts` do not
-    // count towards "something of the profile" — both are bookkeeping this route writes or echoes
-    // itself, so `{}` and `{"_rev":5}` are the same push and get the same refusal. Nothing
-    // shipped sends either: the web and mobile clients push a state built on DEF
-    // (frontend/src/store/useStore.js), which always carries its keys. An array is a document
-    // loss of its own and is left to the `invalid state` check below, which already refuses it.
-    if (!Array.isArray(body.state) && !Object.keys(body.state).some(k => k !== '_rev' && k !== '_ts')) {
-      return json(res, 400, { error: 'state required' });
-    }
-    // The reminder tick and the admin routes iterate these two on the server's side, so a truthy
-    // non-array would throw there on every pass for as long as it sat on disk. Absent or null is
-    // fine — every client fills its own defaults. An array is `typeof 'object'` but no document:
-    // `_rev` set on it is dropped by JSON.stringify, so the file would read back as rev 0 while
-    // the response claimed the next revision.
-    const list = v => v == null || Array.isArray(v);
-    if (Array.isArray(body.state) || !list(body.state.workouts) || !list(body.state.routines)) return json(res, 400, { error: 'invalid state' });
-    // The same readers walk every entry (`w.d`, `w.name`). They skip what is not an entry now
-    // (`records` above), but nothing should be storing one. Dropped, not refused:
-    // such an entry carries nothing worth keeping, whereas a 400 would strand a client whose own
-    // copy is already malformed — it keeps re-sending the same document and never syncs again.
-    for (const k of ['workouts', 'routines']) if (Array.isArray(body.state[k])) body.state[k] = records(body.state[k]);
-    // Conditional write: a `baseRev` that is not the current revision means this client last
-    // read an older document — another device has written since — and the copy it is about to
-    // push would silently drop that write. The current document travels back with the 409, so
-    // the client can merge and try again without a second request. No `baseRev` (a client from
-    // before revisions, or a deliberate replace such as a backup import) overwrites, as before.
-    // readState and atomicWrite are synchronous with nothing awaited between them, so the
-    // compare-and-write is atomic for this process.
-    const cur = readStateStrict(user.id);
-    if (cur === UNREADABLE) { console.error('state file unreadable for', user.id); return json(res, 503, { error: 'state unreadable' }); }
-    const curRev = cur?._rev || 0;
-    // `_rev` is a counter, so after the data directory went back in time (a restored backup, a
-    // write lost to a power cut) the same number names a different document. Every write also gets
-    // a write id (`_wid`) and keeps its ancestors' (`_wids`): a client quoting the id it last saw
-    // (`baseWid`) is refused when the stored document is not that one, whatever the numbers say,
-    // and a client reading a document can tell whether it descends from its own (useStore pullState).
-    if ((body.baseRev != null && body.baseRev !== curRev) ||
-        (body.baseRev != null && typeof body.baseWid === 'string' && cur?._wid && body.baseWid !== cur._wid)) {
-      return json(res, 409, { error: 'conflict', rev: curRev, state: forClient(cur) });
-    }
-    delete body.state.active;              // in-progress workouts stay device-local
-    // "Reset everything" stamps the profile (`resetAt`, with `resetIds`: what it wiped). The stamp
-    // only moves forward: a write without it, or with an older one — a client from before it, a
-    // backup restored over the profile — keeps the stored stamp. Otherwise every device that saw
-    // the reset would take that copy for one older than the reset, and wipe it again on its next
-    // merge (frontend/src/lib/sync-merge.js).
-    const storedReset = Number(cur?.resetAt) || 0;
-    if (storedReset > (Number(body.state.resetAt) || 0)) {
-      body.state.resetAt = cur.resetAt;
-      if (cur.resetIds && typeof cur.resetIds === 'object') body.state.resetIds = cur.resetIds;
-      else delete body.state.resetIds;
-    }
-    // The records of removals and edits only grow, and what a writer that does not stamp its own
-    // changes (an older app, an API script) changed is stamped here, so it is neither wiped nor
-    // undone by the next device that merges (sync-stamps.js).
-    // A document nested too deep to compare is the bad request the stringify below refuses too.
-    const report = {};
-    try { stampPut(cur, body.state, { overRead: body.baseRev != null && body.baseRev === curRev, stamped: body.stamped === true, report }); }
-    catch (e) { if (e instanceof RangeError) return json(res, 400, { error: 'invalid state' }); throw e; }
-    body.state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored
-    // A writer that does not stamp (an older app) takes the revision it is told for the document it
-    // sent, and only reads the profile again once the revision moves. When the server put back
-    // something it left out or set back (sync-stamps.js), the document stored is not that one: it
-    // goes in one revision further, so the writer's next check of the revision (every half minute)
-    // finds it moved and reads it, and its next push over the one it was told is a conflict to merge.
-    if (report.changed) body.state._rev = curRev + 2;
-    body.state._wids = [...(Array.isArray(cur?._wids) ? cur._wids : []), ...(cur?._wid ? [cur._wid] : [])]
-      .filter(x => typeof x === 'string').slice(-WID_KEEP);
-    body.state._wid = crypto.randomBytes(8).toString('hex');
-    // JSON.parse takes any nesting, JSON.stringify recurses and runs out of stack on a document
-    // nested some thousands deep. No client builds one; it is a bad request, not a server error.
-    let text;
-    try { text = JSON.stringify(body.state); }
-    catch (e) { if (e instanceof RangeError) return json(res, 400, { error: 'invalid state' }); throw e; }
-    atomicWrite(stateFile(user.id), text);
-    // The stat cache cannot see this write on its own: mtime granularity is 4 ms here (ext4 on
-    // this kernel — 3901 of 3999 back-to-back same-size writes shared one timestamp), and a
-    // `_rev` going from 7 to 8 does not change the file's size, so two writes inside one 4 ms
-    // tick are the same (mtimeMs, size) key. A reader that sampled between them would then serve
-    // the old revision until some later write happened to land on a different tick. This is the
-    // only writer of a state file in the tree, so evicting here is the whole fix.
-    stateCache.delete(user.id);
-    // Starts (or stops) the grace clock of every stored file this write stopped (or started)
-    // referencing. Bookkeeping only: the state is already saved, so nothing here may turn a
-    // successful write into an error.
-    if (MEDIA_ON) {
-      try { MEDIA.noteState(user.id, body.state); } catch (e) { console.error('media noteState', e); }
-    }
-    // A finished workout, a record or a weigh-in the profile's integrations asked to hear about:
-    // queued for delivery (integrations/outbox.js), never sent from inside this request.
-    try { integrations.onStateWrite(user.id, cur, body.state); } catch (e) { console.error('integrations onStateWrite', e); }
-    json(res, 200, { ok: true, ts: body.state._ts || null, rev: curRev + 1, wid: body.state._wid });
+    // Conditional writes and server-side mutations share one per-user critical section: adoption
+    // cannot replace a sync that landed after its read, and a sync cannot compare against a copy
+    // that adoption is still transforming. Admission happens before readBody retains up to 5 MiB:
+    // rejected backlog never holds a parsed state or executes this callback.
+    stateWriteTestMark('put-before-lock', user.id);
+    const result = await withStateWrite(user.id, req, async () => {
+      const body = await readBody(req);
+      if (!body.state || typeof body.state !== 'object') return { status: 400, body: { error: 'state required' } };
+      // An object with nothing of the profile in it empties the document with the counter left
+      // intact: what lands on disk is `{"_rev":n+1}`, every routine, workout and weigh-in gone, and
+      // the next poll reports a revision the client accepts as its own. `_rev` and `_ts` do not
+      // count towards "something of the profile" — both are bookkeeping this route writes or echoes
+      // itself, so `{}` and `{"_rev":5}` are the same push and get the same refusal.
+      if (!Array.isArray(body.state) && !Object.keys(body.state).some(k => k !== '_rev' && k !== '_ts')) {
+        return { status: 400, body: { error: 'state required' } };
+      }
+      const list = value => value == null || Array.isArray(value);
+      if (Array.isArray(body.state) || !list(body.state.workouts) || !list(body.state.routines)) {
+        return { status: 400, body: { error: 'invalid state' } };
+      }
+      for (const key of ['workouts', 'routines']) if (Array.isArray(body.state[key])) body.state[key] = records(body.state[key]);
+      const cur = readStateStrict(user.id);
+      if (STATE_WRITE_TEST_DIR) await stateWriteTestWait('put-after-read', user.id);
+      if (cur === UNREADABLE) {
+        console.error('state file unreadable for', user.id);
+        return { status: 503, body: { error: 'state unreadable' } };
+      }
+      const curRev = cur?._rev || 0;
+      // Revision-less writes remain compatible only for the first document. Once anything has
+      // persisted — including a server-side prescription adoption — accepting a writer that does
+      // not name what it read would silently erase newer work. Return the current copy so updated
+      // callers can merge exactly as they do for a stale revision.
+      if (body.baseRev == null && cur !== null) {
+        return { status: 428, body: { error: 'revision required', code: 'revision-required', rev: curRev, state: forClient(cur) } };
+      }
+      // `_rev` is a counter, so after the data directory went back in time (a restored backup, a
+      // write lost to a power cut) the same number names a different document. Every write also gets
+      // a write id (`_wid`) and keeps its ancestors' (`_wids`): a client quoting the id it last saw
+      // (`baseWid`) is refused when the stored document is not that one, whatever the numbers say,
+      // and a client reading a document can tell whether it descends from its own (useStore pullState).
+      if ((body.baseRev != null && body.baseRev !== curRev) ||
+          (body.baseRev != null && typeof body.baseWid === 'string' && cur?._wid && body.baseWid !== cur._wid)) {
+        return { status: 409, body: { error: 'conflict', rev: curRev, state: forClient(cur) } };
+      }
+      delete body.state.active;              // in-progress workouts stay device-local
+      // "Reset everything" stamps the profile (`resetAt`, with `resetIds`: what it wiped). The stamp
+      // only moves forward: a write without it, or with an older one — a client from before it, a
+      // backup restored over the profile — keeps the stored stamp. Otherwise every device that saw
+      // the reset would take that copy for one older than the reset, and wipe it again on its next
+      // merge (frontend/src/lib/sync-merge.js).
+      const storedReset = Number(cur?.resetAt) || 0;
+      if (storedReset > (Number(body.state.resetAt) || 0)) {
+        body.state.resetAt = cur.resetAt;
+        if (cur.resetIds && typeof cur.resetIds === 'object') body.state.resetIds = cur.resetIds;
+        else delete body.state.resetIds;
+      }
+      // The records of removals and edits only grow, and what a writer that does not stamp its own
+      // changes (an older app, an API script) changed is stamped here, so it is neither wiped nor
+      // undone by the next device that merges (sync-stamps.js).
+      // A document nested too deep to compare is the bad request the stringify below refuses too.
+      const report = {};
+      try { stampPut(cur, body.state, { overRead: body.baseRev != null && body.baseRev === curRev, stamped: body.stamped === true, report }); }
+      catch (e) { if (e instanceof RangeError) return { status: 400, body: { error: 'invalid state' } }; throw e; }
+      body.state._rev = curRev + 1;          // server-owned; whatever the client sent is ignored
+      // A writer that does not stamp (an older app) takes the revision it is told for the document it
+      // sent, and only reads the profile again once the revision moves. When the server put back
+      // something it left out or set back (sync-stamps.js), the document stored is not that one: it
+      // goes in one revision further, so the writer's next check of the revision (every half minute)
+      // finds it moved and reads it, and its next push over the one it was told is a conflict to merge.
+      if (report.changed) body.state._rev = curRev + 2;
+      body.state._wids = [...(Array.isArray(cur?._wids) ? cur._wids : []), ...(cur?._wid ? [cur._wid] : [])]
+        .filter(x => typeof x === 'string').slice(-WID_KEEP);
+      body.state._wid = crypto.randomBytes(8).toString('hex');
+      // JSON.parse takes any nesting, JSON.stringify recurses and runs out of stack on a document
+      // nested some thousands deep. No client builds one; it is a bad request, not a server error.
+      let text;
+      try { text = JSON.stringify(body.state); }
+      catch (e) { if (e instanceof RangeError) return { status: 400, body: { error: 'invalid state' } }; throw e; }
+      commitState(user.id, cur, body.state, text);
+      return { status: 200, body: { ok: true, ts: body.state._ts || null, rev: curRev + 1, wid: body.state._wid } };
+    });
+    json(res, result.status, result.body);
   },
 
   'GET /api/push/public-key': async (req, res) => json(res, 200, { key: vapid.publicKey }),
@@ -3316,10 +3582,26 @@ const server = http.createServer(async (req, res) => {
   const sent = req.url.split('?')[0];
   if (sent.startsWith('/') && sent !== url.pathname) return json(res, 400, { error: 'bad request' });
   let key = req.method + ' ' + url.pathname;
-  // The one route with a parameter in its path. Mapped onto its template key here so the table
-  // above stays a plain lookup, and so csrfOk and the catch-all see one name for every file.
+  // Parameterized routes are mapped onto template keys here so the table above stays a plain
+  // lookup, and so csrfOk and the catch-all see one name for every concrete resource.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
   if (mm) { key = req.method + ' /api/media/{hash}'; req.mediaHash = mm[1]; }
+  const coachRoutine = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines$/.exec(url.pathname);
+  if (coachRoutine) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/routines';
+    req.athleteId = coachRoutine[1];
+  }
+  const coachRoutineItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachRoutineItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
+    req.athleteId = coachRoutineItem[1];
+    req.routineId = coachRoutineItem[2];
+  }
+  const athletePrescription = /^\/api\/athlete\/prescriptions\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);
+  if (athletePrescription) {
+    key = req.method + ' /api/athlete/prescriptions/{routineId}/adopt';
+    req.routineId = athletePrescription[1];
+  }
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
   if (!csrfOk(req, key)) {
@@ -3351,6 +3633,18 @@ const server = http.createServer(async (req, res) => {
     if (e?.clientGone) { console.warn(key, 'client went away mid-body:', e.message); return; }
     if (e instanceof HttpError) {
       if (!res.headersSent) json(res, e.status, { error: e.message });
+      return;
+    }
+    if (e instanceof StateWriteQueueFullError) {
+      // The body was deliberately not read: drain it without retaining chunks so this connection
+      // can receive the bounded-backlog response and be reused.
+      req.on('error', () => {});
+      req.resume();
+      const status = e.scope === 'key' ? 429 : 503;
+      if (!res.headersSent) json(res, status, {
+        error: e.scope === 'key' ? 'too many state writes for this profile' : 'the server is busy, try again in a moment',
+        code: e.scope === 'key' ? 'state-write-busy' : 'busy',
+      }, { 'Retry-After': '1' });
       return;
     }
     // A refused upload or a missing file: the caller's to act on, never a logged 500.

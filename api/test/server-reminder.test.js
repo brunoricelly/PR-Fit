@@ -52,7 +52,14 @@ async function startServer(t, subs = []) {
 
 test('PUT /api/data refuses a state whose workouts or routines is not an array', async t => {
   const h = await startServer(t);
-  const put = state => fetch(`${h.api}/api/data`, { method: 'PUT', headers: { ...cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ state }) });
+  let baseRev = 0;
+  const put = async state => {
+    const response = await fetch(`${h.api}/api/data`, {
+      method: 'PUT', headers: { ...cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ state, baseRev, stamped: true }),
+    });
+    if (response.ok) baseRev = (await response.clone().json()).rev;
+    return response;
+  };
   const file = path.join(h.dataDir, 'state-u_test_1.json');
 
   for (const bad of [{ workouts: {} }, { workouts: 'abc' }, { workouts: 7 }, { workouts: true }, { routines: {} }, { routines: 'r1' }, { workouts: [], routines: {} }]) {
