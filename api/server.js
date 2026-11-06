@@ -46,7 +46,7 @@ import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from '.
 import {
   B2B2CDataError, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
-  removeB2B2CUser,
+  authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, removeB2B2CUser,
 } from './b2b2c.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -107,8 +107,11 @@ const B2B2C_LIMITS = {
   pendingPerCoach: envInt('B2B2C_PENDING_INVITES_PER_COACH', 10, { min: 1, max: 1000 }),
   maxInvites: envInt('B2B2C_MAX_INVITES', 5000, { min: 10, max: 1000000 }),
   maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
+  maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
+  prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
+  terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
   terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
 };
 const B2B2C_RATE = {
@@ -2350,6 +2353,122 @@ const routes = {
     json(res, 200, { links });
   },
 
+  'GET /api/coach/athletes/{athleteId}/routines': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.list.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'training relationship required');
+    }
+    const routines = db.coachPrescriptions
+      .filter(item => item.coachId === coach.id && item.athleteId === req.athleteId && item.state !== 'withdrawn')
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .map(item => serializePrescription(db, item));
+    json(res, 200, { routines });
+  },
+
+  'POST /api/coach/athletes/{athleteId}/routines': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.create.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'active training relationship required');
+    }
+    const routine = validatePrescriptionRoutine(await readBody(req));
+    if (!routine) return b2bError(res, 400, 'invalid_routine', 'invalid prescribed routine');
+    const activeForAthlete = db.coachPrescriptions.filter(item => item.athleteId === req.athleteId && item.state !== 'withdrawn').length;
+    if (activeForAthlete >= B2B2C_LIMITS.prescriptionsPerAthlete || db.coachPrescriptions.filter(item => item.state !== 'withdrawn').length >= B2B2C_LIMITS.maxPrescriptions) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.create.denied', coach, 'prescription_capacity');
+      return b2bError(res, 409, 'prescription_capacity', 'prescription storage capacity reached');
+    }
+    const now = new Date().toISOString();
+    const prescription = {
+      id: makeEntityId('cpr', db.coachPrescriptions),
+      coachId: coach.id,
+      athleteId: req.athleteId,
+      routine,
+      state: 'available',
+      createdAt: now,
+      updatedAt: now,
+    };
+    db.coachPrescriptions.push(prescription);
+    compactB2B2C(db, B2B2C_LIMITS);
+    saveDb();
+    audit(req, 'b2b2c.prescription.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
+    json(res, 201, { routine: serializePrescription(db, prescription) });
+  },
+
+  'DELETE /api/coach/athletes/{athleteId}/routines/{routineId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.withdraw.denied', coach, access.code);
+      const status = access.code === 'relationship_not_found' ? 404 : 403;
+      return b2bError(res, status, access.code, 'active training relationship required');
+    }
+    const prescription = db.coachPrescriptions.find(item => item.id === req.routineId && item.coachId === coach.id && item.athleteId === req.athleteId);
+    if (!prescription) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.withdraw.denied', coach, 'routine_not_found');
+      return b2bError(res, 404, 'routine_not_found', 'prescribed routine not found');
+    }
+    if (prescription.state !== 'withdrawn') {
+      const now = new Date().toISOString();
+      prescription.state = 'withdrawn';
+      prescription.updatedAt = now;
+      prescription.withdrawnAt = now;
+      compactB2B2C(db, B2B2C_LIMITS);
+      saveDb();
+      audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
+    }
+    json(res, 200, { routine: serializePrescription(db, prescription) });
+  },
+
+  'GET /api/athlete/prescriptions': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const activeTrainingCoaches = new Set(db.coachAthleteLinks
+      .filter(link => link.athleteId === athlete.id && link.status === 'active' && link.scopes.includes('training'))
+      .map(link => link.coachId));
+    const prescriptions = db.coachPrescriptions
+      .filter(item => item.athleteId === athlete.id && item.state !== 'withdrawn' && activeTrainingCoaches.has(item.coachId))
+      .sort((left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt))
+      .map(item => serializePrescription(db, item));
+    json(res, 200, { prescriptions });
+  },
+
+  'POST /api/athlete/prescriptions/{routineId}/adopt': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const prescription = db.coachPrescriptions.find(item => item.id === req.routineId && item.athleteId === athlete.id && item.state !== 'withdrawn');
+    if (!prescription) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, 'routine_not_found');
+      return b2bError(res, 404, 'routine_not_found', 'prescribed routine not found');
+    }
+    const coach = db.users.find(user => user.id === prescription.coachId);
+    const access = authorizeAthleteAccess(db, coach, athlete.id, 'athlete:training:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.prescription.adopt.denied', athlete, access.code);
+      return b2bError(res, 403, access.code, 'active training relationship required');
+    }
+    if (prescription.state !== 'adopted') {
+      const now = new Date().toISOString();
+      prescription.state = 'adopted';
+      prescription.updatedAt = now;
+      prescription.adoptedAt = now;
+      saveDb();
+      audit(req, 'b2b2c.prescription.adopt', { user: athlete, target: coach, msg: prescription.id });
+    }
+    json(res, 200, { prescription: serializePrescription(db, prescription) });
+  },
+
   'POST /api/coach/links/status': async (req, res) => {
     const actor = readSession(req);
     if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
@@ -3316,10 +3435,26 @@ const server = http.createServer(async (req, res) => {
   const sent = req.url.split('?')[0];
   if (sent.startsWith('/') && sent !== url.pathname) return json(res, 400, { error: 'bad request' });
   let key = req.method + ' ' + url.pathname;
-  // The one route with a parameter in its path. Mapped onto its template key here so the table
-  // above stays a plain lookup, and so csrfOk and the catch-all see one name for every file.
+  // Parameterized routes are mapped onto template keys here so the table above stays a plain
+  // lookup, and so csrfOk and the catch-all see one name for every concrete resource.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
   if (mm) { key = req.method + ' /api/media/{hash}'; req.mediaHash = mm[1]; }
+  const coachRoutine = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines$/.exec(url.pathname);
+  if (coachRoutine) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/routines';
+    req.athleteId = coachRoutine[1];
+  }
+  const coachRoutineItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachRoutineItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
+    req.athleteId = coachRoutineItem[1];
+    req.routineId = coachRoutineItem[2];
+  }
+  const athletePrescription = /^\/api\/athlete\/prescriptions\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);
+  if (athletePrescription) {
+    key = req.method + ' /api/athlete/prescriptions/{routineId}/adopt';
+    req.routineId = athletePrescription[1];
+  }
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
   if (!csrfOk(req, key)) {

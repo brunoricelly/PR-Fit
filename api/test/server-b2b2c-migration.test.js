@@ -41,8 +41,9 @@ async function stop(child) {
 
 for (const [name, db] of [
   ['future schema', { schemaVersion: 999, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [] }],
-  ['corrupt B2B2C collection', { schemaVersion: 2, users: [], creds: [], subs: [], invites: [], coachInvites: {}, coachAthleteLinks: [] }],
-  ['corrupt baseline collection', { schemaVersion: 2, users: null, creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [] }],
+  ['corrupt B2B2C collection', { schemaVersion: 3, users: [], creds: [], subs: [], invites: [], coachInvites: {}, coachAthleteLinks: [], coachPrescriptions: [] }],
+  ['corrupt prescription collection', { schemaVersion: 3, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: {} }],
+  ['corrupt baseline collection', { schemaVersion: 3, users: null, creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [] }],
 ]) {
   test(`${name} refuses boot without overwriting db.json or db.json.bak`, async t => {
     const sample = fixture(t, db);
@@ -60,18 +61,20 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 2);
+  assert.equal(stored.schemaVersion, 3);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
+  assert.deepEqual(stored.coachPrescriptions, []);
 });
 
-test('known schema version 1 migrates to version 2', async t => {
+test('known schema versions migrate to version 3', async t => {
   const sample = fixture(t, { schemaVersion: 1, users: [], creds: [], subs: [], invites: [] });
   const server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 2);
+  assert.equal(stored.schemaVersion, 3);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
+  assert.deepEqual(stored.coachPrescriptions, []);
 });
