@@ -208,7 +208,75 @@ paths:
         the last one, so a poll can be that stale. The route is unauthenticated, and
         one disk write per request is not something to leave open to anyone.
       security: []
-      responses:
+      parameters:
+    AthleteId:
+      in: path
+      name: athleteId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    CoachId:
+      in: path
+      name: coachId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    HabitId:
+      in: path
+      name: habitId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    MessageId:
+      in: path
+      name: messageId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    LinkIdOptional:
+      in: query
+      name: linkId
+      description: Select a specific historical relationship for the same professional/athlete pair. Omit to select the current preferred relationship.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    LinkIdRequired:
+      in: query
+      name: linkId
+      required: true
+      description: Stable relationship id. Required because an athlete may have historical and current relationships with the same professional.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    CursorOptional:
+      in: query
+      name: cursor
+      description: Opaque base64url cursor returned as `page.nextCursor`. Do not construct it client-side.
+      schema: { type: string }
+    PageLimit:
+      in: query
+      name: limit
+      description: Page size for messages and check-ins.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    InboxLimit:
+      in: query
+      name: limit
+      description: Inbox page size.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+    Timezone:
+      in: query
+      name: timezone
+      description: Valid IANA timezone used to determine local dates and streak boundaries. Defaults to UTC.
+      schema: { type: string, maxLength: 100, default: UTC, example: America/Sao_Paulo }
+    HistoryPeriod:
+      in: query
+      name: period
+      description: Preset number of local calendar days. Cannot be combined with `from` or `to`; defaults to 30 when no interval is supplied.
+      schema: { type: integer, enum: [7, 30, 90] }
+    HistoryFrom:
+      in: query
+      name: from
+      description: Inclusive ISO date. Must be supplied with `to`; the interval may be at most 90 days and cannot end in the future.
+      schema: { type: string, format: date }
+    HistoryTo:
+      in: query
+      name: to
+      description: Inclusive ISO date. Must be supplied with `from`.
+      schema: { type: string, format: date }
+
+  responses:
         '200':
           description: The server is up and its data directory is writable.
           content:
@@ -475,6 +543,292 @@ paths:
                   links: { type: array, items: { $ref: '#/components/schemas/CoachAthleteLink' } }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { description: The caller is not a professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/coach/athletes/{athleteId}/messages:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteMessages
+      summary: List a professional conversation
+      description: Newest-first history for the current relationship, or an explicitly selected historical relationship. Suspended and ended relationships remain readable.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200': { description: Paginated conversation., content: { application/json: { schema: { $ref: '#/components/schemas/MessageListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+    post:
+      tags: [professionals]
+      operationId: sendCoachAthleteMessage
+      summary: Send a message to an athlete
+      description: Requires an active relationship. `workout_feedback` requires training scope, `nutrition_feedback` requires nutrition scope, and `general` requires either scope. Maximum content length is 2000 characters.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MessageInput' } } } }
+      responses:
+        '201': { description: Message stored., content: { application/json: { schema: { $ref: '#/components/schemas/MessageOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '409': { $ref: '#/components/responses/CommunicationCapacity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/messages/{coachId}:
+    parameters:
+      - $ref: '#/components/parameters/CoachId'
+    get:
+      tags: [professionals]
+      operationId: listAthleteCoachMessages
+      summary: List an athlete conversation
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200': { description: Paginated conversation., content: { application/json: { schema: { $ref: '#/components/schemas/MessageListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+    post:
+      tags: [professionals]
+      operationId: sendAthleteCoachMessage
+      summary: Send a message to a professional
+      description: Uses the same category and active-scope rules as the professional route.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/MessageInput' } } } }
+      responses:
+        '201': { description: Message stored., content: { application/json: { schema: { $ref: '#/components/schemas/MessageOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '409': { $ref: '#/components/responses/CommunicationCapacity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/messages/inbox:
+    get:
+      tags: [professionals]
+      operationId: listMessageInbox
+      summary: List conversation summaries without N+1 requests
+      description: Returns only relationships that have at least one message, ordered by the latest message. Includes unread count, stable link id, relationship status, counterpart and a 240-character last-message preview.
+      parameters:
+        - $ref: '#/components/parameters/InboxLimit'
+        - $ref: '#/components/parameters/CursorOptional'
+      responses:
+        '200': { description: Paginated inbox., content: { application/json: { schema: { $ref: '#/components/schemas/InboxOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/messages/{messageId}/read:
+    parameters:
+      - $ref: '#/components/parameters/MessageId'
+    post:
+      tags: [professionals]
+      operationId: markMessageRead
+      summary: Mark one received message as read
+      description: Idempotent. Only the recipient may mark the message.
+      responses:
+        '200': { description: Current message state., content: { application/json: { schema: { $ref: '#/components/schemas/MessageOutput' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/messages/read-through:
+    post:
+      tags: [professionals]
+      operationId: markMessagesReadThrough
+      summary: Mark received messages read through a cursor message
+      description: Marks unread messages in one relationship up to and including a received message. The cursor must itself have been received by the caller.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ReadThroughInput' } } } }
+      responses:
+        '200': { description: Number of messages changed., content: { application/json: { schema: { $ref: '#/components/schemas/ReadThroughOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/athletes/{athleteId}/habits:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteHabits
+      summary: List habits for a relationship
+      description: Requires training scope. Historical `linkId` selection is supported for read-only relationships.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+      responses:
+        '200': { description: Habits and relationship state., content: { application/json: { schema: { $ref: '#/components/schemas/HabitListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+    post:
+      tags: [professionals]
+      operationId: createCoachAthleteHabit
+      summary: Create an athlete habit
+      description: Requires an active training relationship. At most 100 retained habits per relationship and 10000 per server by default.
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/HabitCreateInput' } } } }
+      responses:
+        '201': { description: Habit stored., content: { application/json: { schema: { $ref: '#/components/schemas/HabitOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '409': { $ref: '#/components/responses/CommunicationCapacity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/athletes/{athleteId}/habits/{habitId}:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+      - $ref: '#/components/parameters/HabitId'
+    patch:
+      tags: [professionals]
+      operationId: updateCoachAthleteHabit
+      summary: Edit, archive or reactivate a habit
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/HabitPatchInput' } } } }
+      responses:
+        '200': { description: Updated habit., content: { application/json: { schema: { $ref: '#/components/schemas/HabitOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+    delete:
+      tags: [professionals]
+      operationId: deleteCoachAthleteHabit
+      summary: Delete a habit and all its check-ins
+      responses:
+        '200': { description: Deleted habit., content: { application/json: { schema: { $ref: '#/components/schemas/HabitDeleteOutput' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/habits:
+    get:
+      tags: [professionals]
+      operationId: listAthleteHabitsToday
+      summary: List active habits scheduled for the athlete's local day
+      description: Uses the supplied IANA timezone, defaulting to UTC. Returns today's existing check-in and relationship read-only state for each habit.
+      parameters:
+        - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200': { description: Today's habits., content: { application/json: { schema: { $ref: '#/components/schemas/AthleteHabitListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+
+  /api/athlete/habits/checkin:
+    post:
+      tags: [professionals]
+      operationId: upsertAthleteHabitCheckin
+      summary: Create or replace one daily habit check-in
+      description: Idempotent for an identical habit/date/value/state/notes tuple. Requires an active training relationship and a scheduled date no later than the timezone's current day.
+      parameters:
+        - $ref: '#/components/parameters/Timezone'
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CheckinInput' } } } }
+      responses:
+        '200': { description: Existing or replaced check-in., content: { application/json: { schema: { $ref: '#/components/schemas/CheckinOutput' } } } }
+        '201': { description: New check-in., content: { application/json: { schema: { $ref: '#/components/schemas/CheckinOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+        '409': { $ref: '#/components/responses/CommunicationCapacity' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/athletes/{athleteId}/checkins:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteCheckins
+      summary: List athlete habit check-ins
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/HistoryPeriod'
+        - $ref: '#/components/parameters/HistoryFrom'
+        - $ref: '#/components/parameters/HistoryTo'
+        - $ref: '#/components/parameters/Timezone'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/CursorOptional'
+      responses:
+        '200': { description: Newest-first check-in history, up to a 90-day interval., content: { application/json: { schema: { $ref: '#/components/schemas/CheckinListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+
+  /api/athlete/checkins:
+    get:
+      tags: [professionals]
+      operationId: listAthleteCheckins
+      summary: List the athlete's check-ins for one relationship
+      parameters:
+        - $ref: '#/components/parameters/LinkIdRequired'
+        - $ref: '#/components/parameters/HistoryPeriod'
+        - $ref: '#/components/parameters/HistoryFrom'
+        - $ref: '#/components/parameters/HistoryTo'
+        - $ref: '#/components/parameters/Timezone'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/CursorOptional'
+      responses:
+        '200': { description: Newest-first check-in history., content: { application/json: { schema: { $ref: '#/components/schemas/CheckinListOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+
+  /api/coach/athletes/{athleteId}/habits-summary:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: getCoachAthleteHabitSummary
+      summary: Summarize athlete adherence and streaks
+      description: Supports 7, 30 or 90 days or an explicit interval up to 90 days. Historical summaries stop at relationship suspension or ending.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/HistoryPeriod'
+        - $ref: '#/components/parameters/HistoryFrom'
+        - $ref: '#/components/parameters/HistoryTo'
+        - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200': { description: Adherence and per-habit streaks., content: { application/json: { schema: { $ref: '#/components/schemas/HabitSummaryOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
+
+  /api/athlete/habits-summary:
+    get:
+      tags: [professionals]
+      operationId: getAthleteHabitSummary
+      summary: Summarize the athlete's adherence and streaks
+      parameters:
+        - $ref: '#/components/parameters/LinkIdRequired'
+        - $ref: '#/components/parameters/HistoryPeriod'
+        - $ref: '#/components/parameters/HistoryFrom'
+        - $ref: '#/components/parameters/HistoryTo'
+        - $ref: '#/components/parameters/Timezone'
+      responses:
+        '200': { description: Adherence and per-habit streaks., content: { application/json: { schema: { $ref: '#/components/schemas/HabitSummaryOutput' } } } }
+        '400': { $ref: '#/components/responses/CommunicationBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/CommunicationForbidden' }
+        '404': { $ref: '#/components/responses/CommunicationNotFound' }
 
   /api/coach/athletes/{athleteId}/routines:
     parameters:
@@ -4657,6 +5011,33 @@ components:
         skip the CSRF origin check; a browser never attaches this header on its own.
 
   responses:
+    CommunicationBadRequest:
+      description: Invalid message, habit, check-in, timezone, period, link id, read cursor or pagination cursor. The stable code identifies the invalid input.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            timezone: { value: { error: timezone must be a valid IANA time zone, code: invalid_timezone } }
+            pagination: { value: { error: limit must be 1-100 and cursor must be valid, code: invalid_pagination } }
+    CommunicationForbidden:
+      description: Wrong product role, inactive relationship for a mutation, missing training/nutrition scope, or an attempt to mark another account's message.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: relationship scope does not permit this operation, code: scope_forbidden }
+    CommunicationNotFound:
+      description: Relationship, message or habit not found for this caller. Cross-account ids are intentionally indistinguishable from absent ids.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: relationship not found, code: relationship_not_found }
+    CommunicationCapacity:
+      description: The configured retained message, habit or check-in capacity was reached.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: habit check-in storage capacity reached, code: checkin_capacity }
+
     Unauthorized:
       description: No session, expired/revoked session, or a disabled account.
       content:
@@ -4826,6 +5207,299 @@ components:
           example: { error: "that code is wrong, used or expired", code: "link-invalid" }
 
   schemas:
+    RelationshipHistoryState:
+      type: object
+      additionalProperties: false
+      required: [linkId, status, readOnly]
+      properties:
+        linkId: { type: string }
+        status: { type: string, enum: [pending, active, suspended, ended] }
+        readOnly: { type: boolean }
+    PageOutput:
+      type: object
+      additionalProperties: false
+      required: [limit, hasMore, nextCursor]
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { type: ['string', 'null'] }
+    MessageCategory:
+      type: string
+      enum: [general, workout_feedback, nutrition_feedback]
+    MessageInput:
+      type: object
+      additionalProperties: false
+      required: [content]
+      properties:
+        content: { type: string, minLength: 1, maxLength: 2000 }
+        category: { $ref: '#/components/schemas/MessageCategory' }
+        refId: { type: ['string', 'null'], maxLength: 120, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    Message:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, senderId, recipientId, content, category, refId, createdAt, readAt]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        senderId: { type: string }
+        recipientId: { type: string }
+        content: { type: string, maxLength: 2000 }
+        category: { $ref: '#/components/schemas/MessageCategory' }
+        refId: { type: ['string', 'null'] }
+        createdAt: { type: integer, minimum: 0, description: Unix epoch milliseconds. }
+        readAt: { type: ['integer', 'null'], minimum: 0, description: Unix epoch milliseconds. }
+    MessageOutput:
+      type: object
+      additionalProperties: false
+      required: [message]
+      properties:
+        message: { $ref: '#/components/schemas/Message' }
+    MessageListOutput:
+      type: object
+      additionalProperties: false
+      required: [messages, page, relationship]
+      properties:
+        messages: { type: array, items: { $ref: '#/components/schemas/Message' } }
+        page: { $ref: '#/components/schemas/PageOutput' }
+        relationship: { $ref: '#/components/schemas/RelationshipHistoryState' }
+    InboxConversation:
+      type: object
+      additionalProperties: false
+      required: [linkId, counterpart, unreadCount, lastMessage, lastMessageAt, status]
+      properties:
+        linkId: { type: string }
+        counterpart:
+          type: object
+          additionalProperties: false
+          required: [id, name]
+          properties:
+            id: { type: string }
+            name: { type: string }
+        unreadCount: { type: integer, minimum: 0 }
+        lastMessage: { oneOf: [{ $ref: '#/components/schemas/InboxLastMessage' }, { type: 'null' }] }
+        lastMessageAt: { type: integer, minimum: 0 }
+        status: { type: string, enum: [pending, active, suspended, ended] }
+    InboxLastMessage:
+      type: object
+      additionalProperties: false
+      required: [id, senderId, category, content, createdAt, readAt]
+      properties:
+        id: { type: string }
+        senderId: { type: string }
+        category: { $ref: '#/components/schemas/MessageCategory' }
+        content: { type: string, maxLength: 240 }
+        createdAt: { type: integer, minimum: 0 }
+        readAt: { type: ['integer', 'null'], minimum: 0 }
+    InboxOutput:
+      type: object
+      additionalProperties: false
+      required: [conversations, page]
+      properties:
+        conversations: { type: array, items: { $ref: '#/components/schemas/InboxConversation' } }
+        page: { $ref: '#/components/schemas/PageOutput' }
+    ReadThroughInput:
+      type: object
+      additionalProperties: false
+      required: [linkId, throughMessageId]
+      properties:
+        linkId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        throughMessageId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    ReadThroughOutput:
+      type: object
+      additionalProperties: false
+      required: [linkId, readCount, throughMessageId]
+      properties:
+        linkId: { type: string }
+        readCount: { type: integer, minimum: 0 }
+        throughMessageId: { type: string }
+    HabitUnit:
+      type: string
+      enum: [horas, passos, ml, minutos, vezes]
+    HabitFrequency:
+      type: string
+      enum: [daily, weekdays, weekends]
+    HabitCreateInput:
+      type: object
+      additionalProperties: false
+      required: [title, targetValue, unit, frequency]
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000, default: '' }
+        targetValue: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+        unit: { $ref: '#/components/schemas/HabitUnit' }
+        frequency: { $ref: '#/components/schemas/HabitFrequency' }
+        status: { type: string, enum: [active, archived], default: active }
+    HabitPatchInput:
+      type: object
+      additionalProperties: false
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        description: { type: string, maxLength: 1000 }
+        targetValue: { type: number, exclusiveMinimum: 0, maximum: 1000000000 }
+        unit: { $ref: '#/components/schemas/HabitUnit' }
+        frequency: { $ref: '#/components/schemas/HabitFrequency' }
+        status: { type: string, enum: [active, archived] }
+    Habit:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, coachId, athleteId, title, description, targetValue, unit, frequency, status, createdAt, updatedAt, archivedAt]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        coachId: { type: string }
+        athleteId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        targetValue: { type: number }
+        unit: { $ref: '#/components/schemas/HabitUnit' }
+        frequency: { $ref: '#/components/schemas/HabitFrequency' }
+        status: { type: string, enum: [active, archived] }
+        createdAt: { type: integer, minimum: 0 }
+        updatedAt: { type: integer, minimum: 0 }
+        archivedAt: { type: ['integer', 'null'], minimum: 0 }
+    HabitOutput:
+      type: object
+      additionalProperties: false
+      required: [habit]
+      properties:
+        habit: { $ref: '#/components/schemas/Habit' }
+    HabitDeleteOutput:
+      type: object
+      additionalProperties: false
+      required: [deleted, habit]
+      properties:
+        deleted: { type: boolean, const: true }
+        habit: { $ref: '#/components/schemas/Habit' }
+    HabitListOutput:
+      type: object
+      additionalProperties: false
+      required: [habits, relationship]
+      properties:
+        habits: { type: array, items: { $ref: '#/components/schemas/Habit' } }
+        relationship: { $ref: '#/components/schemas/RelationshipHistoryState' }
+    CheckinInput:
+      type: object
+      additionalProperties: false
+      required: [habitId, date, value, completed]
+      properties:
+        habitId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        date: { type: string, format: date }
+        value: { type: number, minimum: 0, maximum: 1000000000 }
+        completed: { type: boolean }
+        notes: { type: string, maxLength: 500, default: '' }
+    Checkin:
+      type: object
+      additionalProperties: false
+      required: [id, habitId, date, value, completed, notes, updatedAt]
+      properties:
+        id: { type: string }
+        habitId: { type: string }
+        date: { type: string, format: date }
+        value: { type: number }
+        completed: { type: boolean }
+        notes: { type: string }
+        updatedAt: { type: integer, minimum: 0 }
+    StoredCheckin:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, athleteId, habitId, date, value, completed, notes, updatedAt]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        athleteId: { type: string }
+        habitId: { type: string }
+        date: { type: string, format: date }
+        value: { type: number }
+        completed: { type: boolean }
+        notes: { type: string }
+        updatedAt: { type: integer, minimum: 0 }
+    CheckinOutput:
+      type: object
+      additionalProperties: false
+      required: [checkin]
+      properties:
+        checkin: { $ref: '#/components/schemas/StoredCheckin' }
+    AthleteHabit:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, coachId, athleteId, title, description, targetValue, unit, frequency, status, createdAt, updatedAt, archivedAt, checkin, relationship]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        coachId: { type: string }
+        athleteId: { type: string }
+        title: { type: string }
+        description: { type: string }
+        targetValue: { type: number }
+        unit: { $ref: '#/components/schemas/HabitUnit' }
+        frequency: { $ref: '#/components/schemas/HabitFrequency' }
+        status: { type: string, enum: [active, archived] }
+        createdAt: { type: integer, minimum: 0 }
+        updatedAt: { type: integer, minimum: 0 }
+        archivedAt: { type: ['integer', 'null'], minimum: 0 }
+        checkin: { oneOf: [{ $ref: '#/components/schemas/StoredCheckin' }, { type: 'null' }] }
+        relationship: { $ref: '#/components/schemas/RelationshipHistoryState' }
+    AthleteHabitListOutput:
+      type: object
+      additionalProperties: false
+      required: [date, timezone, habits]
+      properties:
+        date: { type: string, format: date }
+        timezone: { type: string }
+        habits: { type: array, items: { $ref: '#/components/schemas/AthleteHabit' } }
+    HistoryPeriodOutput:
+      type: object
+      additionalProperties: false
+      required: [from, to, periodDays, timezone]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        periodDays: { type: integer, minimum: 1, maximum: 90 }
+        timezone: { type: string }
+    CheckinListOutput:
+      type: object
+      additionalProperties: false
+      required: [checkins, period, page, relationship]
+      properties:
+        checkins: { type: array, items: { $ref: '#/components/schemas/Checkin' } }
+        period: { $ref: '#/components/schemas/HistoryPeriodOutput' }
+        page: { $ref: '#/components/schemas/PageOutput' }
+        relationship: { $ref: '#/components/schemas/RelationshipHistoryState' }
+    HabitStreakSummary:
+      type: object
+      additionalProperties: false
+      required: [habitId, title, frequency, scheduledDays, completedDays, adherencePercent, currentStreak, longestStreakInPeriod, longestStreak]
+      properties:
+        habitId: { type: string }
+        title: { type: string }
+        frequency: { $ref: '#/components/schemas/HabitFrequency' }
+        scheduledDays: { type: integer, minimum: 0 }
+        completedDays: { type: integer, minimum: 0 }
+        adherencePercent: { type: number, minimum: 0, maximum: 100 }
+        currentStreak: { type: integer, minimum: 0, description: Consecutive completed scheduled days ending at the latest due date. A still-pending today does not break it. }
+        longestStreakInPeriod: { type: integer, minimum: 0 }
+        longestStreak: { type: integer, minimum: 0, description: Compatibility alias of `longestStreakInPeriod`. }
+    HabitSummary:
+      type: object
+      additionalProperties: false
+      required: [from, to, periodDays, scheduledDays, completedDays, adherencePercent, habits]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        periodDays: { type: integer, minimum: 1, maximum: 90 }
+        scheduledDays: { type: integer, minimum: 0 }
+        completedDays: { type: integer, minimum: 0 }
+        adherencePercent: { type: number, minimum: 0, maximum: 100 }
+        habits: { type: array, items: { $ref: '#/components/schemas/HabitStreakSummary' } }
+    HabitSummaryOutput:
+      type: object
+      additionalProperties: false
+      required: [summary, timezone, relationship]
+      properties:
+        summary: { $ref: '#/components/schemas/HabitSummary' }
+        timezone: { type: string }
+        relationship: { $ref: '#/components/schemas/RelationshipHistoryState' }
     IntegrationEvent:
       type: string
       enum: [workout.finished, workout.pr, weighin.logged]

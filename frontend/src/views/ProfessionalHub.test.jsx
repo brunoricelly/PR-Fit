@@ -26,7 +26,7 @@ vi.mock('../lib/api.js', () => ({
   api: vi.fn(async (path, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : null
     mocks.calls.push({ path, method: opts?.method || 'GET', body })
-    const answer = mocks.answers[path]
+    const answer = mocks.answers[path] ?? mocks.answers[path.split('?')[0]]
     if (answer instanceof Error) throw answer
     return typeof answer === 'function' ? answer(body) : answer ?? {}
   }),
