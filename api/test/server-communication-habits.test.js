@@ -15,8 +15,8 @@ const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
 const IDS = { coachA: 'u_comm_coach_a', coachB: 'u_comm_coach_b', athleteA: 'u_comm_athlete_a', athleteB: 'u_comm_athlete_b' };
 
-function mintSession(uid) {
-  const payload = `${uid}:${Date.now() + 86400000}:0:c`;
+function mintSession(uid, expiresAt = Date.now() + 86400000) {
+  const payload = `${uid}:${expiresAt}:0:c`;
   return payload + '.' + crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
 }
 
@@ -50,17 +50,32 @@ function seed(dataDir, db = baseDb()) {
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify(db, null, 2));
 }
 
-async function launch(dataDir, env = {}) {
-  const child = spawn(process.execPath, ['server.js'], {
-    cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
+async function launch(dataDir, env = {}, fixedNow = null) {
+  const child = spawn(process.execPath, fixedNow === null ? ['server.js'] : ['--import', './test/fake-clock.mjs', 'server.js'], {
+    cwd: API, stdio: fixedNow === null ? ['ignore', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe', 'ipc'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1',
       B2B2C_DB_FAIL_FILE: path.join(dataDir, 'fail-db-write'), ...env },
   });
   let log = '';
   child.stdout.on('data', chunk => log += chunk);
   child.stderr.on('data', chunk => log += chunk);
-  const port = await boundPort(child, () => log);
+  const portPromise = boundPort(child, () => log);
+  if (fixedNow !== null) await setNow({ child }, fixedNow);
+  const port = await portPromise;
   return { child, api: `http://127.0.0.1:${port}`, log: () => log };
+}
+
+async function setNow(server, now) {
+  const applied = new Promise((resolve, reject) => {
+    const onExit = code => reject(new Error(`server exited before applying fake time (${code})`));
+    server.child.once('exit', onExit);
+    server.child.once('message', message => {
+      server.child.off('exit', onExit);
+      resolve(message.now);
+    });
+  });
+  server.child.send({ now });
+  await applied;
 }
 
 async function stop(server) {
@@ -69,9 +84,9 @@ async function stop(server) {
   await new Promise(resolve => server.child.once('exit', resolve));
 }
 
-async function request(server, uid, method, route, body) {
+async function request(server, uid, method, route, body, sessionExpiresAt) {
   const response = await fetch(server.api + route, {
-    method, headers: { Cookie: `gymsid=${mintSession(uid)}`, Origin: ORIGIN, 'Content-Type': 'application/json' },
+    method, headers: { Cookie: `gymsid=${mintSession(uid, sessionExpiresAt)}`, Origin: ORIGIN, 'Content-Type': 'application/json' },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
   return { status: response.status, body: await response.json(), headers: response.headers };
@@ -330,6 +345,59 @@ test('historical link selection survives re-contracting and rejects another pair
   assert.equal((await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/messages?linkId=cal_comm_ab`)).status, 404);
   const sent = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/messages?linkId=${oldLink.id}`, message('vai no ativo'));
   assert.equal(sent.body.message.linkId, 'cal_comm_aa');
+});
+
+test('historical habit summaries stop at suspension or ending and remain stable after re-contracting', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-communication-summary-history-'));
+  const firstNow = Date.parse('2026-11-07T12:00:00.000Z');
+  const laterNow = Date.parse('2026-11-14T12:00:00.000Z');
+  const terminalAt = '2026-11-01T02:00:00.000Z';
+  const oldLink = { id: 'cal_summary_old', coachId: IDS.coachA, athleteId: IDS.athleteA, scopes: ['training'], status: 'ended',
+    createdAt: '2026-10-25T12:00:00.000Z', updatedAt: terminalAt, endedAt: terminalAt };
+  const suspendedLink = { id: 'cal_summary_suspended', coachId: IDS.coachA, athleteId: IDS.athleteB, scopes: ['training'], status: 'suspended',
+    createdAt: '2026-10-30T12:00:00.000Z', updatedAt: terminalAt, suspendedAt: terminalAt };
+  const oldHabit = { id: 'hab_summary_old', linkId: oldLink.id, coachId: IDS.coachA, athleteId: IDS.athleteA,
+    title: 'Contrato antigo', description: '', targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active',
+    createdAt: Date.parse('2026-10-25T12:00:00.000Z'), updatedAt: Date.parse(terminalAt), archivedAt: null };
+  const suspendedHabit = { ...oldHabit, id: 'hab_summary_suspended', linkId: suspendedLink.id, athleteId: IDS.athleteB,
+    title: 'Contrato suspenso', createdAt: Date.parse('2026-10-30T12:00:00.000Z') };
+  const currentHabit = { ...oldHabit, id: 'hab_summary_current', linkId: 'cal_comm_aa', title: 'Novo contrato',
+    createdAt: Date.parse('2026-11-01T12:00:00.000Z'), updatedAt: firstNow };
+  const checkin = (id, linkId, athleteId, habitId, date) => ({
+    id, linkId, athleteId, habitId, date, value: 1, completed: true, notes: '', updatedAt: Date.parse(`${date}T12:00:00.000Z`),
+  });
+  const db = baseDb();
+  db.coachAthleteLinks.unshift(oldLink, suspendedLink);
+  db.coachHabits.push(oldHabit, suspendedHabit, currentHabit);
+  db.habitCheckins.push(
+    ...['2026-10-29', '2026-10-30', '2026-10-31'].map((date, index) => checkin(`hchk_summary_old_${index}`, oldLink.id, IDS.athleteA, oldHabit.id, date)),
+    ...['2026-10-30', '2026-10-31'].map((date, index) => checkin(`hchk_summary_suspended_${index}`, suspendedLink.id, IDS.athleteB, suspendedHabit.id, date)),
+    ...['2026-11-01', '2026-11-02', '2026-11-03', '2026-11-04', '2026-11-05', '2026-11-06', '2026-11-07']
+      .map((date, index) => checkin(`hchk_summary_current_${index}`, 'cal_comm_aa', IDS.athleteA, currentHabit.id, date)),
+  );
+  seed(dataDir, db);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir, {}, firstNow);
+  t.after(async () => stop(server));
+  const sessionExpiresAt = laterNow + 86400000;
+  const oldRoute = `/api/coach/athletes/${IDS.athleteA}/habits-summary?linkId=${oldLink.id}&period=7&timezone=America%2FSao_Paulo`;
+  const first = await request(server, IDS.coachA, 'GET', oldRoute, undefined, sessionExpiresAt);
+  assert.deepEqual([first.status, first.body.summary.from, first.body.summary.to, first.body.summary.scheduledDays,
+    first.body.summary.completedDays, first.body.summary.adherencePercent, first.body.summary.habits[0].currentStreak,
+    first.body.summary.habits[0].longestStreakInPeriod], [200, '2026-10-25', '2026-10-31', 7, 3, 42.9, 3, 3]);
+  const explicit = await request(server, IDS.coachA, 'GET',
+    `/api/coach/athletes/${IDS.athleteA}/habits-summary?linkId=${oldLink.id}&from=2026-10-29&to=2026-11-07&timezone=America%2FSao_Paulo`,
+    undefined, sessionExpiresAt);
+  assert.deepEqual([explicit.body.summary.from, explicit.body.summary.to, explicit.body.summary.scheduledDays,
+    explicit.body.summary.completedDays], ['2026-10-29', '2026-10-31', 3, 3]);
+  const suspended = await request(server, IDS.coachA, 'GET',
+    `/api/coach/athletes/${IDS.athleteB}/habits-summary?linkId=${suspendedLink.id}&period=7&timezone=America%2FSao_Paulo`,
+    undefined, sessionExpiresAt);
+  assert.deepEqual([suspended.body.summary.to, suspended.body.summary.scheduledDays, suspended.body.summary.completedDays,
+    suspended.body.summary.habits[0].currentStreak], ['2026-10-31', 2, 2, 2]);
+  await setNow(server, laterNow);
+  const later = await request(server, IDS.coachA, 'GET', oldRoute, undefined, sessionExpiresAt);
+  assert.deepEqual(later.body.summary, first.body.summary);
 });
 
 test('retention preserves minimal relationship tombstones while dependent history remains', () => {

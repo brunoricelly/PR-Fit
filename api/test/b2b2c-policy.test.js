@@ -71,3 +71,25 @@ test('assessment retention removes expired sensitive records', () => {
   assert.equal(result.changed, true);
   assert.deepEqual(db.coachAssessments.map(item => item.id), ['cas_live']);
 });
+
+test('protected terminal links fail closed before exceeding the global link limit', () => {
+  const links = ['cal_protected_1', 'cal_protected_2'].map((id, index) => ({
+    id, coachId: coach.id, athleteId: athlete.id, scopes: ['training'], status: 'ended',
+    createdAt: `2026-01-0${index + 1}T00:00:00.000Z`, updatedAt: `2026-02-0${index + 1}T00:00:00.000Z`,
+    endedAt: `2026-02-0${index + 1}T00:00:00.000Z`, tombstone: true,
+  }));
+  const db = {
+    coachInvites: [], coachAthleteLinks: structuredClone(links), coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [], mealAdherence: [], coachMessages: links.map((link, index) => ({ id: `cmsg_${index}`, linkId: link.id })),
+    coachHabits: [], habitCheckins: [],
+  };
+  assert.throws(() => compactB2B2C(db, {
+    maxInvites: 1, maxLinks: 1, maxPrescriptions: 1, terminalInvitesKeep: 0, terminalLinksKeep: 0,
+    terminalPrescriptionsKeep: 0, terminalRetentionDays: 0,
+  }, Date.parse('2026-11-07T00:00:00.000Z')), error => {
+    assert.equal(error.code, 'relationship_capacity');
+    assert.equal(error.message, 'protected coachAthleteLinks exceed configured limit 1');
+    return true;
+  });
+  assert.deepEqual(db.coachAthleteLinks, links);
+});

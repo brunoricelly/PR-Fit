@@ -291,8 +291,8 @@ function scheduledOn(date, frequency) {
 
 const shiftDay = (date, amount) => new Date(Date.parse(`${date}T00:00:00.000Z`) + amount * DAY_MS).toISOString().slice(0, 10);
 
-export function habitSummary(habits, checkins, today = dayString(Date.now()), periodDays = 30, timeZone = DEFAULT_TIME_ZONE) {
-  const from = shiftDay(today, -(periodDays - 1));
+export function habitSummary(habits, checkins, today = dayString(Date.now()), periodDays = 30, timeZone = DEFAULT_TIME_ZONE,
+  from = shiftDay(today, -(periodDays - 1))) {
   const byHabit = new Map();
   for (const checkin of checkins) {
     if (!byHabit.has(checkin.habitId)) byHabit.set(checkin.habitId, new Map());
@@ -544,10 +544,19 @@ export function createCommunicationHabitsRoutes(context) {
     if (linkId === false) return b2bError(res, 400, 'invalid_link_id', 'linkId must be valid');
     const access = actorLink(req, res, actor, coachId, athleteId, { scope: 'training', event: 'b2b2c.habit.summary', linkId });
     if (!access) return;
+    const terminalTimestamp = access.link.status === 'ended'
+      ? access.link.suspendedAt || access.link.endedAt || access.link.updatedAt
+      : access.link.status === 'suspended' ? access.link.suspendedAt || access.link.updatedAt : null;
+    const parsedTerminalTimestamp = Date.parse(terminalTimestamp);
+    const terminalDate = Number.isFinite(parsedTerminalTimestamp) ? dateInTimeZone(parsedTerminalTimestamp, timeZone) : null;
+    const effectiveTo = terminalDate && terminalDate < period.to ? terminalDate : period.to;
+    const url = new URL(req.url, 'http://x');
+    const explicitInterval = url.searchParams.has('from') || url.searchParams.has('to');
+    const effectiveFrom = explicitInterval ? period.from : shiftDay(effectiveTo, -(period.periodDays - 1));
     const habits = db.coachHabits.filter(item => item.linkId === access.link.id);
     const habitIds = new Set(habits.map(item => item.id));
-    const result = habitSummary(habits, db.habitCheckins.filter(item => habitIds.has(item.habitId)), period.to, period.periodDays, timeZone);
-    result.from = period.from;
+    const result = habitSummary(habits, db.habitCheckins.filter(item => habitIds.has(item.habitId)),
+      effectiveTo, period.periodDays, timeZone, effectiveFrom);
     json(res, 200, { summary: result, timezone: timeZone,
       relationship: { linkId: access.link.id, status: access.link.status, readOnly: !!access.readOnly } });
   };

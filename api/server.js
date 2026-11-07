@@ -117,7 +117,7 @@ const envInt = (name, fallback, { min = 0, max = 1000000 } = {}) => {
 const B2B2C_LIMITS = {
   pendingPerCoach: envInt('B2B2C_PENDING_INVITES_PER_COACH', 10, { min: 1, max: 1000 }),
   maxInvites: envInt('B2B2C_MAX_INVITES', 5000, { min: 10, max: 1000000 }),
-  maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 10, max: 1000000 }),
+  maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 1, max: 1000000 }),
   maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
   prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
   maxAssessmentsPerAthlete: envInt('B2B2C_ASSESSMENTS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxAssessmentsPerAthlete, { min: 1, max: 10000 }),
@@ -2660,9 +2660,8 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'pending_invite_limit');
       return b2bError(res, 409, 'pending_invite_limit', 'too many pending invitations');
     }
-    const liveLinks = db.coachAthleteLinks.filter(link => link.status !== 'ended').length;
     const pendingInvites = db.coachInvites.filter(invite => db.coachAthleteLinks.some(link => link.id === invite.linkId && link.status === 'pending')).length;
-    if (liveLinks >= B2B2C_LIMITS.maxLinks || pendingInvites >= B2B2C_LIMITS.maxInvites) {
+    if (db.coachAthleteLinks.length >= B2B2C_LIMITS.maxLinks || pendingInvites >= B2B2C_LIMITS.maxInvites) {
       auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'relationship_capacity');
       return b2bError(res, 409, 'relationship_capacity', 'relationship storage capacity reached');
     }

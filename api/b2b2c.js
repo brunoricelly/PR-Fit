@@ -28,9 +28,10 @@ export const PARQ_QUESTIONS = Object.freeze([
 ]);
 
 export class B2B2CDataError extends Error {
-  constructor(message) {
+  constructor(message, code = 'invalid_b2b2c_data') {
     super(message);
     this.name = 'B2B2CDataError';
+    this.code = code;
   }
 }
 
@@ -195,8 +196,15 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     ...db.coachHabits.map(item => item.linkId),
     ...db.habitCheckins.map(item => item.linkId),
   ]);
-  const protectedTerminalLinks = db.coachAthleteLinks
-    .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id))
+  const protectedTerminalSource = db.coachAthleteLinks
+    .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id));
+  if (liveLinks.length + protectedTerminalSource.length > limits.maxLinks) {
+    throw new B2B2CDataError(
+      `protected coachAthleteLinks exceed configured limit ${limits.maxLinks}`,
+      'relationship_capacity',
+    );
+  }
+  const protectedTerminalLinks = protectedTerminalSource
     .map(link => {
       if (rowTime(link) >= cutoff) return link;
       const tombstone = {
@@ -208,6 +216,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
         createdAt: link.createdAt,
         updatedAt: link.updatedAt,
         endedAt: link.endedAt || link.updatedAt,
+        ...(link.suspendedAt ? { suspendedAt: link.suspendedAt } : {}),
         tombstone: true,
       };
       if (Object.keys(link).length !== Object.keys(tombstone).length || !link.tombstone) changed = true;
@@ -221,6 +230,12 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     .sort(newestFirst)
     .slice(0, Math.min(limits.terminalLinksKeep, terminalSlots));
   const keptLinks = [...liveLinks, ...protectedTerminalLinks, ...terminalLinks];
+  if (keptLinks.length > limits.maxLinks) {
+    throw new B2B2CDataError(
+      `coachAthleteLinks exceed configured limit ${limits.maxLinks}`,
+      'relationship_capacity',
+    );
+  }
   const keptLinkIds = new Set(keptLinks.map(link => link.id));
   if (keptLinks.length !== db.coachAthleteLinks.length) changed = true;
   db.coachAthleteLinks = keptLinks;
