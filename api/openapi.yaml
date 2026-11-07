@@ -1430,6 +1430,506 @@ paths:
         '404': { description: Relationship absent or outside the caller's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '409': { description: Invalid state transition., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /api/progress/metrics:
+    get:
+      tags: [professionals]
+      operationId: getProgressMetricCatalog
+      summary: Catalog of supported progress metrics and evaluators
+      description: >-
+        Lists the five core progress metrics, supported point semantics, evaluation states,
+        and unavailable reasons. Requires an authenticated session.
+      responses:
+        '200':
+          description: Supported progress metric catalog.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/MetricCatalogResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/coach/athletes/{athleteId}/progress-goals:
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteProgressGoals
+      summary: List progress goals for an athlete
+      description: >-
+        Cursor-paginated list of progress goals for this athlete. Filterable by status and date range.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/GoalStatusQuery'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/ProgressLimit'
+      responses:
+        '200':
+          description: Page of progress goals for this athlete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressGoalsPage' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+    post:
+      tags: [professionals]
+      operationId: createCoachAthleteProgressGoal
+      summary: Create a progress goal for an athlete
+      description: >-
+        Creates a new progress goal for the athlete within the active relationship scope. Enforces per-link and global goal capacity.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressGoalCreateInput' }
+      responses:
+        '201':
+          description: Created progress goal.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [goal]
+                properties:
+                  goal: { $ref: '#/components/schemas/ProgressGoal' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '409': { $ref: '#/components/responses/ProgressConflict' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+
+  /api/coach/athletes/{athleteId}/progress-goals/{goalId}:
+    get:
+      tags: [professionals]
+      operationId: getCoachAthleteProgressGoal
+      summary: Read one athlete progress goal
+      description: >-
+        Fetches a single progress goal for the athlete, ensuring relationship and professional scopes match.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/GoalId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      responses:
+        '200':
+          description: Progress goal detail.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [goal]
+                properties:
+                  goal: { $ref: '#/components/schemas/ProgressGoal' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+    patch:
+      tags: [professionals]
+      operationId: updateCoachAthleteProgressGoal
+      summary: Update an athlete progress goal
+      description: >-
+        Updates an existing progress goal using optimistic concurrency control. The payload must include the current _rev and any modified fields.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/GoalId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressGoalPatchInput' }
+      responses:
+        '200':
+          description: Updated progress goal.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [goal]
+                properties:
+                  goal: { $ref: '#/components/schemas/ProgressGoal' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '409': { $ref: '#/components/responses/ProgressConflict' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+    delete:
+      tags: [professionals]
+      operationId: archiveCoachAthleteProgressGoal
+      summary: Archive an athlete progress goal
+      description: >-
+        Archives a progress goal using optimistic concurrency control. Requires _rev in body or If-Match header.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/GoalId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/IfMatchGoalRev'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressGoalArchiveInput' }
+      responses:
+        '200':
+          description: Goal archived successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [goal, archived]
+                properties:
+                  goal: { $ref: '#/components/schemas/ProgressGoal' }
+                  archived: { type: boolean, enum: [true] }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '409': { $ref: '#/components/responses/ProgressConflict' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+
+  /api/coach/athletes/{athleteId}/progress-summary:
+    get:
+      tags: [professionals]
+      operationId: getCoachAthleteProgressSummary
+      summary: Longitudinal factual progress summary for an athlete
+      description: >-
+        Generates a longitudinal factual summary of athlete progress across permitted metrics, evaluated against goals and relationship boundaries.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressTimezoneRequired'
+        - $ref: '#/components/parameters/ProgressPeriod'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/ProgressMetricsQuery'
+      responses:
+        '200':
+          description: Longitudinal factual progress summary.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [summary]
+                properties:
+                  summary: { $ref: '#/components/schemas/ProgressSummary' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+
+  /api/coach/athletes/{athleteId}/progress-reports:
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteProgressReports
+      summary: List immutable progress reports for an athlete
+      description: >-
+        Cursor-paginated list of progress report metadata generated for this athlete.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ReportStatusQuery'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/ProgressLimit'
+      responses:
+        '200':
+          description: Page of report metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressReportsPage' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+    post:
+      tags: [professionals]
+      operationId: createCoachAthleteProgressReport
+      summary: Generate an immutable progress report snapshot
+      description: >-
+        Generates and persists an immutable progress snapshot for the athlete. Requires active relationship and valid metric selection.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProgressReportCreateInput' }
+      responses:
+        '201':
+          description: Created progress report.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReport' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '409': { $ref: '#/components/responses/ProgressConflict' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+
+  /api/coach/athletes/{athleteId}/progress-reports/{reportId}:
+    get:
+      tags: [professionals]
+      operationId: getCoachAthleteProgressReport
+      summary: Read an immutable progress report
+      description: >-
+        Fetches full snapshot of an immutable progress report, or exports it if ?format=csv or ?format=json is specified.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressReportFormatQuery'
+      responses:
+        '200':
+          description: Full progress report snapshot or formatted export file.
+          headers:
+            Content-Disposition:
+              description: Attachment header when format is specified.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReport' }
+            text/csv:
+              schema:
+                type: string
+                description: CSV formatted export when format=csv.
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '410': { $ref: '#/components/responses/ProgressReportRevoked' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
+  /api/coach/athletes/{athleteId}/progress-reports/{reportId}/export:
+    get:
+      tags: [professionals]
+      operationId: exportCoachAthleteProgressReport
+      summary: Export an immutable progress report as JSON or CSV
+      description: >-
+        Exports the progress report as a downloadable attachment in JSON or CSV format.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressReportFormatExportQuery'
+      responses:
+        '200':
+          description: Exported progress report file attachment.
+          headers:
+            Content-Disposition:
+              description: Attachment header with suggested filename.
+              schema: { type: string }
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReport' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '410': { $ref: '#/components/responses/ProgressReportRevoked' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
+  /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke:
+    post:
+      tags: [professionals]
+      operationId: revokeCoachAthleteProgressReport
+      summary: Revoke an athlete progress report
+      description: >-
+        Marks a progress report as revoked. Revoked reports can no longer be exported or viewed.
+      parameters:
+        - $ref: '#/components/parameters/AthleteId'
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      responses:
+        '200':
+          description: Revoked progress report metadata.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReportMetadata' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '410': { $ref: '#/components/responses/ProgressReportRevoked' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+        '503': { $ref: '#/components/responses/StorageUnavailable' }
+
+  /api/athlete/progress-goals:
+    get:
+      tags: [professionals]
+      operationId: listAthleteProgressGoals
+      summary: List progress goals for the athlete
+      description: >-
+        Cursor-paginated list of progress goals for the signed-in athlete.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/GoalStatusQuery'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/ProgressLimit'
+      responses:
+        '200':
+          description: Page of progress goals for the athlete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressGoalsPage' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+
+  /api/athlete/progress-summary:
+    get:
+      tags: [professionals]
+      operationId: getAthleteProgressSummary
+      summary: Longitudinal factual progress summary for the athlete
+      description: >-
+        Generates a longitudinal factual summary of progress across permitted metrics for the signed-in athlete.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressTimezoneRequired'
+        - $ref: '#/components/parameters/ProgressPeriod'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/ProgressMetricsQuery'
+      responses:
+        '200':
+          description: Progress summary for the athlete.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [summary]
+                properties:
+                  summary: { $ref: '#/components/schemas/ProgressSummary' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+
+  /api/athlete/progress-reports:
+    get:
+      tags: [professionals]
+      operationId: listAthleteProgressReports
+      summary: List immutable progress reports for the athlete
+      description: >-
+        Cursor-paginated list of progress reports generated for the signed-in athlete.
+      parameters:
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ReportStatusQuery'
+        - $ref: '#/components/parameters/ProgressFrom'
+        - $ref: '#/components/parameters/ProgressTo'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/ProgressLimit'
+      responses:
+        '200':
+          description: Page of report metadata.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ProgressReportsPage' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+
+  /api/athlete/progress-reports/{reportId}:
+    get:
+      tags: [professionals]
+      operationId: getAthleteProgressReport
+      summary: Read an immutable progress report for the athlete
+      description: >-
+        Fetches full snapshot of an immutable progress report, or exports it if ?format=csv or ?format=json is specified.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressReportFormatQuery'
+      responses:
+        '200':
+          description: Full progress report snapshot or formatted export file.
+          headers:
+            Content-Disposition:
+              description: Attachment header when format is specified.
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReport' }
+            text/csv:
+              schema:
+                type: string
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '410': { $ref: '#/components/responses/ProgressReportRevoked' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
+  /api/athlete/progress-reports/{reportId}/export:
+    get:
+      tags: [professionals]
+      operationId: exportAthleteProgressReport
+      summary: Export an immutable progress report as JSON or CSV
+      description: >-
+        Exports the progress report as a downloadable attachment for the athlete.
+      parameters:
+        - $ref: '#/components/parameters/ReportId'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/ProgressReportFormatExportQuery'
+      responses:
+        '200':
+          description: Exported progress report file attachment.
+          headers:
+            Content-Disposition:
+              description: Attachment header with suggested filename.
+              schema: { type: string }
+          content:
+            text/csv:
+              schema: { type: string }
+            application/json:
+              schema:
+                type: object
+                required: [report]
+                properties:
+                  report: { $ref: '#/components/schemas/ProgressReport' }
+        '400': { $ref: '#/components/responses/ProgressBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ProgressForbidden' }
+        '404': { $ref: '#/components/responses/ProgressNotFound' }
+        '410': { $ref: '#/components/responses/ProgressReportRevoked' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
   /api/register/options:
     post:
       tags: [auth]
@@ -4049,6 +4549,53 @@ paths:
               schema: { $ref: '#/components/schemas/Error' }
               example: { error: "no such user" }
 
+  /api/admin/account-cleanup:
+    get:
+      tags: [admin]
+      operationId: listAccountCleanupJobs
+      summary: List background account cleanup jobs
+      description: >-
+        Admin-only cursor-paginated list of background account cleanup jobs.
+      parameters:
+        - $ref: '#/components/parameters/CleanupStatusQuery'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/ProgressLimit'
+      responses:
+        '200':
+          description: Page of account cleanup jobs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountCleanupPage' }
+        '400': { $ref: '#/components/responses/AccountCleanupBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
+  /api/admin/account-cleanup/{cleanupJobId}:
+    get:
+      tags: [admin]
+      operationId: getAccountCleanupJob
+      summary: Read status of one background account cleanup job
+      description: >-
+        Admin-only endpoint returning sanitized execution details for a background account cleanup job.
+      parameters:
+        - $ref: '#/components/parameters/CleanupJobId'
+      responses:
+        '200':
+          description: Sanitized account cleanup job details.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AccountCleanupJob' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404':
+          description: Cleanup job not found.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Error' }
+              example: { error: "not found" }
+        '429': { $ref: '#/components/responses/ProgressRateLimited' }
+
   /api/admin/user/role:
     post:
       tags: [admin]
@@ -5011,6 +5558,87 @@ components:
       description: Inclusive ISO date. Must be supplied with `from`.
       schema: { type: string, format: date }
 
+    GoalId:
+      in: path
+      name: goalId
+      required: true
+      description: Stable goal identifier.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    ReportId:
+      in: path
+      name: reportId
+      required: true
+      description: Stable progress report identifier.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    CleanupJobId:
+      in: path
+      name: cleanupJobId
+      required: true
+      description: Background account cleanup job identifier.
+      schema: { type: string, pattern: '^acj_[A-Za-z0-9_-]{16}$' }
+    GoalStatusQuery:
+      in: query
+      name: status
+      description: Filter goals by lifecycle status.
+      schema: { type: string, enum: [active, achieved, archived] }
+    ReportStatusQuery:
+      in: query
+      name: status
+      description: Filter reports by lifecycle status.
+      schema: { type: string, enum: [active, revoked] }
+    CleanupStatusQuery:
+      in: query
+      name: status
+      description: Filter cleanup jobs by execution status.
+      schema: { type: string, enum: [pending, complete, failed, manual_review] }
+    ProgressPeriod:
+      in: query
+      name: period
+      description: Preset number of local calendar days (7, 30, or 90). Cannot be combined with from/to. Defaults to 30.
+      schema: { type: integer, enum: [7, 30, 90] }
+    ProgressFrom:
+      in: query
+      name: from
+      description: Inclusive ISO date (YYYY-MM-DD) for progress interval.
+      schema: { type: string, format: date }
+    ProgressTo:
+      in: query
+      name: to
+      description: Inclusive ISO date (YYYY-MM-DD) for progress interval.
+      schema: { type: string, format: date }
+    ProgressLimit:
+      in: query
+      name: limit
+      description: Number of items per page (1 to 100).
+      schema: { type: integer, minimum: 1, maximum: 100, default: 25 }
+    ProgressTimezoneRequired:
+      in: query
+      name: timezone
+      required: true
+      description: Valid IANA timezone name used for civil date boundaries.
+      schema: { type: string, maxLength: 100, example: America/Sao_Paulo }
+    ProgressMetricsQuery:
+      in: query
+      name: metrics
+      description: Comma-separated list of progress metrics to query.
+      schema: { type: string, example: 'body_weight,body_fat_percent' }
+    ProgressReportFormatQuery:
+      in: query
+      name: format
+      description: Optional format for report output (json or csv).
+      schema: { type: string, enum: [json, csv] }
+    ProgressReportFormatExportQuery:
+      in: query
+      name: format
+      required: true
+      description: Export format for progress report attachment (json or csv).
+      schema: { type: string, enum: [json, csv] }
+    IfMatchGoalRev:
+      in: header
+      name: If-Match
+      description: Expected revision number of the progress goal.
+      schema: { type: string, example: '"1"' }
+
   responses:
     CommunicationBadRequest:
       description: Invalid message, habit, check-in, timezone, period, link id, read cursor or pagination cursor. The stable code identifies the invalid input.
@@ -5206,6 +5834,81 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: "that code is wrong, used or expired", code: "link-invalid" }
+
+    ProgressBadRequest:
+      description: Invalid goal, report, period, timezone, limit, cursor or format.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            invalidGoal: { value: { error: "invalid progress goal", code: "invalid_goal" } }
+            preconditionRequired: { value: { error: "_rev is required", code: "precondition_required" } }
+            invalidPeriod: { value: { error: "period must be 7, 30 or 90 days, or an interval up to 366 days", code: "invalid_period" } }
+            invalidTimezone: { value: { error: "timezone must be a valid IANA timezone", code: "invalid_timezone" } }
+            invalidMetrics: { value: { error: "at least one valid metric is required", code: "invalid_metrics" } }
+            invalidFormat: { value: { error: "format must be json or csv", code: "invalid_format" } }
+            invalidStatus: { value: { error: "status is invalid", code: "invalid_status" } }
+            invalidLimit: { value: { error: "limit must be between 1 and 100", code: "invalid_limit" } }
+            invalidCursor: { value: { error: "cursor is invalid for this relationship or filter", code: "invalid_cursor" } }
+            invalidLinkId: { value: { error: "linkId must be valid", code: "invalid_link_id" } }
+    ProgressForbidden:
+      description: Missing professional profile, scope forbidden, or relationship inactive.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            roleForbidden: { value: { error: "professional profile required", code: "role_forbidden" } }
+            scopeForbidden: { value: { error: "relationship scope assessments is required", code: "scope_forbidden" } }
+            relationshipInactive: { value: { error: "progress relationship access denied", code: "relationship_inactive" } }
+    ProgressNotFound:
+      description: Relationship, progress goal or report not found for this caller.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            goalNotFound: { value: { error: "progress goal not found", code: "goal_not_found" } }
+            reportNotFound: { value: { error: "progress report not found", code: "report_not_found" } }
+            relationshipNotFound: { value: { error: "relationship not found", code: "relationship_not_found" } }
+    ProgressConflict:
+      description: Goal version conflict (stale_version) or goal/report storage capacity reached.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            staleVersion: { value: { error: "goal version is stale", code: "stale_version" } }
+            goalCapacity: { value: { error: "progress goal capacity reached", code: "goal_capacity" } }
+            reportCapacity: { value: { error: "progress report capacity reached", code: "report_capacity" } }
+    ProgressReportRevoked:
+      description: The requested progress report was revoked and is no longer accessible.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "progress report was revoked", code: "report_revoked" }
+    ProgressRateLimited:
+      description: Rate limit reached on progress mutations, report exports or cleanup inspection.
+      headers:
+        Retry-After:
+          description: Seconds until the rate limit window resets.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "too many progress operations, try again later", code: "rate_limited" }
+    StorageUnavailable:
+      description: The state or database commit could not be persisted.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "progress goal could not be saved", code: "storage_unavailable" }
+    AccountCleanupBadRequest:
+      description: Invalid status, limit or cursor parameter.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          examples:
+            invalidStatus: { value: { error: "invalid status", code: "invalid_status" } }
+            invalidLimit: { value: { error: "invalid limit", code: "invalid_limit" } }
+            invalidCursor: { value: { error: "invalid cursor", code: "invalid_cursor" } }
 
   schemas:
     RelationshipHistoryState:
@@ -6828,3 +7531,455 @@ components:
               outcome: { type: string }
               errorClass: { oneOf: [{ type: string }, { type: 'null' }] }
               ms: { type: integer }
+
+    ProgressMetricName:
+      type: string
+      enum: [body_weight, body_fat_percent, workouts_per_week, nutrition_adherence_percent, habit_adherence_percent]
+
+    ProgressMetricUnit:
+      type: string
+      enum: [kg, percent, workouts_per_week]
+
+    ProgressGoalDirection:
+      type: string
+      enum: [increase, decrease, maintain]
+
+    ProgressGoalStatus:
+      type: string
+      enum: [active, achieved, archived]
+
+    ProgressGoalEvaluationState:
+      type: string
+      enum: [not_started, in_progress, within_tolerance, outside_tolerance, achieved, archived, insufficient_data, stale, unavailable]
+
+    ProgressCoverage:
+      type: object
+      additionalProperties: false
+      required: [observed]
+      properties:
+        observed: { type: integer }
+        expected: { type: ['integer', 'null'] }
+        percent: { type: ['number', 'null'] }
+        periodDays: { type: ['integer', 'null'] }
+
+    ProgressFreshness:
+      type: object
+      additionalProperties: false
+      required: [status, staleAfterDays]
+      properties:
+        status:
+          type: string
+          enum: [fresh, stale, none]
+        latestDate:
+          type: ['string', 'null']
+          format: date
+        ageDays:
+          type: ['integer', 'null']
+        staleAfterDays:
+          type: integer
+
+    ProgressTrend:
+      type: object
+      additionalProperties: false
+      required: [available]
+      properties:
+        available: { type: boolean }
+        change: { type: ['number', 'null'] }
+        direction:
+          type: ['string', 'null']
+          enum: [increase, decrease, stable, null]
+        reason:
+          type: ['string', 'null']
+          enum: [insufficient_observations, null]
+
+    ProgressPoint:
+      oneOf:
+        - $ref: '#/components/schemas/ProgressPointInstant'
+        - $ref: '#/components/schemas/ProgressPointInterval'
+      discriminator:
+        propertyName: kind
+        mapping:
+          instant: '#/components/schemas/ProgressPointInstant'
+          interval: '#/components/schemas/ProgressPointInterval'
+
+    ProgressPointInstant:
+      type: object
+      additionalProperties: false
+      required: [kind, date, value, unit, coverage, freshness]
+      properties:
+        kind:
+          type: string
+          enum: [instant]
+        date:
+          type: string
+          format: date
+        value:
+          type: number
+        unit:
+          $ref: '#/components/schemas/ProgressMetricUnit'
+        source:
+          type: string
+        numerator:
+          type: integer
+        denominator:
+          type: integer
+        coverage:
+          $ref: '#/components/schemas/ProgressCoverage'
+        freshness:
+          $ref: '#/components/schemas/ProgressFreshness'
+
+    ProgressPointInterval:
+      type: object
+      additionalProperties: false
+      required: [kind, from, to, value, numerator, denominator, unit, coverage, freshness]
+      properties:
+        kind:
+          type: string
+          enum: [interval]
+        from:
+          type: string
+          format: date
+        to:
+          type: string
+          format: date
+        value:
+          type: number
+        numerator:
+          type: integer
+        denominator:
+          type: integer
+        unit:
+          $ref: '#/components/schemas/ProgressMetricUnit'
+        coverage:
+          $ref: '#/components/schemas/ProgressCoverage'
+        freshness:
+          $ref: '#/components/schemas/ProgressFreshness'
+
+    ProgressRelationship:
+      type: object
+      additionalProperties: false
+      required: [linkId, status, readOnly]
+      properties:
+        linkId:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{1,120}$'
+        status:
+          type: string
+          enum: [pending, active, suspended, ended]
+        readOnly:
+          type: boolean
+
+    ProgressGoal:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, coachId, athleteId, metric, direction, baselineValue, targetValue, tolerance, unit, startDate, targetDate, timezone, status, _rev, createdAt, updatedAt, achievedAt, archivedAt, archiveReason]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        coachId: { type: string }
+        athleteId: { type: string }
+        metric: { $ref: '#/components/schemas/ProgressMetricName' }
+        direction: { $ref: '#/components/schemas/ProgressGoalDirection' }
+        baselineValue: { type: number }
+        targetValue: { type: number }
+        tolerance: { type: ['number', 'null'] }
+        unit: { $ref: '#/components/schemas/ProgressMetricUnit' }
+        startDate: { type: string, format: date }
+        targetDate: { type: string, format: date }
+        timezone: { type: string }
+        status: { $ref: '#/components/schemas/ProgressGoalStatus' }
+        _rev: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        achievedAt: { type: ['string', 'null'], format: date-time }
+        archivedAt: { type: ['string', 'null'], format: date-time }
+        archiveReason: { type: ['string', 'null'] }
+
+    ProgressGoalCreateInput:
+      type: object
+      additionalProperties: false
+      required: [metric, direction, baselineValue, targetValue, startDate, targetDate, timezone]
+      properties:
+        metric: { $ref: '#/components/schemas/ProgressMetricName' }
+        direction: { $ref: '#/components/schemas/ProgressGoalDirection' }
+        baselineValue: { type: number }
+        targetValue: { type: number }
+        tolerance: { type: ['number', 'null'] }
+        startDate: { type: string, format: date }
+        targetDate: { type: string, format: date }
+        timezone: { type: string }
+        status: { $ref: '#/components/schemas/ProgressGoalStatus' }
+
+    ProgressGoalPatchInput:
+      type: object
+      additionalProperties: false
+      required: [_rev]
+      properties:
+        _rev: { type: integer }
+        metric: { $ref: '#/components/schemas/ProgressMetricName' }
+        direction: { $ref: '#/components/schemas/ProgressGoalDirection' }
+        baselineValue: { type: number }
+        targetValue: { type: number }
+        tolerance: { type: ['number', 'null'] }
+        startDate: { type: string, format: date }
+        targetDate: { type: string, format: date }
+        timezone: { type: string }
+        status: { $ref: '#/components/schemas/ProgressGoalStatus' }
+
+    ProgressGoalArchiveInput:
+      type: object
+      additionalProperties: false
+      properties:
+        _rev: { type: integer }
+
+    GoalProgress:
+      type: object
+      additionalProperties: false
+      required: [goalId, metric, storedStatus, state, currentValue, unit, percent, coverage, freshness, unavailableReason, evaluationPolicy]
+      properties:
+        goalId: { type: string }
+        metric: { $ref: '#/components/schemas/ProgressMetricName' }
+        storedStatus: { $ref: '#/components/schemas/ProgressGoalStatus' }
+        state: { $ref: '#/components/schemas/ProgressGoalEvaluationState' }
+        currentValue: { type: ['number', 'null'] }
+        unit: { $ref: '#/components/schemas/ProgressMetricUnit' }
+        percent: { type: ['number', 'null'] }
+        coverage:
+          oneOf:
+            - $ref: '#/components/schemas/ProgressCoverage'
+            - type: 'null'
+        freshness:
+          oneOf:
+            - $ref: '#/components/schemas/ProgressFreshness'
+            - type: 'null'
+        unavailableReason: { type: ['string', 'null'] }
+        evaluationPolicy: { type: object }
+
+    ProgressGoalWithProgress:
+      allOf:
+        - $ref: '#/components/schemas/ProgressGoal'
+        - type: object
+          required: [progress]
+          properties:
+            progress: { $ref: '#/components/schemas/GoalProgress' }
+
+    ProgressGoalsPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, hasMore, nextCursor, relationship]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressGoal' }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { type: ['string', 'null'] }
+        relationship: { $ref: '#/components/schemas/ProgressRelationship' }
+
+    MetricSummary:
+      type: object
+      required: [metric, unit, available, currentValue, unavailableReason, points, coverage, freshness]
+      properties:
+        metric: { $ref: '#/components/schemas/ProgressMetricName' }
+        unit: { $ref: '#/components/schemas/ProgressMetricUnit' }
+        available: { type: boolean }
+        currentValue: { type: ['number', 'null'] }
+        unavailableReason: { type: ['string', 'null'] }
+        points:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressPoint' }
+        coverage: { $ref: '#/components/schemas/ProgressCoverage' }
+        freshness: { $ref: '#/components/schemas/ProgressFreshness' }
+        trend: { $ref: '#/components/schemas/ProgressTrend' }
+        volume:
+          type: object
+          properties:
+            value: { type: ['number', 'null'] }
+            unit: { type: string }
+            observedWorkouts: { type: integer }
+        prescriptions:
+          type: object
+          properties:
+            availableRoutines: { type: integer }
+            historicalWeeklyScheduleAvailable: { type: boolean }
+        workoutsCompleted: { type: integer }
+        numerator: { type: object }
+        denominator: { type: object }
+        methodology: { type: string }
+        habits: { type: array }
+
+    ProgressPeriodSummary:
+      type: object
+      additionalProperties: false
+      required: [from, to, days, requestedFrom, requestedTo, preset]
+      properties:
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+        days: { type: integer }
+        requestedFrom: { type: string, format: date }
+        requestedTo: { type: string, format: date }
+        preset: { type: ['integer', 'null'], enum: [7, 30, 90, null] }
+
+    ProgressSummary:
+      type: object
+      additionalProperties: false
+      required: [generatedAt, timezone, period, relationship, metrics, goals, disclaimer]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        timezone: { type: string }
+        period: { $ref: '#/components/schemas/ProgressPeriodSummary' }
+        relationship: { $ref: '#/components/schemas/ProgressRelationship' }
+        metrics:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MetricSummary'
+        goals:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressGoalWithProgress' }
+        disclaimer: { type: string }
+
+    ProgressReport:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, coachId, athleteId, interval, timezone, metrics, summary, createdAt, revokedAt]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        coachId: { type: string }
+        athleteId: { type: string }
+        interval:
+          type: object
+          required: [from, to]
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        timezone: { type: string }
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressMetricName' }
+        summary: { type: string }
+        snapshot: { type: object }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: ['string', 'null'], format: date-time }
+        revocation: { type: ['object', 'null'] }
+
+    ProgressReportMetadata:
+      type: object
+      additionalProperties: false
+      required: [id, linkId, interval, timezone, metrics, summary, createdAt, revokedAt]
+      properties:
+        id: { type: string }
+        linkId: { type: string }
+        interval:
+          type: object
+          required: [from, to]
+          properties:
+            from: { type: string, format: date }
+            to: { type: string, format: date }
+        timezone: { type: string }
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressMetricName' }
+        summary: { type: string }
+        createdAt: { type: string, format: date-time }
+        revokedAt: { type: ['string', 'null'], format: date-time }
+        revocation: { type: ['object', 'null'] }
+
+    ProgressReportsPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, hasMore, nextCursor, relationship]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressReportMetadata' }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { type: ['string', 'null'] }
+        relationship: { $ref: '#/components/schemas/ProgressRelationship' }
+
+    ProgressReportCreateInput:
+      type: object
+      additionalProperties: false
+      required: [metrics]
+      properties:
+        metrics:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressMetricName' }
+        timezone: { type: string }
+        period: { type: integer, enum: [7, 30, 90] }
+        from: { type: string, format: date }
+        to: { type: string, format: date }
+
+    MetricCatalogItem:
+      type: object
+      required: [unit, pointKind, pointSemantics, directions, scope, labelKey, labelPtBr]
+      properties:
+        unit: { $ref: '#/components/schemas/ProgressMetricUnit' }
+        pointKind: { type: string, enum: [instant, interval] }
+        pointSemantics: { type: object }
+        directions: { type: array, items: { $ref: '#/components/schemas/ProgressGoalDirection' } }
+        scope: { type: string, enum: [assessments, training, nutrition] }
+        labelKey: { type: string }
+        labelPtBr: { type: string }
+        volume: { type: object }
+
+    MetricCatalogResponse:
+      type: object
+      additionalProperties: false
+      required: [metrics, states, unavailableReasons, goalProgressReasons, trendReasons]
+      properties:
+        metrics:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/MetricCatalogItem'
+        states:
+          type: array
+          items: { $ref: '#/components/schemas/ProgressGoalEvaluationState' }
+        unavailableReasons:
+          type: array
+          items: { type: string }
+        goalProgressReasons:
+          type: array
+          items: { type: string }
+        trendReasons:
+          type: array
+          items: { type: string }
+
+    AccountCleanupJob:
+      type: object
+      additionalProperties: false
+      required: [id, status, steps, attempts, createdAt, updatedAt, nextAttemptAt, terminalAt, lastError]
+      properties:
+        id:
+          type: string
+          pattern: '^acj_[A-Za-z0-9_-]{16}$'
+        status:
+          type: string
+          enum: [pending, complete, failed, manual_review]
+        steps:
+          type: object
+          additionalProperties: false
+          required: [total, pending, complete]
+          properties:
+            total: { type: integer }
+            pending: { type: integer }
+            complete: { type: integer }
+        attempts: { type: integer }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        nextAttemptAt: { type: ['string', 'null'], format: date-time }
+        terminalAt: { type: ['string', 'null'], format: date-time }
+        lastError: { type: ['string', 'null'] }
+
+    AccountCleanupPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, hasMore, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AccountCleanupJob' }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { type: ['string', 'null'] }

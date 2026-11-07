@@ -100,9 +100,52 @@ async function exchange(url, init) {
   try { data = await r.json() } catch { parsed = false }
   const body = parsed && data && typeof data === 'object' ? data : null
   // The body rides along on the error: a 409 from /api/data carries the server's document.
-  if (!r.ok) { const e = new Error(refusal(r.status, body)); e.status = r.status; e.data = body || {}; throw e }
+  if (!r.ok) {
+    const e = new Error(refusal(r.status, body))
+    e.status = r.status
+    e.data = body || {}
+    e.code = body?.code || 'http'
+    const retryAfter = Number(r.headers?.get?.('Retry-After'))
+    if (r.status === 429 && Number.isFinite(retryAfter) && retryAfter >= 0) e.retryAfter = retryAfter
+    throw e
+  }
   if (!body) throw failure(t('The server answered with something other than openGym data.'), 'bad-response', r.status)
   return body
+}
+
+/**
+ * GET a bounded API export without assuming JSON. The caller receives the exact media type and
+ * Content-Disposition so it can create a short-lived object URL and choose a safe local name.
+ * Errors have the same stable { status, code, data, retryAfter } shape as api().
+ */
+export async function apiDownload(path, { timeout = TIMEOUT_GET_MS, fetchImpl = globalThis.fetch } = {}) {
+  if (MOBILE && !remoteBase) throw notPaired()
+  const url = mediaUrl(path)
+  const ctl = typeof AbortController === 'function' ? new AbortController() : null
+  let timer = null
+  try {
+    const request = fetchImpl(url, { headers: remoteHeaders(), cache: 'no-store', ...(ctl ? { signal: ctl.signal } : {}) })
+    const expired = new Promise((_, reject) => {
+      if (timeout > 0) timer = setTimeout(() => { ctl?.abort(); reject(timedOut()) }, timeout)
+    })
+    request.catch(() => {})
+    const response = await Promise.race([request, expired])
+    if (!response.ok) {
+      let body = null
+      try { body = await response.json() } catch { /* proxy or non-JSON refusal */ }
+      const error = Object.assign(new Error(refusal(response.status, body)), {
+        status: response.status, code: body?.code || 'http', data: body || {},
+      })
+      const retryAfter = Number(response.headers?.get?.('Retry-After'))
+      if (response.status === 429 && Number.isFinite(retryAfter) && retryAfter >= 0) error.retryAfter = retryAfter
+      throw error
+    }
+    return {
+      blob: await response.blob(),
+      contentType: response.headers?.get?.('Content-Type') || 'application/octet-stream',
+      contentDisposition: response.headers?.get?.('Content-Disposition') || '',
+    }
+  } finally { clearTimeout(timer) }
 }
 
 // A "left" signal sent as the page goes: sendBeacon outlives a closing tab, where fetch may not.
