@@ -179,6 +179,38 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
 });
 
+test('external cleanup failure is observable and boot retry never resurrects the account', async t => {
+  const h = await startServer(t, { env: { ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail' } });
+  fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'state,integrations');
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'cleanup_pending');
+  let stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false, 'access is removed before cleanup');
+  assert.equal(stored.accountCleanupJobs.length, 1);
+  assert.equal(stored.accountCleanupJobs[0].status, 'pending');
+  assert.match(stored.accountCleanupJobs[0].lastError, /integrations:EIO/);
+  assert.equal(JSON.stringify(stored.accountCleanupJobs[0]).includes('user'), false, 'cleanup metadata has no plaintext subject id');
+
+  await h.restart();
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false, 'retry does not resurrect the account');
+  assert.equal(stored.accountCleanupJobs[0].status, 'complete');
+  assert.ok(stored.accountCleanupJobs[0].attempts >= 2);
+  assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false);
+});
+
+test('missing external files are successful idempotent cleanup, not pending work', async t => {
+  const h = await startServer(t);
+  fs.unlinkSync(path.join(h.dataDir, `state-${USER}.json`));
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.deepEqual(res.body, { ok: true });
+  assert.equal(h.db().accountCleanupJobs[0].status, 'complete');
+});
+
 test('needs the account name typed back', async t => {
   const h = await startServer(t);
   // Checked before the proof: a wrong name costs no password check, even with the right one.

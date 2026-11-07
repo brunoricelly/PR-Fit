@@ -31,14 +31,21 @@ const METRIC_UNITS = Object.freeze({
   nutrition_adherence_percent: 'percent',
   habit_adherence_percent: 'percent',
 });
+const METRIC_CATALOG = Object.freeze({
+  body_weight: { unit: 'kg', directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_weight', labelPtBr: 'Peso corporal' },
+  body_fat_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_fat_percent', labelPtBr: 'Percentual de gordura' },
+  workouts_per_week: { unit: 'workouts_per_week', directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.workouts_per_week', labelPtBr: 'Treinos por semana', volume: { unit: 'source_weight_repetitions', labelPtBr: 'Soma de carga da fonte multiplicada por repetições' } },
+  nutrition_adherence_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'nutrition', labelKey: 'progress.metric.nutrition_adherence_percent', labelPtBr: 'Adesão nutricional' },
+  habit_adherence_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.habit_adherence_percent', labelPtBr: 'Adesão a hábitos' },
+});
 const GOAL_KEYS = [
   'id', 'linkId', 'coachId', 'athleteId', 'metric', 'direction', 'baselineValue', 'targetValue',
-  'tolerance', 'startDate', 'targetDate', 'timezone', 'status', 'createdAt', 'updatedAt',
-  'achievedAt', 'archivedAt',
+  'tolerance', 'unit', 'startDate', 'targetDate', 'timezone', 'status', '_rev', 'createdAt', 'updatedAt',
+  'achievedAt', 'archivedAt', 'archiveReason',
 ];
 const REPORT_KEYS = [
   'id', 'linkId', 'coachId', 'athleteId', 'interval', 'timezone', 'metrics', 'summary', 'snapshot',
-  'createdAt', 'revokedAt',
+  'createdAt', 'revokedAt', 'revocation',
 ];
 
 export const PROGRESS_LIMITS = Object.freeze({
@@ -110,19 +117,21 @@ export function validateProgressGoal(goal, links = null) {
       || !validId(goal.coachId) || !validId(goal.athleteId) || !GOAL_METRICS.includes(goal.metric)
       || !GOAL_DIRECTIONS.has(goal.direction) || !finiteMetric(goal.baselineValue)
       || !finiteMetric(goal.targetValue) || !(goal.tolerance === null || finite(goal.tolerance) && goal.tolerance >= 0 && goal.tolerance <= 1000000)
+      || goal.unit !== METRIC_UNITS[goal.metric] || !Number.isSafeInteger(goal._rev) || goal._rev < 1
       || !validIsoDate(goal.startDate) || !validIsoDate(goal.targetDate) || goal.targetDate < goal.startDate
       || inclusiveDays(goal.startDate, goal.targetDate) > 3660 || !validTimeZone(goal.timezone)
       || !GOAL_STATUSES.has(goal.status) || !isoTimestamp(goal.createdAt) || !isoTimestamp(goal.updatedAt)
       || Date.parse(goal.updatedAt) < Date.parse(goal.createdAt)
       || !(goal.achievedAt === null || isoTimestamp(goal.achievedAt))
       || !(goal.archivedAt === null || isoTimestamp(goal.archivedAt))
+      || !(goal.archiveReason === null || ['manual', 'scope_revoked'].includes(goal.archiveReason))
       || goal.status === 'active' && (goal.achievedAt !== null || goal.archivedAt !== null)
       || goal.status === 'achieved' && (goal.achievedAt === null || goal.archivedAt !== null)
       || goal.status === 'archived' && goal.archivedAt === null
       || !validGoalDirection(goal)) return false;
   const link = links?.get(goal.linkId);
   return !links || !!link && link.coachId === goal.coachId && link.athleteId === goal.athleteId
-    && link.scopes.includes(scopeForProgressMetric(goal.metric));
+    ;
 }
 
 function safeSnapshot(value, depth = 0) {
@@ -148,10 +157,14 @@ export function validateProgressReport(report, links = null, limits = PROGRESS_L
       || report.metrics.some(metric => !GOAL_METRICS.includes(metric)) || cleanText(report.summary, 2000) === null
       || !record(report.snapshot) || report.snapshot.version !== 1 || !safeSnapshot(report.snapshot)
       || Buffer.byteLength(JSON.stringify(report.snapshot)) > limits.maxReportBytes
-      || !isoTimestamp(report.createdAt) || !(report.revokedAt === null || isoTimestamp(report.revokedAt))) return false;
+      || !isoTimestamp(report.createdAt) || !(report.revokedAt === null || isoTimestamp(report.revokedAt))
+      || !(report.revocation === null || exactKeys(report.revocation, ['reason', 'scope', 'actorId', 'at'])
+        && report.revocation.reason === 'scope_revoked' && validId(report.revocation.actorId)
+        && ['training', 'nutrition', 'assessments'].includes(report.revocation.scope)
+        && isoTimestamp(report.revocation.at) && report.revocation.at === report.revokedAt)) return false;
   const link = links?.get(report.linkId);
   return !links || !!link && link.coachId === report.coachId && link.athleteId === report.athleteId
-    && report.metrics.every(metric => link.scopes.includes(scopeForProgressMetric(metric)));
+    ;
 }
 
 export function validateProgressState(db, limits = PROGRESS_LIMITS) {
@@ -176,8 +189,36 @@ export function migrateProgressState(db) {
     if (db[key] === undefined) { db[key] = []; changed = true; }
     else if (!Array.isArray(db[key])) throw new Error(`${key} must be an array`);
   }
+  for (const goal of db.progressGoals.filter(item => item.status !== 'archived')) {
+    if (goal.unit === undefined) { goal.unit = METRIC_UNITS[goal.metric]; changed = true; }
+    if (goal._rev === undefined) { goal._rev = 1; changed = true; }
+    if (goal.archiveReason === undefined) { goal.archiveReason = goal.status === 'archived' ? 'manual' : null; changed = true; }
+  }
+  for (const report of db.progressReports.filter(item => !item.revokedAt)) {
+    if (report.revocation === undefined) { report.revocation = null; changed = true; }
+  }
   validateProgressState(db);
   return changed;
+}
+
+export function reconcileProgressScopes(candidate, { linkId, removedScopes, actorId, at }) {
+  const removed = new Set(removedScopes);
+  for (const goal of candidate.progressGoals || []) {
+    if (goal.linkId !== linkId || goal.status === 'archived' || !removed.has(scopeForProgressMetric(goal.metric))) continue;
+    goal.status = 'archived';
+    goal.updatedAt = at;
+    goal.archivedAt = at;
+    goal.achievedAt = null;
+    goal.archiveReason = 'scope_revoked';
+    goal._rev += 1;
+  }
+  for (const report of candidate.progressReports || []) {
+    const scope = report.metrics.map(scopeForProgressMetric).find(item => removed.has(item));
+    if (report.linkId !== linkId || report.revokedAt || !scope) continue;
+    report.revokedAt = at;
+    report.revocation = { reason: 'scope_revoked', scope, actorId, at };
+  }
+  validateProgressState(candidate);
 }
 
 export function compactProgressState(db, configuredLimits = PROGRESS_LIMITS, now = Date.now()) {
@@ -190,13 +231,13 @@ export function compactProgressState(db, configuredLimits = PROGRESS_LIMITS, now
   if (db.progressGoals.length > limits.maxGoals) throw new Error(`progressGoals exceed configured limit ${limits.maxGoals}`);
   if (db.progressReports.length > limits.maxReports) throw new Error(`progressReports exceed configured limit ${limits.maxReports}`);
   const goalCounts = new Map();
-  for (const goal of db.progressGoals) {
+  for (const goal of db.progressGoals.filter(item => item.status !== 'archived')) {
     const count = (goalCounts.get(goal.linkId) || 0) + 1;
     if (count > limits.maxGoalsPerLink) throw new Error(`progressGoals link exceeds configured limit ${limits.maxGoalsPerLink}`);
     goalCounts.set(goal.linkId, count);
   }
   const reportCounts = new Map();
-  for (const report of db.progressReports) {
+  for (const report of db.progressReports.filter(item => !item.revokedAt)) {
     const count = (reportCounts.get(report.linkId) || 0) + 1;
     if (count > limits.maxReportsPerLink) throw new Error(`progressReports link exceeds configured limit ${limits.maxReportsPerLink}`);
     reportCounts.set(report.linkId, count);
@@ -299,6 +340,7 @@ function trend(points) {
 function unavailableMetric(metric, period, reason) {
   return {
     metric, unit: METRIC_UNITS[metric], available: false, currentValue: null, unavailableReason: reason,
+    points: [],
     coverage: { observed: 0, expected: null, percent: null, periodDays: period.days },
     freshness: freshness(null, period.to, metric.startsWith('body_') ? 30 : 7),
   };
@@ -311,13 +353,15 @@ function bodyWeightMetric(state, assessments, period) {
     for (const row of state.bodyweight) {
       if (!validIsoDate(row?.d) || !finite(row?.w) || row.d < period.from || row.d > period.to) continue;
       const value = unit === 'lb' ? row.w * 0.45359237 : row.w;
-      if (value > 0 && value <= 1000) points.push({ date: row.d, value: round(value), source: 'bodyweight_log' });
+      if (value > 0 && value <= 1000) points.push({ date: row.d, value: round(value), source: 'bodyweight_log', unit: 'kg',
+        coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(row.d, period.to, 30) });
     }
   }
   for (const assessment of assessments) {
     const date = assessment.localDate;
     if (finite(assessment.weightKg) && date >= period.from && date <= period.to) {
-      points.push({ date, value: round(assessment.weightKg), source: 'assessment' });
+      points.push({ date, value: round(assessment.weightKg), source: 'assessment', unit: 'kg',
+        coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(date, period.to, 30) });
     }
   }
   points.sort((left, right) => left.date.localeCompare(right.date) || left.source.localeCompare(right.source));
@@ -333,7 +377,8 @@ function bodyFatMetric(assessments, period) {
   const points = assessments.flatMap(assessment => {
     const results = calculateAssessmentResults(assessment);
     return results?.bodyFatPercent !== undefined && assessment.localDate >= period.from && assessment.localDate <= period.to
-      ? [{ date: assessment.localDate, value: round(results.bodyFatPercent), source: assessment.skinfolds?.protocol || 'bioimpedance' }]
+      ? [{ date: assessment.localDate, value: round(results.bodyFatPercent), source: assessment.skinfolds?.protocol || 'bioimpedance', unit: 'percent',
+        coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(assessment.localDate, period.to, 30) }]
       : [];
   }).sort((left, right) => left.date.localeCompare(right.date));
   if (!points.length) return unavailableMetric('body_fat_percent', period, 'no_measurements');
@@ -356,12 +401,29 @@ function workoutMetric(db, link, state, period, timeZone) {
   const volumeRows = workouts.filter(item => finite(item.vol) && item.vol >= 0);
   const currentValue = period.days ? round(workouts.length * 7 / period.days) : null;
   const latest = workouts.map(item => item.d).sort().at(-1) || null;
+  const buckets = new Map();
+  for (const workout of workouts) {
+    const offset = inclusiveDays(period.from, workout.d) - 1;
+    const from = shiftDate(period.from, Math.floor(offset / 7) * 7);
+    const to = shiftDate(from, Math.min(6, inclusiveDays(from, period.to) - 1));
+    const key = `${from}:${to}`;
+    const bucket = buckets.get(key) || { from, to, numerator: 0, denominator: inclusiveDays(from, to), latest: workout.d };
+    bucket.numerator += 1;
+    if (workout.d > bucket.latest) bucket.latest = workout.d;
+    buckets.set(key, bucket);
+  }
+  const points = [...buckets.values()].sort((left, right) => left.from.localeCompare(right.from)).map(bucket => ({
+    from: bucket.from, to: bucket.to, value: round(bucket.numerator * 7 / bucket.denominator),
+    numerator: bucket.numerator, denominator: bucket.denominator, unit: 'workouts_per_week',
+    coverage: { observed: bucket.denominator, expected: bucket.denominator, percent: 100 }, freshness: freshness(bucket.latest, period.to, 7),
+  }));
   return {
     metric: 'workouts_per_week', unit: 'workouts_per_week', available: period.days > 0, currentValue,
     unavailableReason: period.days ? null : 'outside_relationship_period', workoutsCompleted: workouts.length,
     volume: { value: volumeRows.length ? round(volumeRows.reduce((sum, item) => sum + item.vol, 0)) : null, unit: 'source_weight_repetitions', observedWorkouts: volumeRows.length },
     prescriptions: { availableRoutines: prescribedRoutines, historicalWeeklyScheduleAvailable: false },
     denominator: { days: period.days },
+    points,
     coverage: { observed: period.days, expected: period.days, percent: period.days ? 100 : null, periodDays: period.days },
     freshness: freshness(latest, period.to, 7),
   };
@@ -377,11 +439,15 @@ function nutritionMetric(db, link, period, timeZone) {
     && item.date >= period.from && item.date <= period.to);
   let numerator = 0;
   let denominator = 0;
+  const daily = new Map();
   for (const row of rows) {
     const plan = plansById.get(row.mealPlanId);
     const mealIds = new Set((plan?.meals || []).map(meal => meal.id));
+    const completed = (row.mealsChecked || []).filter(mealId => mealIds.has(mealId)).length;
     denominator += mealIds.size;
-    numerator += (row.mealsChecked || []).filter(mealId => mealIds.has(mealId)).length;
+    numerator += completed;
+    const point = daily.get(row.date) || { numerator: 0, denominator: 0 };
+    point.numerator += completed; point.denominator += mealIds.size; daily.set(row.date, point);
   }
   if (!denominator) return unavailableMetric('nutrition_adherence_percent', period, plans.length ? 'no_adherence_records' : 'no_meal_plan');
   const uniqueDays = new Set(rows.map(row => row.date));
@@ -390,6 +456,10 @@ function nutritionMetric(db, link, period, timeZone) {
     metric: 'nutrition_adherence_percent', unit: 'percent', available: true,
     currentValue: round(numerator / denominator * 100, 1), unavailableReason: null,
     numerator: { completedMeals: numerator }, denominator: { recordedMealOpportunities: denominator },
+    points: [...daily].sort(([left], [right]) => left.localeCompare(right)).map(([date, point]) => ({
+      date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
+      coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(date, period.to, 7),
+    })),
     coverage: { observed: uniqueDays.size, expected: period.days, percent: period.days ? round(uniqueDays.size / period.days * 100, 1) : null, periodDays: period.days },
     freshness: freshness(latest, period.to, 7),
     methodology: 'Only days with an adherence record enter the meal denominator; missing days are coverage gaps, not zero adherence.',
@@ -406,21 +476,46 @@ function habitMetric(db, link, period, timeZone) {
   if (!summary.scheduledDays) return unavailableMetric('habit_adherence_percent', period, 'no_scheduled_habit_days');
   const checkedDays = new Set(checkins.map(item => `${item.habitId}\0${item.date}`)).size;
   const latest = checkins.map(item => item.date).sort().at(-1) || null;
+  const daily = new Map();
+  for (const checkin of checkins) {
+    const point = daily.get(checkin.date) || { numerator: 0, denominator: 0 };
+    point.denominator += 1;
+    if (checkin.completed !== false) point.numerator += 1;
+    daily.set(checkin.date, point);
+  }
   return {
     metric: 'habit_adherence_percent', unit: 'percent', available: true, currentValue: summary.adherencePercent,
     unavailableReason: null, numerator: { completedScheduledDays: summary.completedDays },
     denominator: { scheduledHabitDays: summary.scheduledDays },
+    points: [...daily].sort(([left], [right]) => left.localeCompare(right)).map(([date, point]) => ({
+      date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
+      coverage: { observed: point.denominator, expected: point.denominator, percent: 100 }, freshness: freshness(date, period.to, 7),
+    })),
     coverage: { observed: checkedDays, expected: summary.scheduledDays, percent: round(checkedDays / summary.scheduledDays * 100, 1), periodDays: period.days },
     freshness: freshness(latest, period.to, 7), habits: summary.habits,
   };
 }
 
 export function calculateGoalProgress(goal, metricResult, today) {
+  const policy = {
+    minObserved: 1, requireFresh: true,
+    maintain: { minObservations: 2, distinctDates: true, spanStartDate: goal.startDate, spanTargetDate: goal.targetDate },
+  };
   if (!metricResult?.available || !finite(metricResult.currentValue)) {
     return { goalId: goal.id, metric: goal.metric, storedStatus: goal.status, state: 'unavailable', currentValue: null,
       unit: METRIC_UNITS[goal.metric], percent: null, coverage: metricResult?.coverage || null,
-      freshness: metricResult?.freshness || null, unavailableReason: metricResult?.unavailableReason || 'insufficient_data' };
+      freshness: metricResult?.freshness || null, unavailableReason: metricResult?.unavailableReason || 'insufficient_data', evaluationPolicy: policy };
   }
+  if (!metricResult.coverage || metricResult.coverage.observed <= 0) return {
+    goalId: goal.id, metric: goal.metric, storedStatus: goal.status, state: 'insufficient_data', currentValue: metricResult.currentValue,
+    unit: METRIC_UNITS[goal.metric], percent: null, coverage: metricResult.coverage, freshness: metricResult.freshness,
+    unavailableReason: 'zero_coverage', evaluationPolicy: policy,
+  };
+  if (metricResult.freshness?.status !== 'fresh') return {
+    goalId: goal.id, metric: goal.metric, storedStatus: goal.status, state: 'stale', currentValue: metricResult.currentValue,
+    unit: METRIC_UNITS[goal.metric], percent: null, coverage: metricResult.coverage, freshness: metricResult.freshness,
+    unavailableReason: 'stale_data', evaluationPolicy: policy,
+  };
   const current = metricResult.currentValue;
   const tolerance = goal.tolerance ?? 0;
   let achieved = false;
@@ -433,10 +528,13 @@ export function calculateGoalProgress(goal, metricResult, today) {
     achieved = current <= goal.targetValue + tolerance;
     percent = clamp((goal.baselineValue - current) / (goal.baselineValue - goal.targetValue) * 100, 0, 100);
   } else {
+    const starts = [...new Set((metricResult.points || []).map(point => point.date || point.from).filter(Boolean))].sort();
+    const ends = [...new Set((metricResult.points || []).map(point => point.date || point.to).filter(Boolean))].sort();
+    const longitudinal = starts.length >= 2 && starts[0] <= goal.startDate && ends.at(-1) >= goal.targetDate;
     const within = Math.abs(current - goal.targetValue) <= tolerance;
-    achieved = within && today >= goal.targetDate;
+    achieved = within && today >= goal.targetDate && longitudinal;
     percent = within ? 100 : clamp(100 - Math.abs(current - goal.targetValue) / Math.max(Math.abs(goal.targetValue), 1) * 100, 0, 99.9);
-    state = within ? 'within_tolerance' : 'outside_tolerance';
+    state = !longitudinal ? 'insufficient_data' : within ? 'within_tolerance' : 'outside_tolerance';
   }
   if (today < goal.startDate) state = 'not_started';
   else if (achieved || goal.status === 'achieved') state = 'achieved';
@@ -444,7 +542,8 @@ export function calculateGoalProgress(goal, metricResult, today) {
   return {
     goalId: goal.id, metric: goal.metric, storedStatus: goal.status, state, currentValue: current,
     unit: METRIC_UNITS[goal.metric], percent: round(percent, 1), coverage: metricResult.coverage,
-    freshness: metricResult.freshness, unavailableReason: null,
+    freshness: metricResult.freshness, unavailableReason: state === 'insufficient_data' ? 'insufficient_longitudinal_coverage' : null,
+    evaluationPolicy: policy,
   };
 }
 
@@ -538,7 +637,7 @@ function statusForAccess(code) {
 
 export function createProgressRoutes({
   db, readBody, readSession, readState, json, b2bError, audit, auditDenied, commitCandidate,
-  isCoach, coachScopes = () => [], limitAddress, limits = PROGRESS_LIMITS, rate = {}, now = () => Date.now(),
+  isCoach, coachScopes = () => [], limitAddress, cursorSecret = 'progress-cursor', limits = PROGRESS_LIMITS, rate = {}, now = () => Date.now(),
 }) {
   const mutationAccount = createWindow({ max: rate.mutationAccount || 120, windowMs: rate.windowMs || 3600000 });
   const mutationIp = createWindow({ max: rate.mutationIp || 600, windowMs: rate.windowMs || 3600000 });
@@ -585,7 +684,10 @@ export function createProgressRoutes({
     return metrics;
   };
   const summaryFor = (res, link, url, metrics) => {
-    const timeZone = url.searchParams.get('timezone') || 'UTC';
+    const requestedTimeZone = url.searchParams.get('timezone');
+    const athleteTimeZone = db.users.find(user => user.id === link.athleteId)?.profile?.timezone;
+    const timeZone = requestedTimeZone || link.timezone || athleteTimeZone || 'UTC';
+    if (!validTimeZone(timeZone)) { b2bError(res, 400, 'invalid_timezone', 'timezone must be a valid IANA timezone'); return null; }
     const period = parseProgressPeriod(url.searchParams, timeZone, now());
     if (!period) { b2bError(res, 400, 'invalid_period', 'period must be 7, 30 or 90 days, or an interval up to 366 days'); return null; }
     return buildProgressSummary({ db, link, state: readState(link.athleteId), period, timeZone, metrics, now: now() });
@@ -594,14 +696,64 @@ export function createProgressRoutes({
     compactProgressState(candidate, limits, now());
     commitCandidate(candidate);
   };
+  const cursorMac = text => crypto.createHmac('sha256', cursorSecret).update(text).digest('base64url');
+  const encodeCursor = payload => {
+    const text = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    return `${text}.${cursorMac(text)}`;
+  };
+  const decodeCursor = (raw, expected) => {
+    if (!raw) return null;
+    try {
+      const [text, mac, extra] = raw.split('.');
+      const expectedMac = cursorMac(text || '');
+      if (extra || !text || !mac || mac.length !== expectedMac.length
+          || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expectedMac))) return false;
+      const value = JSON.parse(Buffer.from(text, 'base64url').toString('utf8'));
+      return record(value) && value.kind === expected.kind && value.linkId === expected.linkId
+        && value.filters === expected.filters && typeof value.id === 'string' && typeof value.at === 'string' ? value : false;
+    } catch { return false; }
+  };
+  const page = (res, rows, context, kind, serialize = item => structuredClone(item)) => {
+    const rawLimit = context.url.searchParams.get('limit');
+    const limit = rawLimit === null ? 25 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) { b2bError(res, 400, 'invalid_limit', 'limit must be between 1 and 100'); return null; }
+    const filters = [...context.url.searchParams].filter(([key]) => !['cursor', 'limit', 'linkId'].includes(key))
+      .sort().map(([key, value]) => `${key}=${value}`).join('&');
+    const cursor = decodeCursor(context.url.searchParams.get('cursor'), { kind, linkId: context.access.link.id, filters });
+    if (cursor === false) { b2bError(res, 400, 'invalid_cursor', 'cursor is invalid for this relationship or filter'); return null; }
+    let start = 0;
+    if (cursor) {
+      start = rows.findIndex(item => (item.updatedAt || item.createdAt) === cursor.at && item.id === cursor.id) + 1;
+      if (!start) { b2bError(res, 400, 'invalid_cursor', 'cursor no longer identifies this result set'); return null; }
+    }
+    const selected = rows.slice(start, start + limit);
+    const hasMore = start + selected.length < rows.length;
+    const last = selected.at(-1);
+    return { items: selected.map(serialize), hasMore, nextCursor: hasMore
+      ? encodeCursor({ kind, linkId: context.access.link.id, filters, id: last.id, at: last.updatedAt || last.createdAt }) : null };
+  };
+  const listPeriod = (res, url) => {
+    const from = url.searchParams.get('from');
+    const to = url.searchParams.get('to');
+    if (from === null && to === null) return null;
+    if (!validIsoDate(from) || !validIsoDate(to) || from > to || inclusiveDays(from, to) > 3660) {
+      b2bError(res, 400, 'invalid_period', 'from and to must be valid dates in order'); return false;
+    }
+    return { from, to };
+  };
 
   const listGoals = (req, res, options) => {
     const context = actorAndLink(req, res, options); if (!context) return;
     const actorScopes = context.actor.id === context.access.link.coachId ? coachScopes(context.actor) : context.access.link.scopes;
-    const goals = db.progressGoals.filter(goal => goal.linkId === context.access.link.id)
+    const status = context.url.searchParams.get('status');
+    if (status && !GOAL_STATUSES.has(status)) return b2bError(res, 400, 'invalid_status', 'status is invalid');
+    const period = listPeriod(res, context.url); if (period === false) return;
+    const goals = db.progressGoals.filter(goal => goal.linkId === context.access.link.id && (!status || goal.status === status)
+        && (!period || goal.startDate <= period.to && goal.targetDate >= period.from))
       .filter(goal => context.access.link.scopes.includes(scopeForProgressMetric(goal.metric))
-        && actorScopes.includes(scopeForProgressMetric(goal.metric))).sort(newest).map(item => structuredClone(item));
-    json(res, 200, { goals, relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
+        && actorScopes.includes(scopeForProgressMetric(goal.metric))).sort(newest);
+    const result = page(res, goals, context, 'goals'); if (!result) return;
+    json(res, 200, { goals: result.items, ...result, relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
   };
   const getSummary = (req, res, options) => {
     const context = actorAndLink(req, res, options); if (!context) return;
@@ -610,9 +762,71 @@ export function createProgressRoutes({
     audit(req, 'b2b2c.progress.summary', { user: context.actor, msg: `${context.access.link.id}:${metrics.join(',')}` });
     json(res, 200, { summary });
   };
+  const reportMetadata = report => ({
+    id: report.id, linkId: report.linkId, interval: report.interval, timezone: report.timezone, metrics: report.metrics,
+    summary: report.summary, createdAt: report.createdAt, revokedAt: report.revokedAt,
+  });
+  const listReports = (req, res, options) => {
+    const context = actorAndLink(req, res, options); if (!context) return;
+    const status = context.url.searchParams.get('status');
+    if (status && !['active', 'revoked'].includes(status)) return b2bError(res, 400, 'invalid_status', 'status is invalid');
+    const period = listPeriod(res, context.url); if (period === false) return;
+    const reports = db.progressReports.filter(report => report.linkId === context.access.link.id
+        && (!status || (status === 'revoked' ? !!report.revokedAt : !report.revokedAt))
+        && (!period || report.interval.from <= period.to && report.interval.to >= period.from))
+      .filter(report => report.metrics.every(metric => context.access.link.scopes.includes(scopeForProgressMetric(metric))))
+      .filter(report => context.actor.id !== context.access.link.coachId
+        || report.metrics.every(metric => coachScopes(context.actor).includes(scopeForProgressMetric(metric))))
+      .sort(newest);
+    const result = page(res, reports, context, 'reports', reportMetadata); if (!result) return;
+    json(res, 200, { reports: result.items, ...result,
+      relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
+  };
+  const serveReport = (req, res, options, explicitExport = false) => {
+    const context = actorAndLink(req, res, options); if (!context) return;
+    const report = db.progressReports.find(item => item.id === req.reportId && item.linkId === context.access.link.id);
+    if (!report) return b2bError(res, 404, 'report_not_found', 'progress report not found');
+    if (report.revokedAt) return b2bError(res, 410, 'report_revoked', 'progress report was revoked');
+    if (report.metrics.some(metric => !context.access.link.scopes.includes(scopeForProgressMetric(metric)))) {
+      return b2bError(res, 403, 'scope_forbidden', 'relationship scope does not permit this report');
+    }
+    if (context.actor.id === context.access.link.coachId
+        && report.metrics.some(metric => !coachScopes(context.actor).includes(scopeForProgressMetric(metric)))) {
+      return b2bError(res, 403, 'scope_forbidden', 'professional profile does not permit this report');
+    }
+    const format = context.url.searchParams.get('format');
+    if ((explicitExport || format) && !['json', 'csv'].includes(format)) return b2bError(res, 400, 'invalid_format', 'format must be json or csv');
+    if (explicitExport || format) {
+      if (throttle(req, res, context.actor, 'export')) return;
+      const body = format === 'csv' ? progressReportCsv(report) : JSON.stringify({ report }, null, 2) + '\n';
+      res.writeHead(200, {
+        'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
+        'Content-Disposition': `attachment; filename="progress-report-${report.id}.${format}"`,
+        'Cache-Control': 'private, no-store', 'Content-Length': Buffer.byteLength(body),
+      });
+      res.end(body);
+      audit(req, 'b2b2c.progress.report.export', { user: context.actor, msg: `${report.id}:${format}` });
+      return;
+    }
+    if (throttle(req, res, context.actor, 'export')) return;
+    json(res, 200, { report });
+  };
 
   return {
+    'GET /api/progress/metrics': (req, res) => {
+      const actor = readSession(req);
+      if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+      json(res, 200, { metrics: METRIC_CATALOG, states: ['not_started', 'in_progress', 'within_tolerance', 'outside_tolerance', 'achieved', 'archived', 'insufficient_data', 'stale', 'unavailable'],
+        reasons: ['insufficient_data', 'zero_coverage', 'stale_data', 'insufficient_longitudinal_coverage', 'outside_relationship_period', 'no_measurements', 'no_adherence_records', 'no_meal_plan', 'no_habits'] });
+    },
     'GET /api/coach/athletes/{athleteId}/progress-goals': (req, res) => listGoals(req, res, { athleteId: req.athleteId, coachOnly: true }),
+    'GET /api/coach/athletes/{athleteId}/progress-goals/{goalId}': (req, res) => {
+      const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
+      const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
+      if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
+      if (!context.access.link.scopes.includes(scopeForProgressMetric(goal.metric))) return b2bError(res, 403, 'scope_forbidden', 'relationship scope does not permit this goal');
+      json(res, 200, { goal });
+    },
     'POST /api/coach/athletes/{athleteId}/progress-goals': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
@@ -620,16 +834,19 @@ export function createProgressRoutes({
       if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
       const scope = scopeForProgressMetric(normalized.metric);
       if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
-      const perLink = db.progressGoals.filter(goal => goal.linkId === context.access.link.id).length;
-      if (perLink >= limits.maxGoalsPerLink || db.progressGoals.length >= limits.maxGoals) return b2bError(res, 409, 'goal_capacity', 'progress goal capacity reached');
+      const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
+      const perLink = candidate.progressGoals.filter(goal => goal.linkId === context.access.link.id && goal.status !== 'archived').length;
+      if (perLink >= limits.maxGoalsPerLink || candidate.progressGoals.length >= limits.maxGoals) return b2bError(res, 409, 'goal_capacity', 'progress goal capacity reached');
       const timestamp = new Date(now()).toISOString();
       const goal = {
         id: makeId('pgoal', db.progressGoals), linkId: context.access.link.id, coachId: context.access.link.coachId,
-        athleteId: context.access.link.athleteId, ...normalized, createdAt: timestamp, updatedAt: timestamp,
+        athleteId: context.access.link.athleteId, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: 1,
+        createdAt: timestamp, updatedAt: timestamp,
         achievedAt: normalized.status === 'achieved' ? timestamp : null,
         archivedAt: normalized.status === 'archived' ? timestamp : null,
+        archiveReason: normalized.status === 'archived' ? 'manual' : null,
       };
-      const candidate = structuredClone(db); candidate.progressGoals.push(goal);
+      candidate.progressGoals.push(goal);
       try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
       audit(req, 'b2b2c.progress.goal.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
       json(res, 201, { goal });
@@ -640,16 +857,18 @@ export function createProgressRoutes({
       const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
       if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
       const body = await readBody(req);
-      if (!record(body) || !Object.keys(body).length) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
-      const normalized = goalInput(body, goal);
+      if (!record(body) || !Object.keys(body).length || !Number.isSafeInteger(body._rev)) return b2bError(res, 400, 'precondition_required', '_rev is required');
+      if (body._rev !== goal._rev) return b2bError(res, 409, 'stale_version', 'goal version is stale');
+      const { _rev, ...changes } = body;
+      const normalized = goalInput(changes, goal);
       if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
       const scope = scopeForProgressMetric(normalized.metric);
       if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
       const timestamp = new Date(now()).toISOString();
-      const updated = { ...goal, ...normalized, updatedAt: timestamp };
-      if (normalized.status === 'active') { updated.achievedAt = null; updated.archivedAt = null; }
-      if (normalized.status === 'achieved') { updated.achievedAt = goal.achievedAt || timestamp; updated.archivedAt = null; }
-      if (normalized.status === 'archived') updated.archivedAt = goal.archivedAt || timestamp;
+      const updated = { ...goal, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: goal._rev + 1, updatedAt: timestamp };
+      if (normalized.status === 'active') { updated.achievedAt = null; updated.archivedAt = null; updated.archiveReason = null; }
+      if (normalized.status === 'achieved') { updated.achievedAt = goal.achievedAt || timestamp; updated.archivedAt = null; updated.archiveReason = null; }
+      if (normalized.status === 'archived') { updated.archivedAt = goal.archivedAt || timestamp; updated.archiveReason = 'manual'; }
       const candidate = structuredClone(db);
       candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
       try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
@@ -662,25 +881,19 @@ export function createProgressRoutes({
       const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
       if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
       const timestamp = new Date(now()).toISOString();
-      const updated = { ...goal, status: 'archived', updatedAt: timestamp, archivedAt: goal.archivedAt || timestamp };
+      const updated = { ...goal, status: 'archived', _rev: goal._rev + 1, updatedAt: timestamp,
+        archivedAt: goal.archivedAt || timestamp, archiveReason: goal.archiveReason || 'manual' };
       const candidate = structuredClone(db);
       candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
       try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be archived'); }
       audit(req, 'b2b2c.progress.goal.archive', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
-      json(res, 200, { goal: updated });
+      json(res, 200, { goal: updated, archived: true });
     },
     'GET /api/coach/athletes/{athleteId}/progress-summary': (req, res) => getSummary(req, res, { athleteId: req.athleteId, coachOnly: true }),
     'GET /api/athlete/progress-goals': (req, res) => listGoals(req, res, {}),
     'GET /api/athlete/progress-summary': (req, res) => getSummary(req, res, {}),
-    'GET /api/coach/athletes/{athleteId}/progress-reports': (req, res) => {
-      const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
-      const reports = db.progressReports.filter(report => report.linkId === context.access.link.id
-        && report.metrics.every(metric => coachScopes(context.actor).includes(scopeForProgressMetric(metric)))).sort(newest).map(report => ({
-        id: report.id, linkId: report.linkId, interval: report.interval, timezone: report.timezone, metrics: report.metrics,
-        summary: report.summary, createdAt: report.createdAt, revokedAt: report.revokedAt,
-      }));
-      json(res, 200, { reports, relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
-    },
+    'GET /api/coach/athletes/{athleteId}/progress-reports': (req, res) => listReports(req, res, { athleteId: req.athleteId, coachOnly: true }),
+    'GET /api/athlete/progress-reports': (req, res) => listReports(req, res, {}),
     'POST /api/coach/athletes/{athleteId}/progress-reports': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
@@ -695,8 +908,9 @@ export function createProgressRoutes({
       if (!metrics) return b2bError(res, 400, 'invalid_metrics', 'report metrics are required');
       const selected = requireMetrics(res, context.actor, context.access.link, reportUrl, { required: true, bodyMetrics: metrics }); if (!selected) return;
       const snapshotSummary = summaryFor(res, context.access.link, reportUrl, selected); if (!snapshotSummary) return;
-      const perLink = db.progressReports.filter(report => report.linkId === context.access.link.id).length;
-      if (perLink >= limits.maxReportsPerLink || db.progressReports.length >= limits.maxReports) return b2bError(res, 409, 'report_capacity', 'progress report capacity reached');
+      const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
+      const perLink = candidate.progressReports.filter(report => report.linkId === context.access.link.id && !report.revokedAt).length;
+      if (perLink >= limits.maxReportsPerLink || candidate.progressReports.length >= limits.maxReports) return b2bError(res, 409, 'report_capacity', 'progress report capacity reached');
       const createdAt = new Date(now()).toISOString();
       const snapshot = {
         version: 1, generatedAt: snapshotSummary.generatedAt, period: snapshotSummary.period,
@@ -710,48 +924,27 @@ export function createProgressRoutes({
         id: makeId('prep', db.progressReports), linkId: context.access.link.id, coachId: context.access.link.coachId,
         athleteId: context.access.link.athleteId, interval: { from: snapshotSummary.period.from, to: snapshotSummary.period.to },
         timezone: snapshotSummary.timezone, metrics: [...selected], summary: reportSummary(snapshot, selected), snapshot,
-        createdAt, revokedAt: null,
+        createdAt, revokedAt: null, revocation: null,
       };
       if (!validateProgressReport(report, new Map([[context.access.link.id, context.access.link]]), limits)) {
         return b2bError(res, 400, 'invalid_report', 'report snapshot could not be validated');
       }
-      const candidate = structuredClone(db); candidate.progressReports.push(report);
+      candidate.progressReports.push(report);
       try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be saved'); }
       audit(req, 'b2b2c.progress.report.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: report.id });
       json(res, 201, { report });
     },
-    'GET /api/coach/athletes/{athleteId}/progress-reports/{reportId}': (req, res) => {
-      const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
-      const report = db.progressReports.find(item => item.id === req.reportId && item.linkId === context.access.link.id);
-      if (!report) return b2bError(res, 404, 'report_not_found', 'progress report not found');
-      if (report.metrics.some(metric => !coachScopes(context.actor).includes(scopeForProgressMetric(metric)))) {
-        return b2bError(res, 403, 'scope_forbidden', 'professional profile does not permit this report');
-      }
-      const format = context.url.searchParams.get('format');
-      if (format && !['json', 'csv'].includes(format)) return b2bError(res, 400, 'invalid_format', 'format must be json or csv');
-      if (format) {
-        if (report.revokedAt) return b2bError(res, 410, 'report_revoked', 'progress report export was revoked');
-        if (throttle(req, res, context.actor, 'export')) return;
-        const body = format === 'csv' ? progressReportCsv(report) : JSON.stringify({ report }, null, 2) + '\n';
-        res.writeHead(200, {
-          'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
-          'Content-Disposition': `attachment; filename="progress-report-${report.id}.${format}"`,
-          'Cache-Control': 'private, no-store',
-          'Content-Length': Buffer.byteLength(body),
-        });
-        res.end(body);
-        audit(req, 'b2b2c.progress.report.export', { user: context.actor, msg: `${report.id}:${format}` });
-        return;
-      }
-      json(res, 200, { report });
-    },
+    'GET /api/coach/athletes/{athleteId}/progress-reports/{reportId}': (req, res) => serveReport(req, res, { athleteId: req.athleteId, coachOnly: true }),
+    'GET /api/coach/athletes/{athleteId}/progress-reports/{reportId}/export': (req, res) => serveReport(req, res, { athleteId: req.athleteId, coachOnly: true }, true),
+    'GET /api/athlete/progress-reports/{reportId}': (req, res) => serveReport(req, res, {}),
+    'GET /api/athlete/progress-reports/{reportId}/export': (req, res) => serveReport(req, res, {}, true),
     'POST /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke': (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
       const report = db.progressReports.find(item => item.id === req.reportId && item.linkId === context.access.link.id);
       if (!report) return b2bError(res, 404, 'report_not_found', 'progress report not found');
       if (report.revokedAt) return json(res, 200, { report });
-      const updated = { ...report, revokedAt: new Date(now()).toISOString() };
+      const updated = { ...report, revokedAt: new Date(now()).toISOString(), revocation: null };
       const candidate = structuredClone(db);
       candidate.progressReports[candidate.progressReports.findIndex(item => item.id === report.id)] = updated;
       try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be revoked'); }

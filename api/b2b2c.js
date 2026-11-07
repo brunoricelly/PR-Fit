@@ -24,6 +24,8 @@ export const B2B2C_LIMITS = {
   maxReports: 20000,
   reportRetentionDays: 1095,
   maxReportBytes: 1024 * 1024,
+  maxAccountCleanupJobs: 10000,
+  accountCleanupRetentionDays: 90,
 };
 
 export const PARQ_VERSION = '2024.1';
@@ -75,9 +77,18 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  for (const job of db.accountCleanupJobs) {
+    if (!record(job) || typeof job.id !== 'string' || typeof job.subject !== 'string'
+        || !['pending', 'complete'].includes(job.status) || !Number.isSafeInteger(job.attempts) || job.attempts < 0
+        || !Number.isFinite(Date.parse(job.createdAt)) || !Number.isFinite(Date.parse(job.updatedAt))
+        || !record(job.steps) || Object.values(job.steps).some(value => !['pending', 'complete'].includes(value))
+        || !(job.lastError === null || typeof job.lastError === 'string' && job.lastError.length <= 160)) {
+      throw new B2B2CDataError('accountCleanupJobs contains an invalid record');
+    }
   }
   // Nutrition did not exist before schema 5. If a pre-release schema 4 fixture already contains
   // plans, converge it on the phase-4 rule deterministically instead of keeping two active plans.
@@ -168,11 +179,19 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   db.habitCheckins ||= [];
   db.progressGoals ||= [];
   db.progressReports ||= [];
+  db.accountCleanupJobs ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
   const cutoff = nowMs - limits.terminalRetentionDays * 86400000;
   let changed = false;
+  const cleanupCutoff = nowMs - (limits.accountCleanupRetentionDays ?? 90) * 86400000;
+  const cleanupBefore = db.accountCleanupJobs.length;
+  db.accountCleanupJobs = db.accountCleanupJobs.filter(job => job.status !== 'complete' || Date.parse(job.updatedAt) >= cleanupCutoff);
+  changed = changed || cleanupBefore !== db.accountCleanupJobs.length;
+  if (db.accountCleanupJobs.length > (limits.maxAccountCleanupJobs ?? 10000)) {
+    throw new B2B2CDataError(`accountCleanupJobs exceed configured limit ${limits.maxAccountCleanupJobs ?? 10000}`);
+  }
   let progress;
   try { progress = compactProgressState(db, limits, nowMs); }
   catch (error) { throw new B2B2CDataError(error.message); }
@@ -233,6 +252,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
         scopes: [...link.scopes],
         status: 'ended',
         createdAt: link.createdAt,
+        ...(link.acceptedAt ? { acceptedAt: link.acceptedAt } : {}),
         updatedAt: link.updatedAt,
         endedAt: link.endedAt || link.updatedAt,
         ...(link.suspendedAt ? { suspendedAt: link.suspendedAt } : {}),

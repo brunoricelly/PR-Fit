@@ -56,7 +56,7 @@ import {
   COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes, validateCommunicationHabitsLimits,
 } from './communication-habits.js';
 import {
-  calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS,
+  calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
 } from './progress-analytics.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -144,6 +144,8 @@ const B2B2C_LIMITS = {
   maxReports: envInt('B2B2C_MAX_PROGRESS_REPORTS', PROGRESS_LIMITS.maxReports, { min: 1, max: 1000000 }),
   reportRetentionDays: envInt('B2B2C_PROGRESS_REPORT_RETENTION_DAYS', PROGRESS_LIMITS.reportRetentionDays, { min: 1, max: 36500 }),
   maxReportBytes: envInt('B2B2C_PROGRESS_REPORT_MAX_BYTES', PROGRESS_LIMITS.maxReportBytes, { min: 16384, max: 5 * 1024 * 1024 }),
+  maxAccountCleanupJobs: envInt('B2B2C_MAX_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxAccountCleanupJobs, { min: 1, max: 1000000 }),
+  accountCleanupRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupRetentionDays, { min: 1, max: 3650 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -1490,17 +1492,16 @@ function retainedMealAdherence(now = Date.now()) {
   return db.mealAdherence.filter(item => item.date >= cutoff);
 }
 
-function commitAssessmentConsent(link, scopes, now) {
-  const previousScopes = link.scopes;
-  const previousUpdatedAt = link.updatedAt;
-  link.scopes = scopes;
-  link.updatedAt = now;
-  try { saveDb(); }
-  catch (error) {
-    link.scopes = previousScopes;
-    link.updatedAt = previousUpdatedAt;
-    throw error;
-  }
+function commitAssessmentConsent(link, scopes, now, actorId) {
+  const candidate = structuredClone(db);
+  const candidateLink = candidate.coachAthleteLinks.find(item => item.id === link.id);
+  const removedScopes = candidateLink.scopes.filter(scope => !scopes.includes(scope));
+  candidateLink.scopes = scopes;
+  candidateLink.updatedAt = now;
+  reconcileProgressScopes(candidate, { linkId: link.id, removedScopes, actorId, at: now });
+  validateProgressState(candidate, PROGRESS_LIMITS);
+  saveDb(candidate);
+  publishDb(candidate);
 }
 
 function compactRelationships() {
@@ -1770,9 +1771,79 @@ async function removeEmail(req, res, user, body) {
   json(res, 200, { ok: true, email: null });
 }
 
-// Everything of an account, gone for good: the user record, their passkeys, push subscriptions,
-// device links and live presence, and outside db.json their training history, any Coach
-// credential and their photos and videos. The admin's delete and the account's own both end here.
+const cleanupKey = crypto.createHash('sha256').update(`${SECRET}:account-cleanup`).digest();
+function sealCleanupSubject(userId) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', cleanupKey, iv);
+  const encrypted = Buffer.concat([cipher.update(userId, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
+}
+function openCleanupSubject(subject) {
+  const bytes = Buffer.from(subject, 'base64url');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', cleanupKey, bytes.subarray(0, 12));
+  decipher.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+}
+const cleanupStepNames = ['state', 'watch', 'coachAuth', 'media', 'integrations'];
+function cleanupUnlink(file) {
+  try { fs.unlinkSync(file); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+function persistCleanupJob(updated) {
+  const candidate = structuredClone(db);
+  const index = candidate.accountCleanupJobs.findIndex(item => item.id === updated.id);
+  if (index < 0) return;
+  candidate.accountCleanupJobs[index] = updated;
+  saveDb(candidate);
+  publishDb(candidate);
+}
+function executeAccountCleanup(job) {
+  const updated = structuredClone(job);
+  updated.attempts += 1;
+  updated.updatedAt = new Date().toISOString();
+  updated.lastError = null;
+  let userId;
+  try { userId = openCleanupSubject(updated.subject); }
+  catch { updated.lastError = 'subject:invalid'; persistCleanupJob(updated); return updated; }
+  const actions = {
+    state: () => cleanupUnlink(stateFile(userId)),
+    watch: () => cleanupUnlink(watchFile(userId)),
+    coachAuth: () => coachConfig.clearProfileAuth(userId),
+    media: () => MEDIA.removeUser(userId),
+    integrations: () => integrations.removeUser(userId),
+  };
+  const injected = new Set((process.env.ACCOUNT_CLEANUP_FAIL_STEP || '').split(',').map(value => value.trim()).filter(Boolean));
+  const failFile = process.env.ACCOUNT_CLEANUP_FAIL_FILE
+    ? (path.isAbsolute(process.env.ACCOUNT_CLEANUP_FAIL_FILE) ? process.env.ACCOUNT_CLEANUP_FAIL_FILE : path.join(DATA, process.env.ACCOUNT_CLEANUP_FAIL_FILE)) : null;
+  if (failFile && fs.existsSync(failFile)) {
+    for (const value of fs.readFileSync(failFile, 'utf8').split(',')) if (value.trim()) injected.add(value.trim());
+    fs.unlinkSync(failFile);
+  }
+  for (const step of cleanupStepNames) {
+    if (updated.steps[step] === 'complete') continue;
+    try {
+      if (injected.has(step)) { const error = new Error('injected cleanup failure'); error.code = 'EIO'; throw error; }
+      actions[step]();
+      updated.steps[step] = 'complete';
+    } catch (error) {
+      updated.lastError = `${step}:${['EACCES', 'EIO', 'EPERM'].includes(error.code) ? error.code : 'external_error'}`;
+    }
+  }
+  updated.status = Object.values(updated.steps).every(value => value === 'complete') ? 'complete' : 'pending';
+  persistCleanupJob(updated);
+  return updated;
+}
+function retryAccountCleanupJobs() {
+  for (const job of [...(db.accountCleanupJobs || [])]) {
+    if (job.status !== 'complete') {
+      try { executeAccountCleanup(job); }
+      catch (error) { console.error('account cleanup retry could not be persisted:', error.message); }
+    }
+  }
+}
+
+// Everything of an account, gone for good: durable access removal first, then observable,
+// idempotent cleanup of external artifacts. The admin's delete and the account's own both end here.
 function removeAccount(u) {
   const candidate = structuredClone(db);
   candidate.users = candidate.users.filter(x => x.id !== u.id);
@@ -1781,16 +1852,19 @@ function removeAccount(u) {
   removeB2B2CUser(candidate, u.id);
   dropDeviceLinks(candidate, u.id);
   dropWatchLinks(candidate, u.id);
+  const timestamp = new Date().toISOString();
+  const job = {
+    id: `acj_${crypto.randomBytes(12).toString('base64url')}`, subject: sealCleanupSubject(u.id), status: 'pending',
+    steps: Object.fromEntries(cleanupStepNames.map(step => [step, 'pending'])), attempts: 0, lastError: null,
+    createdAt: timestamp, updatedAt: timestamp,
+  };
+  candidate.accountCleanupJobs.push(job);
+  compactB2B2C(candidate, B2B2C_LIMITS);
   saveDb(candidate);
   publishDb(candidate);
   dropWatchCodes(watchCodes, u.id);
   presence.delete(u.id);
-  // External resources are only deleted after saveDb succeeds
-  try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
-  try { fs.unlinkSync(watchFile(u.id)); } catch { /* never had a watch */ }
-  try { coachConfig.clearProfileAuth(u.id); } catch { /* nothing stored */ }
-  try { MEDIA.removeUser(u.id); } catch (e) { console.error('media: could not remove uploads of', u.id, e.message); }
-  try { integrations.removeUser(u.id); } catch (e) { console.error('integrations: could not remove', u.id, e.message); }
+  return executeAccountCleanup(job);
 }
 
 const passwordRoutes = {
@@ -2544,6 +2618,7 @@ const progressRoutes = createProgressRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   readBody, readSession, readState, isCoach: user => profileOf(user).kind === 'coach',
   coachScopes: user => profileOf(user).coachSpecialties,
+  cursorSecret: SECRET,
   commitCandidate: candidate => { saveDb(candidate); publishDb(candidate); },
   rate: {
     windowMs: B2B2C_RATE.windowMs,
@@ -2553,6 +2628,7 @@ const progressRoutes = createProgressRoutes({
     exportIp: B2B2C_RATE.progressExportIp,
   },
 });
+setImmediate(retryAccountCleanupJobs);
 
 const routes = {
   ...communicationHabitsRoutes,
@@ -3128,10 +3204,10 @@ const routes = {
     }
     const now = new Date().toISOString();
     const scopes = body.granted ? [...new Set([...link.scopes, 'assessments'])] : link.scopes.filter(scope => scope !== 'assessments');
-    try { commitAssessmentConsent(link, scopes, now); }
+    try { commitAssessmentConsent(link, scopes, now, athlete.id); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'consent could not be saved'); }
     audit(req, body.granted ? 'b2b2c.assessment.consent.grant' : 'b2b2c.assessment.consent.revoke', { user: athlete, target: coach, msg: link.id });
-    json(res, 200, { link: serializeLink(db, link, athlete) });
+    json(res, 200, { link: serializeLink(db, db.coachAthleteLinks.find(item => item.id === link.id), athlete) });
   },
 
   'GET /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
@@ -3661,9 +3737,10 @@ const routes = {
     // Everything above awaited: the session may have ended, and another admin may have left.
     if (readSession(req) !== user) return json(res, 401, { error: 'not signed in' });
     if (lastAdmin()) return refuseLastAdmin();
-    removeAccount(user);
+    const cleanup = removeAccount(user);
     audit(req, 'auth.account.delete', { user, msg: proof });
-    json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie });
+    json(res, 200, cleanup.status === 'complete' ? { ok: true }
+      : { ok: true, status: 'cleanup_pending', cleanupJobId: cleanup.id }, { 'Set-Cookie': clearCookie });
   },
 
   // Mobile app pairing: called from an already signed-in browser tab (Settings → "Pair the
@@ -4168,10 +4245,11 @@ const routes = {
     if (isOwner(u)) return json(res, 400, { error: 'the owner cannot be deleted; hand the role to another admin first' });
     if (isAdmin(u) && !isOwner(admin)) { audit(req, 'admin.denied', { ok: false, user: admin, target: u }); return json(res, 403, { error: 'only the owner can delete an admin' }); }
     const name = u.name;
-    removeAccount(u);
+    const cleanup = removeAccount(u);
     // Logged with the name, because the id is about to mean nothing to anyone reading this back.
     audit(req, 'admin.user.delete', { user: admin, msg: name });
-    json(res, 200, { ok: true, id: u.id });
+    json(res, 200, cleanup.status === 'complete' ? { ok: true, id: u.id }
+      : { ok: true, id: u.id, status: 'cleanup_pending', cleanupJobId: cleanup.id });
   },
 
   // Appoint or remove an admin. Owner only, never on themselves, and not for an admin named in
@@ -4420,11 +4498,29 @@ const server = http.createServer(async (req, res) => {
     req.athleteId = coachProgressReportRevoke[1];
     req.reportId = coachProgressReportRevoke[2];
   }
+  const coachProgressReportExport = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)\/export$/.exec(url.pathname);
+  if (coachProgressReportExport) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}/export';
+    req.athleteId = coachProgressReportExport[1];
+    req.reportId = coachProgressReportExport[2];
+  }
   const coachProgressReport = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (coachProgressReport) {
     key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}';
     req.athleteId = coachProgressReport[1];
     req.reportId = coachProgressReport[2];
+  }
+  if (url.pathname === '/api/progress/metrics') key = req.method + ' /api/progress/metrics';
+  if (url.pathname === '/api/athlete/progress-reports') key = req.method + ' /api/athlete/progress-reports';
+  const athleteProgressReportExport = /^\/api\/athlete\/progress-reports\/([A-Za-z0-9_-]+)\/export$/.exec(url.pathname);
+  if (athleteProgressReportExport) {
+    key = req.method + ' /api/athlete/progress-reports/{reportId}/export';
+    req.reportId = athleteProgressReportExport[1];
+  }
+  const athleteProgressReport = /^\/api\/athlete\/progress-reports\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteProgressReport) {
+    key = req.method + ' /api/athlete/progress-reports/{reportId}';
+    req.reportId = athleteProgressReport[1];
   }
   const coachAssessment = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments$/.exec(url.pathname);
   if (coachAssessment) {
