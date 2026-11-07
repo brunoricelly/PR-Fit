@@ -1,11 +1,16 @@
 import crypto from 'node:crypto';
 
-export const B2B2C_SCHEMA_VERSION = 4;
+export const B2B2C_SCHEMA_VERSION = 5;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
   maxAssessments: 10000,
   assessmentRetentionDays: 3650,
+  maxMealPlansPerAthlete: 20,
+  maxMealPlans: 10000,
+  maxMealAdherencePerAthlete: 1000,
+  maxMealAdherence: 50000,
+  mealAdherenceRetentionDays: 730,
 };
 
 export const PARQ_VERSION = '2024.1';
@@ -39,6 +44,7 @@ const uniqueAllowed = (value, allowed) => {
 
 export function migrateB2B2C(db) {
   let changed = false;
+  const sourceVersion = db.schemaVersion;
   if (db.schemaVersion === undefined) {
     db.schemaVersion = B2B2C_SCHEMA_VERSION;
     changed = true;
@@ -47,7 +53,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -55,9 +61,28 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  // Nutrition did not exist before schema 5. If a pre-release schema 4 fixture already contains
+  // plans, converge it on the phase-4 rule deterministically instead of keeping two active plans.
+  if (sourceVersion !== undefined && sourceVersion < 5) {
+    const newestActiveByAthlete = new Map();
+    for (const plan of db.mealPlans) {
+      if (plan?.status !== 'active') continue;
+      const current = newestActiveByAthlete.get(plan.athleteId);
+      if (!current || plan.updatedAt > current.updatedAt
+          || (plan.updatedAt === current.updatedAt && String(plan.id).localeCompare(String(current.id)) > 0)) {
+        newestActiveByAthlete.set(plan.athleteId, plan);
+      }
+    }
+    for (const plan of db.mealPlans) {
+      if (plan?.status === 'active' && newestActiveByAthlete.get(plan.athleteId) !== plan) {
+        plan.status = 'archived';
+        changed = true;
+      }
+    }
   }
   for (const item of db.coachAssessments) {
     if (!record(item) || typeof item.id !== 'string' || typeof item.coachId !== 'string' || typeof item.athleteId !== 'string') {
@@ -85,6 +110,7 @@ export function migrateB2B2C(db) {
       throw new B2B2CDataError('coachAssessments contains invalid assessment data');
     }
   }
+  validateNutritionState(db.mealPlans, db.mealAdherence);
   return changed;
 }
 
@@ -115,6 +141,10 @@ function closePending(link, invite, nowIso, reason) {
 }
 
 export function compactB2B2C(db, limits, nowMs = Date.now()) {
+  // migrateB2B2C initializes these in production; defaults keep the policy helper usable with
+  // focused legacy fixtures that predate the nutrition collections.
+  db.mealPlans ||= [];
+  db.mealAdherence ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
@@ -203,6 +233,13 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     if (keptAssessments.length !== db.coachAssessments.length) changed = true;
     db.coachAssessments = keptAssessments;
   }
+  const mealAdherenceRetentionDays = limits.mealAdherenceRetentionDays ?? B2B2C_LIMITS.mealAdherenceRetentionDays;
+  if (mealAdherenceRetentionDays > 0) {
+    const adherenceCutoff = new Date(nowMs - mealAdherenceRetentionDays * 86400000).toISOString().slice(0, 10);
+    const keptAdherence = db.mealAdherence.filter(item => item.date >= adherenceCutoff);
+    if (keptAdherence.length !== db.mealAdherence.length) changed = true;
+    db.mealAdherence = keptAdherence;
+  }
   if (db.coachAssessments.length > (limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments)) {
     throw new B2B2CDataError(`coachAssessments exceed configured limit ${limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments}`);
   }
@@ -215,10 +252,33 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     }
     pairCounts.set(key, count);
   }
+  if (db.mealPlans.length > (limits.maxMealPlans ?? B2B2C_LIMITS.maxMealPlans)) {
+    throw new B2B2CDataError(`mealPlans exceed configured limit ${limits.maxMealPlans ?? B2B2C_LIMITS.maxMealPlans}`);
+  }
+  const mealPlanPairCounts = new Map();
+  for (const plan of db.mealPlans) {
+    const key = `${plan.coachId}\0${plan.athleteId}`;
+    const count = (mealPlanPairCounts.get(key) || 0) + 1;
+    if (count > (limits.maxMealPlansPerAthlete ?? B2B2C_LIMITS.maxMealPlansPerAthlete)) {
+      throw new B2B2CDataError(`mealPlans pair exceeds configured limit ${limits.maxMealPlansPerAthlete ?? B2B2C_LIMITS.maxMealPlansPerAthlete}`);
+    }
+    mealPlanPairCounts.set(key, count);
+  }
+  if (db.mealAdherence.length > (limits.maxMealAdherence ?? B2B2C_LIMITS.maxMealAdherence)) {
+    throw new B2B2CDataError(`mealAdherence exceeds configured limit ${limits.maxMealAdherence ?? B2B2C_LIMITS.maxMealAdherence}`);
+  }
+  const adherenceCounts = new Map();
+  for (const adherence of db.mealAdherence) {
+    const count = (adherenceCounts.get(adherence.athleteId) || 0) + 1;
+    if (count > (limits.maxMealAdherencePerAthlete ?? B2B2C_LIMITS.maxMealAdherencePerAthlete)) {
+      throw new B2B2CDataError(`mealAdherence athlete exceeds configured limit ${limits.maxMealAdherencePerAthlete ?? B2B2C_LIMITS.maxMealAdherencePerAthlete}`);
+    }
+    adherenceCounts.set(adherence.athleteId, count);
+  }
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
-    expiredAssessments,
+    mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length, expiredAssessments,
   };
 }
 
@@ -511,6 +571,190 @@ export function validatePrescriptionRoutine(body) {
   return { name, notes, divisions };
 }
 
+const mealNumber = (value, min, max) => (
+  typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null
+);
+const mealId = (value, fallback) => (
+  value === undefined ? fallback : typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : null
+);
+
+// Deliberately broad corridors: plans may use rounded labels and foods from different nutrition
+// databases, but a partial snack cannot claim to implement a full-day target. Target calories may
+// differ 35% from 4/4/9 macro calories; summed foods must be 50–150% of each declared daily target.
+export const NUTRITION_TOLERANCES = Object.freeze({
+  targetMacroCaloriesMin: 0.65,
+  targetMacroCaloriesMax: 1.35,
+  foodTotalsMin: 0.5,
+  foodTotalsMax: 1.5,
+  substitutePercent: 0.3,
+});
+
+const inRatio = (actual, target, min, max) => target > 0
+  ? actual >= target * min && actual <= target * max
+  : actual === 0;
+const substituteClose = (actual, source, key) => {
+  const absolute = key === 'calories' ? 100 : 5;
+  return Math.abs(actual - source) <= Math.max(absolute, source * NUTRITION_TOLERANCES.substitutePercent);
+};
+
+/** Strictly normalize the client-editable portion of a nutrition plan. */
+export function validateMealPlan(payload) {
+  if (!record(payload) || Object.keys(payload).some(key => !['meals', 'notes', 'status', 'targetCalories', 'targetMacros', 'title'].includes(key))) return null;
+  const title = cleanText(payload.title, 120, { required: true });
+  const notes = cleanText(payload.notes, 2000);
+  if (!title || notes === null || !['active', 'archived', 'draft'].includes(payload.status)) return null;
+  const targetCalories = mealNumber(payload.targetCalories, 1, 10000);
+  if (targetCalories === null || !record(payload.targetMacros)
+      || Object.keys(payload.targetMacros).some(key => !['carbs', 'fats', 'fiber', 'protein', 'waterMl'].includes(key))) return null;
+  const targetMacros = {
+    protein: mealNumber(payload.targetMacros.protein, 1, 500),
+    carbs: mealNumber(payload.targetMacros.carbs, 1, 1200),
+    fats: mealNumber(payload.targetMacros.fats, 1, 500),
+    fiber: mealNumber(payload.targetMacros.fiber, 0, 200),
+    waterMl: mealNumber(payload.targetMacros.waterMl, 1, 15000),
+  };
+  if (Object.values(targetMacros).some(value => value === null)) return null;
+  if (!Array.isArray(payload.meals) || !payload.meals.length || payload.meals.length > 20) return null;
+
+  const meals = [];
+  const mealIds = new Set();
+  const itemIds = new Set();
+  for (let mealIndex = 0; mealIndex < payload.meals.length; mealIndex++) {
+    const input = payload.meals[mealIndex];
+    if (!record(input) || Object.keys(input).some(key => !['id', 'items', 'name', 'time'].includes(key))) return null;
+    const id = mealId(input.id, `m_${mealIndex + 1}`);
+    const name = cleanText(input.name, 100, { required: true });
+    if (!id || mealIds.has(id) || !name || typeof input.time !== 'string' || !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(input.time)
+        || !Array.isArray(input.items) || !input.items.length || input.items.length > 50) return null;
+    mealIds.add(id);
+    const items = [];
+    for (let itemIndex = 0; itemIndex < input.items.length; itemIndex++) {
+      const item = input.items[itemIndex];
+      if (!record(item) || Object.keys(item).some(key => !['calories', 'carbs', 'fats', 'fiber', 'id', 'name', 'portion', 'protein', 'substitutes'].includes(key))) return null;
+      const itemId = mealId(item.id, `it_${mealIndex + 1}_${itemIndex + 1}`);
+      const itemName = cleanText(item.name, 120, { required: true });
+      const portion = cleanText(item.portion, 120, { required: true });
+      const nutrients = {
+        calories: mealNumber(item.calories, 0, 5000),
+        protein: mealNumber(item.protein, 0, 500),
+        carbs: mealNumber(item.carbs, 0, 1000),
+        fats: mealNumber(item.fats, 0, 500),
+        fiber: mealNumber(item.fiber, 0, 200),
+      };
+      if (!itemId || itemIds.has(itemId) || !itemName || !portion || Object.values(nutrients).some(value => value === null)
+          || !Array.isArray(item.substitutes) || item.substitutes.length > 20) return null;
+      itemIds.add(itemId);
+      const substitutes = [];
+      for (const substitute of item.substitutes) {
+        const nutrientKeys = ['calories', 'protein', 'carbs', 'fats', 'fiber'];
+        if (!record(substitute) || Object.keys(substitute).some(key => !['name', 'portion', ...nutrientKeys].includes(key))) return null;
+        const substituteName = cleanText(substitute.name, 120, { required: true });
+        const substitutePortion = cleanText(substitute.portion, 120, { required: true });
+        if (!substituteName || !substitutePortion) return null;
+        const normalizedSubstitute = { name: substituteName, portion: substitutePortion };
+        for (const key of nutrientKeys) {
+          if (substitute[key] === undefined) continue;
+          const value = mealNumber(substitute[key], 0, key === 'calories' ? 5000 : key === 'carbs' ? 1000 : key === 'fiber' ? 200 : 500);
+          if (value === null || !substituteClose(value, nutrients[key], key)) return null;
+          normalizedSubstitute[key] = value;
+        }
+        substitutes.push(normalizedSubstitute);
+      }
+      items.push({ id: itemId, name: itemName, portion, ...nutrients, substitutes });
+    }
+    meals.push({ id, name, time: input.time, items });
+  }
+  const totals = meals.flatMap(meal => meal.items).reduce((sum, item) => ({
+    calories: sum.calories + item.calories,
+    protein: sum.protein + item.protein,
+    carbs: sum.carbs + item.carbs,
+    fats: sum.fats + item.fats,
+    fiber: sum.fiber + item.fiber,
+  }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 });
+  const macroCalories = targetMacros.protein * 4 + targetMacros.carbs * 4 + targetMacros.fats * 9;
+  if (!inRatio(macroCalories, targetCalories, NUTRITION_TOLERANCES.targetMacroCaloriesMin, NUTRITION_TOLERANCES.targetMacroCaloriesMax)
+      || !['calories', 'protein', 'carbs', 'fats', 'fiber'].every(key => (
+        key === 'fiber' && targetMacros.fiber === 0
+      ) || inRatio(
+        totals[key], key === 'calories' ? targetCalories : targetMacros[key],
+        NUTRITION_TOLERANCES.foodTotalsMin, NUTRITION_TOLERANCES.foodTotalsMax,
+      ))) return null;
+  return { title, status: payload.status, targetCalories, targetMacros, meals, notes };
+}
+
+export function validateMealAdherence(payload, plan) {
+  if (!record(payload) || Object.keys(payload).some(key => !['athleteId', 'date', 'id', 'mealPlanId', 'mealsChecked', 'notes', 'updatedAt', 'waterDrunkMl'].includes(key))) return null;
+  if (typeof payload.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
+      || new Date(`${payload.date}T00:00:00.000Z`).toISOString().slice(0, 10) !== payload.date
+      || !Array.isArray(payload.mealsChecked) || payload.mealsChecked.length > 20) return null;
+  const mealsChecked = [...new Set(payload.mealsChecked)];
+  if (mealsChecked.length !== payload.mealsChecked.length || mealsChecked.some(id => typeof id !== 'string' || !/^[A-Za-z0-9_-]{1,80}$/.test(id))) return null;
+  if (plan) {
+    const allowed = new Set(plan.meals.map(meal => meal.id));
+    if (mealsChecked.some(id => !allowed.has(id))) return null;
+  }
+  const waterDrunkMl = mealNumber(payload.waterDrunkMl, 0, 20000);
+  const notes = cleanText(payload.notes, 1000);
+  if (waterDrunkMl === null || notes === null) return null;
+  return { date: payload.date, mealsChecked, waterDrunkMl, notes };
+}
+
+/** Validate the two nutrition collections as one persistence unit. Throws on any ambiguity. */
+export function validateNutritionState(mealPlans, mealAdherence) {
+  if (!Array.isArray(mealPlans) || !Array.isArray(mealAdherence)) {
+    throw new B2B2CDataError('nutrition collections must be arrays');
+  }
+  const plansByIdentity = new Map();
+  const planIds = new Set();
+  const activeAthletes = new Set();
+  for (const item of mealPlans) {
+    if (!record(item) || typeof item.id !== 'string' || !item.id || planIds.has(item.id)
+        || typeof item.coachId !== 'string' || typeof item.athleteId !== 'string'
+        || !Number.isFinite(item.createdAt) || !Number.isFinite(item.updatedAt)) {
+      throw new B2B2CDataError('mealPlans contains a duplicate id or invalid record');
+    }
+    const { id, coachId, athleteId, createdAt, updatedAt, ...payload } = item;
+    if (!validateMealPlan(payload)) throw new B2B2CDataError('mealPlans contains invalid meal plan data');
+    if (item.status === 'active' && activeAthletes.has(item.athleteId)) {
+      throw new B2B2CDataError('mealPlans contains more than one active plan for an athlete');
+    }
+    planIds.add(item.id);
+    if (item.status === 'active') activeAthletes.add(item.athleteId);
+    plansByIdentity.set(`${item.athleteId}\0${item.id}`, item);
+  }
+  const adherenceIds = new Set();
+  const adherenceKeys = new Set();
+  for (const item of mealAdherence) {
+    const plan = plansByIdentity.get(`${item?.athleteId}\0${item?.mealPlanId}`);
+    const adherenceKey = `${item?.athleteId}\0${item?.mealPlanId}\0${item?.date}`;
+    if (!record(item) || typeof item.id !== 'string' || !item.id || adherenceIds.has(item.id)
+        || typeof item.athleteId !== 'string' || typeof item.mealPlanId !== 'string'
+        || !Number.isFinite(item.updatedAt) || !plan || adherenceKeys.has(adherenceKey)
+        || !validateMealAdherence(item, plan)) {
+      throw new B2B2CDataError('mealAdherence contains a duplicate id, duplicate day, or invalid record');
+    }
+    adherenceIds.add(item.id);
+    adherenceKeys.add(adherenceKey);
+  }
+  return true;
+}
+
+export function serializeMealPlan(db, plan) {
+  return {
+    id: plan.id,
+    coach: safeProfileUser(db.users.find(user => user.id === plan.coachId)),
+    athlete: safeProfileUser(db.users.find(user => user.id === plan.athleteId), { includeProfile: false }),
+    title: plan.title,
+    status: plan.status,
+    targetCalories: plan.targetCalories,
+    targetMacros: structuredClone(plan.targetMacros),
+    meals: structuredClone(plan.meals),
+    notes: plan.notes,
+    createdAt: plan.createdAt,
+    updatedAt: plan.updatedAt,
+  };
+}
+
 export function serializePrescription(db, prescription) {
   return {
     id: prescription.id,
@@ -569,4 +813,9 @@ export function removeB2B2CUser(db, userId) {
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
   db.coachAssessments = db.coachAssessments.filter(item => item.coachId !== userId && item.athleteId !== userId);
+  const removedPlans = new Set(db.mealPlans.filter(item => item.coachId === userId || item.athleteId === userId)
+    .map(item => `${item.athleteId}\0${item.id}`));
+  db.mealPlans = db.mealPlans.filter(item => item.coachId !== userId && item.athleteId !== userId);
+  db.mealAdherence = db.mealAdherence.filter(item => item.athleteId !== userId
+    && !removedPlans.has(`${item.athleteId}\0${item.mealPlanId}`));
 }

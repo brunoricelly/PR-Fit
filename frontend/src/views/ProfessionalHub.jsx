@@ -11,6 +11,7 @@ import Icon from '../components/Icon.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
 import AssessmentPanel from './AssessmentPanel.jsx'
+import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
 import './ProfessionalHub.css'
 
 const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === 'assessments' ? p('Physical assessments') : p('Training')
@@ -330,6 +331,7 @@ function CoachPortfolio({ user }) {
             canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
             canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
             {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
+            {link.status === 'active' && link.scopes.includes('nutrition') && link.athlete && <NutritionPanel athleteId={link.athlete.id} />}
             {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
           </RelationshipCard>)}</div>}
     </section>
@@ -438,6 +440,7 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
       <Button variant="primary" disabled={accepting || !token.trim()} onClick={accept}>{accepting ? p('Accepting…') : p('Accept invitation')}</Button>
     </section>
     <AthletePrescriptions userId={userId} />
+    <section aria-labelledby="athlete-nutrition-section"><h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2><AthleteNutritionView /></section>
     <section aria-labelledby="athlete-assessments-title"><h2 className="pro-section-title" id="athlete-assessments-title">{p('My physical assessments')}</h2><AssessmentPanel athlete /></section>
     <section aria-labelledby="pro-athlete-list-title">
       <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>

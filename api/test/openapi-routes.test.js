@@ -18,7 +18,7 @@ const read = f => fs.readFileSync(f, 'utf8');
 const spec = read(path.join(API, 'openapi.yaml'));
 
 /** Every `'GET /api/x': async (req, res)` key in the route table. */
-const routeKeys = src => [...src.matchAll(/^\s*'(GET|POST|PUT|DELETE) (\/api\/[^']*)':/gm)].map(m => `${m[1]} ${m[2]}`);
+const routeKeys = src => [...src.matchAll(/^\s*'(GET|POST|PUT|PATCH|DELETE) (\/api\/[^']*)':/gm)].map(m => `${m[1]} ${m[2]}`);
 
 /** Every operation under `paths:`, as "METHOD /path". */
 function specOperations(yaml) {
@@ -30,7 +30,7 @@ function specOperations(yaml) {
     if (!inPaths) continue;
     const p = /^ {2}(\/[^:]*):/.exec(line);
     if (p) { current = p[1]; continue; }
-    const m = /^ {4}(get|post|put|delete):/.exec(line);
+    const m = /^ {4}(get|post|put|patch|delete):/.exec(line);
     if (m && current) out.push(`${m[1].toUpperCase()} ${current}`);
   }
   return out;
@@ -73,7 +73,7 @@ test('every error code the e-mail and password signup routes return is in their 
   const handler = key => {
     const start = server.indexOf(`  '${key}': async`);
     assert.ok(start >= 0, key);
-    const next = server.slice(start + 1).search(/\n {2}'(GET|POST|PUT|DELETE) \//);
+    const next = server.slice(start + 1).search(/\n {2}'(GET|POST|PUT|PATCH|DELETE) \//);
     return server.slice(start, next < 0 ? undefined : start + 1 + next);
   };
   const emailCodes = Object.fromEntries([...server.matchAll(/^\s{2}(\w+): \{ error: '[^']*', code: '([^']+)' \}/gm)].map(m => [m[1], m[2]]));
