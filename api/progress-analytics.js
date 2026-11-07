@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 import { createWindow } from './rate-limit.js';
+import { StateWriteQueue } from './state-write-queue.js';
 import { dateInTimeZone, habitSummary, validIsoDate, validTimeZone } from './communication-habits.js';
 import {
   bodyComposition, faulkner4, pollock3Men, pollock3Women, pollock7Men, pollock7Women, siri,
@@ -32,11 +33,11 @@ const METRIC_UNITS = Object.freeze({
   habit_adherence_percent: 'percent',
 });
 const METRIC_CATALOG = Object.freeze({
-  body_weight: { unit: 'kg', directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_weight', labelPtBr: 'Peso corporal' },
-  body_fat_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_fat_percent', labelPtBr: 'Percentual de gordura' },
-  workouts_per_week: { unit: 'workouts_per_week', directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.workouts_per_week', labelPtBr: 'Treinos por semana', volume: { unit: 'source_weight_repetitions', labelPtBr: 'Soma de carga da fonte multiplicada por repetições' } },
-  nutrition_adherence_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'nutrition', labelKey: 'progress.metric.nutrition_adherence_percent', labelPtBr: 'Adesão nutricional' },
-  habit_adherence_percent: { unit: 'percent', directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.habit_adherence_percent', labelPtBr: 'Adesão a hábitos' },
+  body_weight: { unit: 'kg', pointKind: 'instant', pointSemantics: { source: 'measurement_source' }, directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_weight', labelPtBr: 'Peso corporal' },
+  body_fat_percent: { unit: 'percent', pointKind: 'instant', pointSemantics: { source: 'assessment_method' }, directions: ['increase', 'decrease', 'maintain'], scope: 'assessments', labelKey: 'progress.metric.body_fat_percent', labelPtBr: 'Percentual de gordura' },
+  workouts_per_week: { unit: 'workouts_per_week', pointKind: 'interval', pointSemantics: { numerator: 'completed_workouts', denominator: 'calendar_days' }, directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.workouts_per_week', labelPtBr: 'Treinos por semana', volume: { unit: 'source_weight_repetitions', labelPtBr: 'Soma de carga da fonte multiplicada por repetições' } },
+  nutrition_adherence_percent: { unit: 'percent', pointKind: 'instant', pointSemantics: { numerator: 'completed_meals', denominator: 'recorded_meal_opportunities' }, directions: ['increase', 'decrease', 'maintain'], scope: 'nutrition', labelKey: 'progress.metric.nutrition_adherence_percent', labelPtBr: 'Adesão nutricional' },
+  habit_adherence_percent: { unit: 'percent', pointKind: 'instant', pointSemantics: { numerator: 'completed_checkins', denominator: 'recorded_checkins' }, directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.habit_adherence_percent', labelPtBr: 'Adesão a hábitos' },
 });
 const GOAL_KEYS = [
   'id', 'linkId', 'coachId', 'athleteId', 'metric', 'direction', 'baselineValue', 'targetValue',
@@ -51,9 +52,11 @@ const REPORT_KEYS = [
 export const PROGRESS_LIMITS = Object.freeze({
   maxGoalsPerLink: 50,
   maxGoals: 10000,
+  maxTerminalGoals: 50000,
   goalRetentionDays: 730,
   maxReportsPerLink: 100,
   maxReports: 20000,
+  maxTerminalReports: 50000,
   reportRetentionDays: 1095,
   maxReportBytes: 1024 * 1024,
 });
@@ -189,12 +192,12 @@ export function migrateProgressState(db) {
     if (db[key] === undefined) { db[key] = []; changed = true; }
     else if (!Array.isArray(db[key])) throw new Error(`${key} must be an array`);
   }
-  for (const goal of db.progressGoals.filter(item => item.status !== 'archived')) {
+  for (const goal of db.progressGoals) {
     if (goal.unit === undefined) { goal.unit = METRIC_UNITS[goal.metric]; changed = true; }
     if (goal._rev === undefined) { goal._rev = 1; changed = true; }
     if (goal.archiveReason === undefined) { goal.archiveReason = goal.status === 'archived' ? 'manual' : null; changed = true; }
   }
-  for (const report of db.progressReports.filter(item => !item.revokedAt)) {
+  for (const report of db.progressReports) {
     if (report.revocation === undefined) { report.revocation = null; changed = true; }
   }
   validateProgressState(db);
@@ -228,16 +231,22 @@ export function compactProgressState(db, configuredLimits = PROGRESS_LIMITS, now
   const reportCutoff = now - limits.reportRetentionDays * DAY_MS;
   db.progressGoals = db.progressGoals.filter(goal => goal.status !== 'archived' || Date.parse(goal.archivedAt) >= goalCutoff);
   db.progressReports = db.progressReports.filter(report => Date.parse(report.createdAt) >= reportCutoff);
-  if (db.progressGoals.length > limits.maxGoals) throw new Error(`progressGoals exceed configured limit ${limits.maxGoals}`);
-  if (db.progressReports.length > limits.maxReports) throw new Error(`progressReports exceed configured limit ${limits.maxReports}`);
+  const activeGoals = db.progressGoals.filter(goal => goal.status !== 'archived');
+  const terminalGoals = db.progressGoals.length - activeGoals.length;
+  const activeReports = db.progressReports.filter(report => !report.revokedAt);
+  const terminalReports = db.progressReports.length - activeReports.length;
+  if (activeGoals.length > limits.maxGoals) throw new Error(`active progressGoals exceed configured limit ${limits.maxGoals}`);
+  if (terminalGoals > limits.maxTerminalGoals) throw new Error(`terminal progressGoals exceed configured limit ${limits.maxTerminalGoals}`);
+  if (activeReports.length > limits.maxReports) throw new Error(`active progressReports exceed configured limit ${limits.maxReports}`);
+  if (terminalReports > limits.maxTerminalReports) throw new Error(`terminal progressReports exceed configured limit ${limits.maxTerminalReports}`);
   const goalCounts = new Map();
-  for (const goal of db.progressGoals.filter(item => item.status !== 'archived')) {
+  for (const goal of activeGoals) {
     const count = (goalCounts.get(goal.linkId) || 0) + 1;
     if (count > limits.maxGoalsPerLink) throw new Error(`progressGoals link exceeds configured limit ${limits.maxGoalsPerLink}`);
     goalCounts.set(goal.linkId, count);
   }
   const reportCounts = new Map();
-  for (const report of db.progressReports.filter(item => !item.revokedAt)) {
+  for (const report of activeReports) {
     const count = (reportCounts.get(report.linkId) || 0) + 1;
     if (count > limits.maxReportsPerLink) throw new Error(`progressReports link exceeds configured limit ${limits.maxReportsPerLink}`);
     reportCounts.set(report.linkId, count);
@@ -353,14 +362,14 @@ function bodyWeightMetric(state, assessments, period) {
     for (const row of state.bodyweight) {
       if (!validIsoDate(row?.d) || !finite(row?.w) || row.d < period.from || row.d > period.to) continue;
       const value = unit === 'lb' ? row.w * 0.45359237 : row.w;
-      if (value > 0 && value <= 1000) points.push({ date: row.d, value: round(value), source: 'bodyweight_log', unit: 'kg',
+      if (value > 0 && value <= 1000) points.push({ kind: 'instant', date: row.d, value: round(value), source: 'bodyweight_log', unit: 'kg',
         coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(row.d, period.to, 30) });
     }
   }
   for (const assessment of assessments) {
     const date = assessment.localDate;
     if (finite(assessment.weightKg) && date >= period.from && date <= period.to) {
-      points.push({ date, value: round(assessment.weightKg), source: 'assessment', unit: 'kg',
+      points.push({ kind: 'instant', date, value: round(assessment.weightKg), source: 'assessment', unit: 'kg',
         coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(date, period.to, 30) });
     }
   }
@@ -377,7 +386,7 @@ function bodyFatMetric(assessments, period) {
   const points = assessments.flatMap(assessment => {
     const results = calculateAssessmentResults(assessment);
     return results?.bodyFatPercent !== undefined && assessment.localDate >= period.from && assessment.localDate <= period.to
-      ? [{ date: assessment.localDate, value: round(results.bodyFatPercent), source: assessment.skinfolds?.protocol || 'bioimpedance', unit: 'percent',
+      ? [{ kind: 'instant', date: assessment.localDate, value: round(results.bodyFatPercent), source: assessment.skinfolds?.protocol || 'bioimpedance', unit: 'percent',
         coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(assessment.localDate, period.to, 30) }]
       : [];
   }).sort((left, right) => left.date.localeCompare(right.date));
@@ -413,7 +422,7 @@ function workoutMetric(db, link, state, period, timeZone) {
     buckets.set(key, bucket);
   }
   const points = [...buckets.values()].sort((left, right) => left.from.localeCompare(right.from)).map(bucket => ({
-    from: bucket.from, to: bucket.to, value: round(bucket.numerator * 7 / bucket.denominator),
+    kind: 'interval', from: bucket.from, to: bucket.to, value: round(bucket.numerator * 7 / bucket.denominator),
     numerator: bucket.numerator, denominator: bucket.denominator, unit: 'workouts_per_week',
     coverage: { observed: bucket.denominator, expected: bucket.denominator, percent: 100 }, freshness: freshness(bucket.latest, period.to, 7),
   }));
@@ -457,7 +466,7 @@ function nutritionMetric(db, link, period, timeZone) {
     currentValue: round(numerator / denominator * 100, 1), unavailableReason: null,
     numerator: { completedMeals: numerator }, denominator: { recordedMealOpportunities: denominator },
     points: [...daily].sort(([left], [right]) => left.localeCompare(right)).map(([date, point]) => ({
-      date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
+      kind: 'instant', date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
       coverage: { observed: 1, expected: 1, percent: 100 }, freshness: freshness(date, period.to, 7),
     })),
     coverage: { observed: uniqueDays.size, expected: period.days, percent: period.days ? round(uniqueDays.size / period.days * 100, 1) : null, periodDays: period.days },
@@ -488,7 +497,7 @@ function habitMetric(db, link, period, timeZone) {
     unavailableReason: null, numerator: { completedScheduledDays: summary.completedDays },
     denominator: { scheduledHabitDays: summary.scheduledDays },
     points: [...daily].sort(([left], [right]) => left.localeCompare(right)).map(([date, point]) => ({
-      date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
+      kind: 'instant', date, value: round(point.numerator / point.denominator * 100, 1), ...point, unit: 'percent',
       coverage: { observed: point.denominator, expected: point.denominator, percent: 100 }, freshness: freshness(date, period.to, 7),
     })),
     coverage: { observed: checkedDays, expected: summary.scheduledDays, percent: round(checkedDays / summary.scheduledDays * 100, 1), periodDays: period.days },
@@ -601,6 +610,15 @@ function reportSummary(snapshot, metrics) {
   }).join(' ');
 }
 
+function serializeProgressReport(report) {
+  if (report.revokedAt) return {
+    id: report.id, linkId: report.linkId, interval: structuredClone(report.interval), timezone: report.timezone,
+    metrics: [...report.metrics], summary: report.summary, createdAt: report.createdAt, revokedAt: report.revokedAt,
+    revocation: report.revocation ? structuredClone(report.revocation) : null,
+  };
+  return structuredClone(report);
+}
+
 function csvCell(value) {
   let text = value === null || value === undefined ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
   if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
@@ -639,6 +657,7 @@ export function createProgressRoutes({
   db, readBody, readSession, readState, json, b2bError, audit, auditDenied, commitCandidate,
   isCoach, coachScopes = () => [], limitAddress, cursorSecret = 'progress-cursor', limits = PROGRESS_LIMITS, rate = {}, now = () => Date.now(),
 }) {
+  const mutations = new StateWriteQueue({ perKeyLimit: 16, globalLimit: 512 });
   const mutationAccount = createWindow({ max: rate.mutationAccount || 120, windowMs: rate.windowMs || 3600000 });
   const mutationIp = createWindow({ max: rate.mutationIp || 600, windowMs: rate.windowMs || 3600000 });
   const exportAccount = createWindow({ max: rate.exportAccount || 120, windowMs: rate.windowMs || 3600000 });
@@ -753,7 +772,7 @@ export function createProgressRoutes({
       .filter(goal => context.access.link.scopes.includes(scopeForProgressMetric(goal.metric))
         && actorScopes.includes(scopeForProgressMetric(goal.metric))).sort(newest);
     const result = page(res, goals, context, 'goals'); if (!result) return;
-    json(res, 200, { goals: result.items, ...result, relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
+    json(res, 200, { ...result, relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
   };
   const getSummary = (req, res, options) => {
     const context = actorAndLink(req, res, options); if (!context) return;
@@ -763,8 +782,9 @@ export function createProgressRoutes({
     json(res, 200, { summary });
   };
   const reportMetadata = report => ({
-    id: report.id, linkId: report.linkId, interval: report.interval, timezone: report.timezone, metrics: report.metrics,
-    summary: report.summary, createdAt: report.createdAt, revokedAt: report.revokedAt,
+    id: report.id, linkId: report.linkId, interval: structuredClone(report.interval), timezone: report.timezone,
+    metrics: [...report.metrics], summary: report.summary, createdAt: report.createdAt, revokedAt: report.revokedAt,
+    ...(report.revokedAt ? { revocation: report.revocation ? structuredClone(report.revocation) : null } : {}),
   });
   const listReports = (req, res, options) => {
     const context = actorAndLink(req, res, options); if (!context) return;
@@ -779,7 +799,7 @@ export function createProgressRoutes({
         || report.metrics.every(metric => coachScopes(context.actor).includes(scopeForProgressMetric(metric))))
       .sort(newest);
     const result = page(res, reports, context, 'reports', reportMetadata); if (!result) return;
-    json(res, 200, { reports: result.items, ...result,
+    json(res, 200, { ...result,
       relationship: { linkId: context.access.link.id, status: context.access.link.status, readOnly: context.access.readOnly } });
   };
   const serveReport = (req, res, options, explicitExport = false) => {
@@ -798,7 +818,7 @@ export function createProgressRoutes({
     if ((explicitExport || format) && !['json', 'csv'].includes(format)) return b2bError(res, 400, 'invalid_format', 'format must be json or csv');
     if (explicitExport || format) {
       if (throttle(req, res, context.actor, 'export')) return;
-      const body = format === 'csv' ? progressReportCsv(report) : JSON.stringify({ report }, null, 2) + '\n';
+      const body = format === 'csv' ? progressReportCsv(report) : JSON.stringify({ report: serializeProgressReport(report) }, null, 2) + '\n';
       res.writeHead(200, {
         'Content-Type': format === 'csv' ? 'text/csv; charset=utf-8' : 'application/json; charset=utf-8',
         'Content-Disposition': `attachment; filename="progress-report-${report.id}.${format}"`,
@@ -809,7 +829,7 @@ export function createProgressRoutes({
       return;
     }
     if (throttle(req, res, context.actor, 'export')) return;
-    json(res, 200, { report });
+    json(res, 200, { report: serializeProgressReport(report) });
   };
 
   return {
@@ -824,70 +844,88 @@ export function createProgressRoutes({
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
       const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
       if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
-      if (!context.access.link.scopes.includes(scopeForProgressMetric(goal.metric))) return b2bError(res, 403, 'scope_forbidden', 'relationship scope does not permit this goal');
+      const scope = scopeForProgressMetric(goal.metric);
+      if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) {
+        return b2bError(res, 403, 'scope_forbidden', 'current relationship and professional scope do not permit this goal');
+      }
       json(res, 200, { goal });
     },
     'POST /api/coach/athletes/{athleteId}/progress-goals': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
-      const normalized = goalInput(await readBody(req));
-      if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
-      const scope = scopeForProgressMetric(normalized.metric);
-      if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
-      const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
-      const perLink = candidate.progressGoals.filter(goal => goal.linkId === context.access.link.id && goal.status !== 'archived').length;
-      if (perLink >= limits.maxGoalsPerLink || candidate.progressGoals.length >= limits.maxGoals) return b2bError(res, 409, 'goal_capacity', 'progress goal capacity reached');
-      const timestamp = new Date(now()).toISOString();
-      const goal = {
-        id: makeId('pgoal', db.progressGoals), linkId: context.access.link.id, coachId: context.access.link.coachId,
-        athleteId: context.access.link.athleteId, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: 1,
-        createdAt: timestamp, updatedAt: timestamp,
-        achievedAt: normalized.status === 'achieved' ? timestamp : null,
-        archivedAt: normalized.status === 'archived' ? timestamp : null,
-        archiveReason: normalized.status === 'archived' ? 'manual' : null,
-      };
-      candidate.progressGoals.push(goal);
-      try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
-      audit(req, 'b2b2c.progress.goal.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
-      json(res, 201, { goal });
+      return mutations.run(context.access.link.id, async () => {
+        const normalized = goalInput(await readBody(req));
+        if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
+        const scope = scopeForProgressMetric(normalized.metric);
+        if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
+        const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
+        const active = candidate.progressGoals.filter(goal => goal.status !== 'archived');
+        const perLink = active.filter(goal => goal.linkId === context.access.link.id).length;
+        if (perLink >= limits.maxGoalsPerLink || active.length >= limits.maxGoals) return b2bError(res, 409, 'goal_capacity', 'progress goal capacity reached');
+        const timestamp = new Date(now()).toISOString();
+        const goal = {
+          id: makeId('pgoal', candidate.progressGoals), linkId: context.access.link.id, coachId: context.access.link.coachId,
+          athleteId: context.access.link.athleteId, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: 1,
+          createdAt: timestamp, updatedAt: timestamp,
+          achievedAt: normalized.status === 'achieved' ? timestamp : null,
+          archivedAt: normalized.status === 'archived' ? timestamp : null,
+          archiveReason: normalized.status === 'archived' ? 'manual' : null,
+        };
+        candidate.progressGoals.push(goal);
+        try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
+        audit(req, 'b2b2c.progress.goal.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
+        json(res, 201, { goal });
+      });
     },
     'PATCH /api/coach/athletes/{athleteId}/progress-goals/{goalId}': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
-      const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
-      if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
-      const body = await readBody(req);
-      if (!record(body) || !Object.keys(body).length || !Number.isSafeInteger(body._rev)) return b2bError(res, 400, 'precondition_required', '_rev is required');
-      if (body._rev !== goal._rev) return b2bError(res, 409, 'stale_version', 'goal version is stale');
-      const { _rev, ...changes } = body;
-      const normalized = goalInput(changes, goal);
-      if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
-      const scope = scopeForProgressMetric(normalized.metric);
-      if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
-      const timestamp = new Date(now()).toISOString();
-      const updated = { ...goal, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: goal._rev + 1, updatedAt: timestamp };
-      if (normalized.status === 'active') { updated.achievedAt = null; updated.archivedAt = null; updated.archiveReason = null; }
-      if (normalized.status === 'achieved') { updated.achievedAt = goal.achievedAt || timestamp; updated.archivedAt = null; updated.archiveReason = null; }
-      if (normalized.status === 'archived') { updated.archivedAt = goal.archivedAt || timestamp; updated.archiveReason = 'manual'; }
-      const candidate = structuredClone(db);
-      candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
-      try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
-      audit(req, 'b2b2c.progress.goal.update', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
-      json(res, 200, { goal: updated });
+      return mutations.run(context.access.link.id, async () => {
+        const body = await readBody(req);
+        const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
+        if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
+        if (!record(body) || !Object.keys(body).length || !Number.isSafeInteger(body._rev)) return b2bError(res, 400, 'precondition_required', '_rev is required');
+        if (body._rev !== goal._rev) return b2bError(res, 409, 'stale_version', 'goal version is stale');
+        const { _rev, ...changes } = body;
+        const normalized = goalInput(changes, goal);
+        if (!normalized) return b2bError(res, 400, 'invalid_goal', 'invalid progress goal');
+        const scope = scopeForProgressMetric(normalized.metric);
+        if (!context.access.link.scopes.includes(scope) || !coachScopes(context.actor).includes(scope)) return b2bError(res, 403, 'scope_forbidden', `relationship scope ${scope} is required`);
+        const timestamp = new Date(now()).toISOString();
+        const updated = { ...goal, ...normalized, unit: METRIC_UNITS[normalized.metric], _rev: goal._rev + 1, updatedAt: timestamp };
+        if (normalized.status === 'active') { updated.achievedAt = null; updated.archivedAt = null; updated.archiveReason = null; }
+        if (normalized.status === 'achieved') { updated.achievedAt = goal.achievedAt || timestamp; updated.archivedAt = null; updated.archiveReason = null; }
+        if (normalized.status === 'archived') { updated.archivedAt = goal.archivedAt || timestamp; updated.archiveReason = 'manual'; }
+        const candidate = structuredClone(db);
+        candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
+        try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be saved'); }
+        audit(req, 'b2b2c.progress.goal.update', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
+        json(res, 200, { goal: updated });
+      });
     },
     'DELETE /api/coach/athletes/{athleteId}/progress-goals/{goalId}': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
-      const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
-      if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
-      const timestamp = new Date(now()).toISOString();
-      const updated = { ...goal, status: 'archived', _rev: goal._rev + 1, updatedAt: timestamp,
-        archivedAt: goal.archivedAt || timestamp, archiveReason: goal.archiveReason || 'manual' };
-      const candidate = structuredClone(db);
-      candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
-      try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be archived'); }
-      audit(req, 'b2b2c.progress.goal.archive', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
-      json(res, 200, { goal: updated, archived: true });
+      return mutations.run(context.access.link.id, async () => {
+        const body = await readBody(req);
+        const header = req.headers['if-match'];
+        const match = typeof header === 'string' ? /^"?(\d+)"?$/.exec(header.trim()) : null;
+        const revision = Number.isSafeInteger(body?._rev) ? body._rev : match ? Number(match[1]) : null;
+        if (!record(body) || Object.keys(body).some(key => key !== '_rev') || !Number.isSafeInteger(revision)) {
+          return b2bError(res, 400, 'precondition_required', '_rev body or If-Match header is required');
+        }
+        const goal = db.progressGoals.find(item => item.id === req.goalId && item.linkId === context.access.link.id);
+        if (!goal) return b2bError(res, 404, 'goal_not_found', 'progress goal not found');
+        if (revision !== goal._rev) return b2bError(res, 409, 'stale_version', 'goal version is stale');
+        const timestamp = new Date(now()).toISOString();
+        const updated = { ...goal, status: 'archived', _rev: goal._rev + 1, updatedAt: timestamp,
+          archivedAt: goal.archivedAt || timestamp, archiveReason: goal.archiveReason || 'manual' };
+        const candidate = structuredClone(db);
+        candidate.progressGoals[candidate.progressGoals.findIndex(item => item.id === goal.id)] = updated;
+        try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress goal could not be archived'); }
+        audit(req, 'b2b2c.progress.goal.archive', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: goal.id });
+        json(res, 200, { goal: updated, archived: true });
+      });
     },
     'GET /api/coach/athletes/{athleteId}/progress-summary': (req, res) => getSummary(req, res, { athleteId: req.athleteId, coachOnly: true }),
     'GET /api/athlete/progress-goals': (req, res) => listGoals(req, res, {}),
@@ -897,59 +935,64 @@ export function createProgressRoutes({
     'POST /api/coach/athletes/{athleteId}/progress-reports': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true, write: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
-      const body = await readBody(req);
-      if (!record(body) || Object.keys(body).some(key => !['from', 'to', 'period', 'timezone', 'metrics'].includes(key))) {
-        return b2bError(res, 400, 'invalid_report', 'invalid progress report request');
-      }
-      const reportUrl = new URL(req.url, 'http://x');
-      for (const key of ['from', 'to', 'period', 'timezone']) if (body[key] !== undefined) reportUrl.searchParams.set(key, String(body[key]));
-      const metrics = Array.isArray(body.metrics) && body.metrics.every(metric => typeof metric === 'string')
-        ? body.metrics : null;
-      if (!metrics) return b2bError(res, 400, 'invalid_metrics', 'report metrics are required');
-      const selected = requireMetrics(res, context.actor, context.access.link, reportUrl, { required: true, bodyMetrics: metrics }); if (!selected) return;
-      const snapshotSummary = summaryFor(res, context.access.link, reportUrl, selected); if (!snapshotSummary) return;
-      const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
-      const perLink = candidate.progressReports.filter(report => report.linkId === context.access.link.id && !report.revokedAt).length;
-      if (perLink >= limits.maxReportsPerLink || candidate.progressReports.length >= limits.maxReports) return b2bError(res, 409, 'report_capacity', 'progress report capacity reached');
-      const createdAt = new Date(now()).toISOString();
-      const snapshot = {
-        version: 1, generatedAt: snapshotSummary.generatedAt, period: snapshotSummary.period,
-        relationship: { status: snapshotSummary.relationship.status }, metrics: snapshotSummary.metrics,
-        goals: snapshotSummary.goals.map(goal => ({ id: goal.id, metric: goal.metric, direction: goal.direction,
-          baselineValue: goal.baselineValue, targetValue: goal.targetValue, tolerance: goal.tolerance,
-          startDate: goal.startDate, targetDate: goal.targetDate, progress: goal.progress })),
-        disclaimer: snapshotSummary.disclaimer,
-      };
-      const report = {
-        id: makeId('prep', db.progressReports), linkId: context.access.link.id, coachId: context.access.link.coachId,
-        athleteId: context.access.link.athleteId, interval: { from: snapshotSummary.period.from, to: snapshotSummary.period.to },
-        timezone: snapshotSummary.timezone, metrics: [...selected], summary: reportSummary(snapshot, selected), snapshot,
-        createdAt, revokedAt: null, revocation: null,
-      };
-      if (!validateProgressReport(report, new Map([[context.access.link.id, context.access.link]]), limits)) {
-        return b2bError(res, 400, 'invalid_report', 'report snapshot could not be validated');
-      }
-      candidate.progressReports.push(report);
-      try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be saved'); }
-      audit(req, 'b2b2c.progress.report.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: report.id });
-      json(res, 201, { report });
+      return mutations.run(context.access.link.id, async () => {
+        const body = await readBody(req);
+        if (!record(body) || Object.keys(body).some(key => !['from', 'to', 'period', 'timezone', 'metrics'].includes(key))) {
+          return b2bError(res, 400, 'invalid_report', 'invalid progress report request');
+        }
+        const reportUrl = new URL(req.url, 'http://x');
+        for (const key of ['from', 'to', 'period', 'timezone']) if (body[key] !== undefined) reportUrl.searchParams.set(key, String(body[key]));
+        const metrics = Array.isArray(body.metrics) && body.metrics.every(metric => typeof metric === 'string')
+          ? body.metrics : null;
+        if (!metrics) return b2bError(res, 400, 'invalid_metrics', 'report metrics are required');
+        const selected = requireMetrics(res, context.actor, context.access.link, reportUrl, { required: true, bodyMetrics: metrics }); if (!selected) return;
+        const snapshotSummary = summaryFor(res, context.access.link, reportUrl, selected); if (!snapshotSummary) return;
+        const candidate = structuredClone(db); compactProgressState(candidate, limits, now());
+        const active = candidate.progressReports.filter(report => !report.revokedAt);
+        const perLink = active.filter(report => report.linkId === context.access.link.id).length;
+        if (perLink >= limits.maxReportsPerLink || active.length >= limits.maxReports) return b2bError(res, 409, 'report_capacity', 'progress report capacity reached');
+        const createdAt = new Date(now()).toISOString();
+        const snapshot = {
+          version: 1, generatedAt: snapshotSummary.generatedAt, period: snapshotSummary.period,
+          relationship: { status: snapshotSummary.relationship.status }, metrics: snapshotSummary.metrics,
+          goals: snapshotSummary.goals.map(goal => ({ id: goal.id, metric: goal.metric, direction: goal.direction,
+            baselineValue: goal.baselineValue, targetValue: goal.targetValue, tolerance: goal.tolerance,
+            startDate: goal.startDate, targetDate: goal.targetDate, progress: goal.progress })),
+          disclaimer: snapshotSummary.disclaimer,
+        };
+        const report = {
+          id: makeId('prep', candidate.progressReports), linkId: context.access.link.id, coachId: context.access.link.coachId,
+          athleteId: context.access.link.athleteId, interval: { from: snapshotSummary.period.from, to: snapshotSummary.period.to },
+          timezone: snapshotSummary.timezone, metrics: [...selected], summary: reportSummary(snapshot, selected), snapshot,
+          createdAt, revokedAt: null, revocation: null,
+        };
+        if (!validateProgressReport(report, new Map([[context.access.link.id, context.access.link]]), limits)) {
+          return b2bError(res, 400, 'invalid_report', 'report snapshot could not be validated');
+        }
+        candidate.progressReports.push(report);
+        try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be saved'); }
+        audit(req, 'b2b2c.progress.report.create', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: report.id });
+        json(res, 201, { report: serializeProgressReport(report) });
+      });
     },
     'GET /api/coach/athletes/{athleteId}/progress-reports/{reportId}': (req, res) => serveReport(req, res, { athleteId: req.athleteId, coachOnly: true }),
     'GET /api/coach/athletes/{athleteId}/progress-reports/{reportId}/export': (req, res) => serveReport(req, res, { athleteId: req.athleteId, coachOnly: true }, true),
     'GET /api/athlete/progress-reports/{reportId}': (req, res) => serveReport(req, res, {}),
     'GET /api/athlete/progress-reports/{reportId}/export': (req, res) => serveReport(req, res, {}, true),
-    'POST /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke': (req, res) => {
+    'POST /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke': async (req, res) => {
       const context = actorAndLink(req, res, { athleteId: req.athleteId, coachOnly: true }); if (!context) return;
       if (throttle(req, res, context.actor, 'mutation')) return;
-      const report = db.progressReports.find(item => item.id === req.reportId && item.linkId === context.access.link.id);
-      if (!report) return b2bError(res, 404, 'report_not_found', 'progress report not found');
-      if (report.revokedAt) return json(res, 200, { report });
-      const updated = { ...report, revokedAt: new Date(now()).toISOString(), revocation: null };
-      const candidate = structuredClone(db);
-      candidate.progressReports[candidate.progressReports.findIndex(item => item.id === report.id)] = updated;
-      try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be revoked'); }
-      audit(req, 'b2b2c.progress.report.revoke', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: report.id });
-      json(res, 200, { report: updated });
+      return mutations.run(context.access.link.id, async () => {
+        const report = db.progressReports.find(item => item.id === req.reportId && item.linkId === context.access.link.id);
+        if (!report) return b2bError(res, 404, 'report_not_found', 'progress report not found');
+        if (report.revokedAt) return b2bError(res, 410, 'report_revoked', 'progress report was revoked');
+        const updated = { ...report, revokedAt: new Date(now()).toISOString(), revocation: null };
+        const candidate = structuredClone(db);
+        candidate.progressReports[candidate.progressReports.findIndex(item => item.id === report.id)] = updated;
+        try { commit(candidate); } catch { return b2bError(res, 503, 'storage_unavailable', 'progress report could not be revoked'); }
+        audit(req, 'b2b2c.progress.report.revoke', { user: context.actor, target: db.users.find(user => user.id === req.athleteId), msg: report.id });
+        json(res, 200, { report: serializeProgressReport(updated) });
+      });
     },
   };
 }

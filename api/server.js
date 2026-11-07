@@ -139,13 +139,18 @@ const B2B2C_LIMITS = {
   checkinRetentionDays: envInt('B2B2C_CHECKIN_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.checkinRetentionDays, { min: 1, max: 36500 }),
   maxGoalsPerLink: envInt('B2B2C_PROGRESS_GOALS_PER_LINK', PROGRESS_LIMITS.maxGoalsPerLink, { min: 1, max: 1000 }),
   maxGoals: envInt('B2B2C_MAX_PROGRESS_GOALS', PROGRESS_LIMITS.maxGoals, { min: 1, max: 1000000 }),
+  maxTerminalGoals: envInt('B2B2C_MAX_TERMINAL_PROGRESS_GOALS', PROGRESS_LIMITS.maxTerminalGoals, { min: 1, max: 5000000 }),
   goalRetentionDays: envInt('B2B2C_PROGRESS_GOAL_RETENTION_DAYS', PROGRESS_LIMITS.goalRetentionDays, { min: 1, max: 36500 }),
   maxReportsPerLink: envInt('B2B2C_PROGRESS_REPORTS_PER_LINK', PROGRESS_LIMITS.maxReportsPerLink, { min: 1, max: 10000 }),
   maxReports: envInt('B2B2C_MAX_PROGRESS_REPORTS', PROGRESS_LIMITS.maxReports, { min: 1, max: 1000000 }),
+  maxTerminalReports: envInt('B2B2C_MAX_TERMINAL_PROGRESS_REPORTS', PROGRESS_LIMITS.maxTerminalReports, { min: 1, max: 5000000 }),
   reportRetentionDays: envInt('B2B2C_PROGRESS_REPORT_RETENTION_DAYS', PROGRESS_LIMITS.reportRetentionDays, { min: 1, max: 36500 }),
   maxReportBytes: envInt('B2B2C_PROGRESS_REPORT_MAX_BYTES', PROGRESS_LIMITS.maxReportBytes, { min: 16384, max: 5 * 1024 * 1024 }),
-  maxAccountCleanupJobs: envInt('B2B2C_MAX_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxAccountCleanupJobs, { min: 1, max: 1000000 }),
-  accountCleanupRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupRetentionDays, { min: 1, max: 3650 }),
+  maxPendingAccountCleanupJobs: envInt('B2B2C_MAX_PENDING_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxPendingAccountCleanupJobs, { min: 1, max: 1000000 }),
+  maxCompleteAccountCleanupJobs: envInt('B2B2C_MAX_COMPLETE_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxCompleteAccountCleanupJobs, { min: 1, max: 1000000 }),
+  maxFailedAccountCleanupJobs: envInt('B2B2C_MAX_FAILED_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxFailedAccountCleanupJobs, { min: 1, max: 1000000 }),
+  accountCleanupCompleteRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_COMPLETE_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupCompleteRetentionDays, { min: 1, max: 3650 }),
+  accountCleanupFailedRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_FAILED_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupFailedRetentionDays, { min: 1, max: 3650 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -1772,6 +1777,10 @@ async function removeEmail(req, res, user, body) {
 }
 
 const cleanupKey = crypto.createHash('sha256').update(`${SECRET}:account-cleanup`).digest();
+const cleanupRetryBaseMs = envInt('ACCOUNT_CLEANUP_RETRY_BASE_MS', 30000, { min: 10, max: 86400000 });
+const cleanupRetryMaxMs = envInt('ACCOUNT_CLEANUP_RETRY_MAX_MS', Math.max(3600000, cleanupRetryBaseMs), { min: cleanupRetryBaseMs, max: 604800000 });
+const cleanupMaxAttempts = envInt('ACCOUNT_CLEANUP_MAX_ATTEMPTS', 8, { min: 1, max: 100 });
+let cleanupRetryTimer = null;
 function sealCleanupSubject(userId) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', cleanupKey, iv);
@@ -1797,6 +1806,27 @@ function persistCleanupJob(updated) {
   saveDb(candidate);
   publishDb(candidate);
 }
+function cleanupRetryDelay(attempts) {
+  return Math.min(cleanupRetryMaxMs, cleanupRetryBaseMs * (2 ** Math.max(0, attempts - 1)));
+}
+function settleCleanupAttempt(updated, timestamp) {
+  if (Object.values(updated.steps).every(value => value === 'complete')) {
+    updated.status = 'complete';
+    updated.nextAttemptAt = null;
+    updated.terminalAt = timestamp;
+    return;
+  }
+  if (updated.attempts >= cleanupMaxAttempts) {
+    updated.status = 'manual_review';
+    updated.nextAttemptAt = null;
+    updated.terminalAt = timestamp;
+    console.warn('account cleanup requires manual review:', updated.id, updated.lastError || 'incomplete');
+    return;
+  }
+  updated.status = 'pending';
+  updated.nextAttemptAt = new Date(Date.parse(timestamp) + cleanupRetryDelay(updated.attempts)).toISOString();
+  updated.terminalAt = null;
+}
 function executeAccountCleanup(job) {
   const updated = structuredClone(job);
   updated.attempts += 1;
@@ -1804,7 +1834,12 @@ function executeAccountCleanup(job) {
   updated.lastError = null;
   let userId;
   try { userId = openCleanupSubject(updated.subject); }
-  catch { updated.lastError = 'subject:invalid'; persistCleanupJob(updated); return updated; }
+  catch {
+    updated.lastError = 'subject:invalid';
+    settleCleanupAttempt(updated, updated.updatedAt);
+    persistCleanupJob(updated);
+    return updated;
+  }
   const actions = {
     state: () => cleanupUnlink(stateFile(userId)),
     watch: () => cleanupUnlink(watchFile(userId)),
@@ -1829,17 +1864,33 @@ function executeAccountCleanup(job) {
       updated.lastError = `${step}:${['EACCES', 'EIO', 'EPERM'].includes(error.code) ? error.code : 'external_error'}`;
     }
   }
-  updated.status = Object.values(updated.steps).every(value => value === 'complete') ? 'complete' : 'pending';
+  settleCleanupAttempt(updated, updated.updatedAt);
   persistCleanupJob(updated);
   return updated;
 }
-function retryAccountCleanupJobs() {
+function retryAccountCleanupJobs({ force = false } = {}) {
+  const timestamp = Date.now();
+  let persistenceFailed = false;
   for (const job of [...(db.accountCleanupJobs || [])]) {
-    if (job.status !== 'complete') {
+    if (job.status === 'pending' && (force || !job.nextAttemptAt || Date.parse(job.nextAttemptAt) <= timestamp)) {
       try { executeAccountCleanup(job); }
-      catch (error) { console.error('account cleanup retry could not be persisted:', error.message); }
+      catch (error) { persistenceFailed = true; console.error('account cleanup retry could not be persisted:', error.message); }
     }
   }
+  scheduleAccountCleanupRetries(persistenceFailed ? cleanupRetryBaseMs : 0);
+}
+function scheduleAccountCleanupRetries(minimumDelay = 0) {
+  if (cleanupRetryTimer) clearTimeout(cleanupRetryTimer);
+  cleanupRetryTimer = null;
+  const next = (db.accountCleanupJobs || []).filter(job => job.status === 'pending')
+    .map(job => Date.parse(job.nextAttemptAt || job.updatedAt)).filter(Number.isFinite).sort((left, right) => left - right)[0];
+  if (next === undefined) return;
+  const delay = Math.max(10, minimumDelay, Math.min(cleanupRetryMaxMs, next - Date.now()));
+  cleanupRetryTimer = setTimeout(() => {
+    cleanupRetryTimer = null;
+    retryAccountCleanupJobs();
+  }, delay);
+  cleanupRetryTimer.unref();
 }
 
 // Everything of an account, gone for good: durable access removal first, then observable,
@@ -1856,7 +1907,7 @@ function removeAccount(u) {
   const job = {
     id: `acj_${crypto.randomBytes(12).toString('base64url')}`, subject: sealCleanupSubject(u.id), status: 'pending',
     steps: Object.fromEntries(cleanupStepNames.map(step => [step, 'pending'])), attempts: 0, lastError: null,
-    createdAt: timestamp, updatedAt: timestamp,
+    createdAt: timestamp, updatedAt: timestamp, nextAttemptAt: timestamp, terminalAt: null,
   };
   candidate.accountCleanupJobs.push(job);
   compactB2B2C(candidate, B2B2C_LIMITS);
@@ -1864,7 +1915,8 @@ function removeAccount(u) {
   publishDb(candidate);
   dropWatchCodes(watchCodes, u.id);
   presence.delete(u.id);
-  return executeAccountCleanup(job);
+  try { return executeAccountCleanup(job); }
+  finally { scheduleAccountCleanupRetries(cleanupRetryBaseMs); }
 }
 
 const passwordRoutes = {
@@ -2628,7 +2680,7 @@ const progressRoutes = createProgressRoutes({
     exportIp: B2B2C_RATE.progressExportIp,
   },
 });
-setImmediate(retryAccountCleanupJobs);
+setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const routes = {
   ...communicationHabitsRoutes,

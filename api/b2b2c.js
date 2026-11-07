@@ -19,13 +19,18 @@ export const B2B2C_LIMITS = {
   mealAdherenceRetentionDays: 730,
   maxGoalsPerLink: 50,
   maxGoals: 10000,
+  maxTerminalGoals: 50000,
   goalRetentionDays: 730,
   maxReportsPerLink: 100,
   maxReports: 20000,
+  maxTerminalReports: 50000,
   reportRetentionDays: 1095,
   maxReportBytes: 1024 * 1024,
-  maxAccountCleanupJobs: 10000,
-  accountCleanupRetentionDays: 90,
+  maxPendingAccountCleanupJobs: 1000,
+  maxCompleteAccountCleanupJobs: 10000,
+  maxFailedAccountCleanupJobs: 10000,
+  accountCleanupCompleteRetentionDays: 90,
+  accountCleanupFailedRetentionDays: 365,
 };
 
 export const PARQ_VERSION = '2024.1';
@@ -82,11 +87,16 @@ export function migrateB2B2C(db) {
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
   for (const job of db.accountCleanupJobs) {
-    if (!record(job) || typeof job.id !== 'string' || typeof job.subject !== 'string'
-        || !['pending', 'complete'].includes(job.status) || !Number.isSafeInteger(job.attempts) || job.attempts < 0
+    if (!record(job)) throw new B2B2CDataError('accountCleanupJobs contains an invalid record');
+    if (job.nextAttemptAt === undefined) { job.nextAttemptAt = job.status === 'pending' ? job.updatedAt : null; changed = true; }
+    if (job.terminalAt === undefined) { job.terminalAt = job.status === 'complete' ? job.updatedAt : null; changed = true; }
+    if (typeof job.id !== 'string' || typeof job.subject !== 'string'
+        || !['pending', 'complete', 'failed', 'manual_review'].includes(job.status) || !Number.isSafeInteger(job.attempts) || job.attempts < 0
         || !Number.isFinite(Date.parse(job.createdAt)) || !Number.isFinite(Date.parse(job.updatedAt))
         || !record(job.steps) || Object.values(job.steps).some(value => !['pending', 'complete'].includes(value))
-        || !(job.lastError === null || typeof job.lastError === 'string' && job.lastError.length <= 160)) {
+        || !(job.lastError === null || typeof job.lastError === 'string' && job.lastError.length <= 160)
+        || !(job.nextAttemptAt === null || Number.isFinite(Date.parse(job.nextAttemptAt)))
+        || !(job.terminalAt === null || Number.isFinite(Date.parse(job.terminalAt)))) {
       throw new B2B2CDataError('accountCleanupJobs contains an invalid record');
     }
   }
@@ -185,13 +195,21 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   const nowIso = new Date(nowMs).toISOString();
   const cutoff = nowMs - limits.terminalRetentionDays * 86400000;
   let changed = false;
-  const cleanupCutoff = nowMs - (limits.accountCleanupRetentionDays ?? 90) * 86400000;
+  const completeCleanupCutoff = nowMs - (limits.accountCleanupCompleteRetentionDays ?? 90) * 86400000;
+  const failedCleanupCutoff = nowMs - (limits.accountCleanupFailedRetentionDays ?? 365) * 86400000;
   const cleanupBefore = db.accountCleanupJobs.length;
-  db.accountCleanupJobs = db.accountCleanupJobs.filter(job => job.status !== 'complete' || Date.parse(job.updatedAt) >= cleanupCutoff);
+  db.accountCleanupJobs = db.accountCleanupJobs.filter(job => {
+    if (job.status === 'complete') return Date.parse(job.terminalAt || job.updatedAt) >= completeCleanupCutoff;
+    if (job.status === 'failed' || job.status === 'manual_review') return Date.parse(job.terminalAt || job.updatedAt) >= failedCleanupCutoff;
+    return true;
+  });
   changed = changed || cleanupBefore !== db.accountCleanupJobs.length;
-  if (db.accountCleanupJobs.length > (limits.maxAccountCleanupJobs ?? 10000)) {
-    throw new B2B2CDataError(`accountCleanupJobs exceed configured limit ${limits.maxAccountCleanupJobs ?? 10000}`);
-  }
+  const pendingCleanupJobs = db.accountCleanupJobs.filter(job => job.status === 'pending').length;
+  const completeCleanupJobs = db.accountCleanupJobs.filter(job => job.status === 'complete').length;
+  const failedCleanupJobs = db.accountCleanupJobs.length - pendingCleanupJobs - completeCleanupJobs;
+  if (pendingCleanupJobs > (limits.maxPendingAccountCleanupJobs ?? 1000)) throw new B2B2CDataError(`pending accountCleanupJobs exceed configured limit ${limits.maxPendingAccountCleanupJobs ?? 1000}`);
+  if (completeCleanupJobs > (limits.maxCompleteAccountCleanupJobs ?? 10000)) throw new B2B2CDataError(`complete accountCleanupJobs exceed configured limit ${limits.maxCompleteAccountCleanupJobs ?? 10000}`);
+  if (failedCleanupJobs > (limits.maxFailedAccountCleanupJobs ?? 10000)) throw new B2B2CDataError(`failed accountCleanupJobs exceed configured limit ${limits.maxFailedAccountCleanupJobs ?? 10000}`);
   let progress;
   try { progress = compactProgressState(db, limits, nowMs); }
   catch (error) { throw new B2B2CDataError(error.message); }

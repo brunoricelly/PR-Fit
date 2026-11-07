@@ -205,12 +205,14 @@ test('external cleanup failure is observable and boot retry never resurrects the
 
 test('external cleanup retries during runtime with bounded attempts and no account resurrection', async t => {
   const h = await startServer(t, { env: {
-    ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail', ACCOUNT_CLEANUP_RETRY_BASE_MS: '20',
-    ACCOUNT_CLEANUP_RETRY_MAX_MS: '40', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '3',
+    ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail', ACCOUNT_CLEANUP_RETRY_BASE_MS: '80',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '80', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '3',
   } });
   fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'integrations');
   const res = await h.del(USER, { name: 'Mallory', current: GOOD });
   assert.equal(res.body.status, 'cleanup_pending');
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual([h.db().accountCleanupJobs[0].status, h.db().accountCleanupJobs[0].attempts], ['pending', 1], 'retry honors its persisted backoff');
   for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 20));
   }
@@ -235,6 +237,24 @@ test('cleanup retry exhaustion becomes manual review and does not consume pendin
   assert.equal(job.attempts, 2);
   assert.match(job.lastError, /integrations:EIO/);
   assert.equal(JSON.stringify(job).includes(USER), false);
+});
+
+test('cleanup subject decryption failure is fail-closed and observable without exposing the account', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '60000',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '60000', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '2',
+  } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  fs.writeFileSync(path.join(h.dataDir, 'secret'), crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
+  await h.restart();
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status === 'pending'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const job = h.db().accountCleanupJobs[0];
+  assert.deepEqual([job.status, job.lastError], ['manual_review', 'subject:invalid']);
+  assert.equal(h.log.includes(USER), false);
+  assert.equal(h.db().users.some(user => user.id === USER), false);
 });
 
 test('missing external files are successful idempotent cleanup, not pending work', async t => {

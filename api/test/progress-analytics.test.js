@@ -177,6 +177,58 @@ test('terminal progress records use separate bounded capacity from active record
   assert.doesNotThrow(() => compactProgressState(data, limits, Date.parse('2026-11-07T00:00:00Z')));
   data.progressGoals.push(archived(3));
   assert.throws(() => compactProgressState(data, limits, Date.parse('2026-11-07T00:00:00Z')), /terminal progressGoals/);
+  data.progressGoals.pop();
+  data.progressReports.push(revoked(3));
+  assert.throws(() => compactProgressState(data, limits, Date.parse('2026-11-07T00:00:00Z')), /terminal progressReports/);
+});
+
+test('cleanup compaction separates pending admission from terminal retention', () => {
+  const timestamp = '2026-11-06T00:00:00.000Z';
+  const job = (id, status) => ({ id, subject: 'sealed', status, steps: { state: status === 'complete' ? 'complete' : 'pending' },
+    attempts: 1, lastError: status === 'complete' ? null : 'state:EIO', createdAt: timestamp, updatedAt: timestamp,
+    nextAttemptAt: status === 'pending' ? timestamp : null, terminalAt: status === 'pending' ? null : timestamp });
+  const state = db({ coachInvites: [], coachPrescriptions: [], coachMessages: [], accountCleanupJobs: [
+    job('acj_pending', 'pending'), job('acj_complete', 'complete'), job('acj_review', 'manual_review'),
+  ] });
+  const limits = {
+    maxInvites: 10, maxLinks: 10, maxPrescriptions: 10, terminalPrescriptionsKeep: 10,
+    terminalInvitesKeep: 10, terminalLinksKeep: 10, terminalRetentionDays: 3650,
+    maxAssessments: 10, maxAssessmentsPerAthlete: 10, assessmentRetentionDays: 3650,
+    maxMealPlans: 10, maxMealPlansPerAthlete: 10, maxMealAdherence: 10, maxMealAdherencePerAthlete: 10, mealAdherenceRetentionDays: 730,
+    maxMessages: 10, maxMessagesPerLink: 10, messageRetentionDays: 365, maxHabits: 10, maxHabitsPerLink: 10,
+    archivedHabitRetentionDays: 365, maxCheckins: 10, maxCheckinsPerHabit: 10, maxCheckinsPerLink: 10, checkinRetentionDays: 365,
+    maxGoals: 10, maxGoalsPerLink: 10, maxTerminalGoals: 10, goalRetentionDays: 730,
+    maxReports: 10, maxReportsPerLink: 10, maxTerminalReports: 10, reportRetentionDays: 1095, maxReportBytes: 1024 * 1024,
+    maxPendingAccountCleanupJobs: 1, maxCompleteAccountCleanupJobs: 1, maxFailedAccountCleanupJobs: 1,
+    accountCleanupCompleteRetentionDays: 90, accountCleanupFailedRetentionDays: 365,
+  };
+  assert.doesNotThrow(() => compactB2B2C(state, limits, Date.parse('2026-11-07T00:00:00Z')));
+  state.accountCleanupJobs.push(job('acj_pending_2', 'pending'));
+  assert.throws(() => compactB2B2C(state, limits, Date.parse('2026-11-07T00:00:00Z')), /pending accountCleanupJobs/);
+});
+
+test('cleanup terminal states use distinct retention windows', () => {
+  const job = (id, status, timestamp) => ({ id, subject: 'sealed', status, steps: { state: status === 'complete' ? 'complete' : 'pending' },
+    attempts: 2, lastError: status === 'complete' ? null : 'state:EIO', createdAt: timestamp, updatedAt: timestamp,
+    nextAttemptAt: null, terminalAt: timestamp });
+  const state = db({ coachInvites: [], coachPrescriptions: [], coachMessages: [], accountCleanupJobs: [
+    job('acj_complete_old', 'complete', '2026-01-01T00:00:00.000Z'),
+    job('acj_review_retained', 'manual_review', '2026-01-01T00:00:00.000Z'),
+  ] });
+  compactB2B2C(state, {
+    terminalRetentionDays: 3650, accountCleanupCompleteRetentionDays: 30, accountCleanupFailedRetentionDays: 365,
+    maxPendingAccountCleanupJobs: 10, maxCompleteAccountCleanupJobs: 10, maxFailedAccountCleanupJobs: 10,
+    maxGoals: 10, maxGoalsPerLink: 10, maxTerminalGoals: 10, goalRetentionDays: 730,
+    maxReports: 10, maxReportsPerLink: 10, maxTerminalReports: 10, reportRetentionDays: 1095, maxReportBytes: 1024 * 1024,
+  }, Date.parse('2026-04-01T00:00:00Z'));
+  assert.deepEqual(state.accountCleanupJobs.map(item => item.id), ['acj_review_retained']);
+  compactB2B2C(state, {
+    terminalRetentionDays: 3650, accountCleanupCompleteRetentionDays: 30, accountCleanupFailedRetentionDays: 365,
+    maxPendingAccountCleanupJobs: 10, maxCompleteAccountCleanupJobs: 10, maxFailedAccountCleanupJobs: 10,
+    maxGoals: 10, maxGoalsPerLink: 10, maxTerminalGoals: 10, goalRetentionDays: 730,
+    maxReports: 10, maxReportsPerLink: 10, maxTerminalReports: 10, reportRetentionDays: 1095, maxReportBytes: 1024 * 1024,
+  }, Date.parse('2027-02-01T00:00:00Z'));
+  assert.deepEqual(state.accountCleanupJobs, []);
 });
 
 test('progress dependencies preserve terminal link tombstones and global limits fail closed', () => {

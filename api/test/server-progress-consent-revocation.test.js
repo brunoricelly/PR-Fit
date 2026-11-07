@@ -131,7 +131,7 @@ test('assessment consent revocation archives dependent goals, revokes reports, r
 
   response = await request(server, COACH_ID, 'GET', `/api/coach/athletes/${ATHLETE_ID}/progress-reports?linkId=${LINK_ID}&status=revoked`);
   assert.equal(response.status, 200, response.text);
-  assert.equal(response.body.items.length, 1);
+  assert.deepEqual(response.body.items, [], 'removed assessment scope hides even sanitized report metadata');
   assert.equal(JSON.stringify(response.body).includes('snapshot'), false);
   assert.equal('reports' in response.body, false);
 

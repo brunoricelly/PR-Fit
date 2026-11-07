@@ -124,6 +124,7 @@ test('progress goals and summaries are scoped to the exact relationship and life
     body_weight: 'instant', body_fat_percent: 'instant', workouts_per_week: 'interval',
     nutrition_adherence_percent: 'instant', habit_adherence_percent: 'instant',
   });
+  for (const definition of Object.values(response.body.metrics)) assert.ok(definition.pointSemantics);
 
   for (const [period, zone] of [[7, 'America/Sao_Paulo'], [30, 'Asia/Tokyo'], [90, 'Pacific/Kiritimati']]) {
     response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&period=${period}&timezone=${zone}&metrics=workouts_per_week`);
@@ -350,7 +351,10 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   }
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir, { B2B2C_PROGRESS_GOALS_PER_LINK: '1', B2B2C_MAX_PROGRESS_GOALS: '1' });
+  const server = await launch(dataDir, {
+    B2B2C_PROGRESS_GOALS_PER_LINK: '1', B2B2C_MAX_PROGRESS_GOALS: '1',
+    B2B2C_PROGRESS_REPORTS_PER_LINK: '2', B2B2C_MAX_PROGRESS_REPORTS: '2',
+  });
   t.after(async () => stop(server));
 
   let response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new&status=archived&limit=2`);
@@ -372,6 +376,16 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-reports?linkId=cal_new&status=revoked&from=2026-11-01&to=2026-11-10`);
   assert.deepEqual(response.body.items.map(item => item.id), ['prep_page_0']);
   assert.equal('reports' in response.body, false);
+
+  for (const reportId of ['prep_page_1', 'prep_page_2']) {
+    response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-reports/${reportId}/revoke?linkId=cal_new`);
+    assert.equal(response.status, 200, response.text);
+    assert.equal('snapshot' in response.body.report, false);
+  }
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteB}/progress-reports?linkId=cal_ab`, {
+    period: 7, timezone: 'UTC', metrics: ['workouts_per_week'],
+  });
+  assert.equal(response.status, 201, response.text);
 
   response = await request(server, IDS.coachA, 'DELETE', `/api/coach/athletes/${IDS.athleteA}/progress-goals/pgoal_page_4?linkId=cal_new`, { _rev: 1 });
   assert.equal(response.body.archived, true);
