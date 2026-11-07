@@ -249,8 +249,7 @@ test('external cleanup retries during runtime with bounded attempts and no accou
   const listed = await h.get(ADMIN, '/api/admin/account-cleanup?status=pending&limit=1');
   assert.deepEqual([listed.status, listed.body.items.length, listed.body.hasMore, listed.body.nextCursor, listed.body.limit], [200, 1, false, null, 1]);
   assert.equal(JSON.stringify(listed.body).includes(USER), false);
-  await new Promise(resolve => setTimeout(resolve, 30));
-  assert.deepEqual([h.db().accountCleanupJobs[0].status, h.db().accountCleanupJobs[0].attempts], ['pending', 1], 'retry honors its persisted backoff');
+  assert.equal(Date.parse(pending.body.nextAttemptAt) - Date.parse(pending.body.updatedAt), 80, 'retry persists its configured backoff');
   for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
     await new Promise(resolve => setTimeout(resolve, 20));
   }

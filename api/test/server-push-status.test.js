@@ -120,7 +120,7 @@ test('a rest started on a device whose row has no id rings that row, never anoth
   const phone = { userId: 'u_test_1', endpoint: 'https://localhost/phone', keys, created: new Date().toISOString() };
   const desk = { userId: 'u_test_1', endpoint: 'https://localhost/desk', keys, deviceId: 'dev_desk0000', created: new Date().toISOString() };
   const h = await startServer(t, [phone, desk]);
-  const sent = () => (h.log.match(/push send failed u_test_1/g) || []).length;
+  const sent = () => (h.log.match(/push send failed network/g) || []).length;
 
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   await new Promise(r => setTimeout(r, 2500));
@@ -161,7 +161,7 @@ test('a rest timer belongs to the device that set it: another device cancelling 
   // and quietly, and "push send failed" in the log is the proof that a send was attempted.
   const mk = (deviceId, n) => ({ userId: 'u_test_1', endpoint: `https://localhost/${n}`, keys, deviceId, created: new Date().toISOString() });
   const h = await startServer(t, [mk('dev_phone000', 'phone'), mk('dev_desk0000', 'desk')]);
-  const sends = () => (h.log.match(/push send failed u_test_1/g) || []).length;
+  const sends = () => (h.log.match(/push send failed network/g) || []).length;
 
   assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: 'dev_phone000' })).status, 200);
   assert.equal((await post(h, '/api/push/rest-timer/cancel', { deviceId: 'dev_desk0000' })).status, 200);
@@ -187,7 +187,7 @@ test('a rest timer belongs to the device that set it: another device cancelling 
 // request used to leave one more behind every time, without limit.
 test('an account keeps at most five rest timers; the oldest give way', async t => {
   const h = await startServer(t, [{ userId: 'u_test_1', endpoint: 'https://localhost/any', keys, created: new Date().toISOString() }]);
-  const sent = () => (h.log.match(/push send failed u_test_1/g) || []).length;
+  const sent = () => (h.log.match(/push send failed network/g) || []).length;
   for (let i = 0; i < 8; i++) {
     assert.equal((await post(h, '/api/push/rest-timer', { seconds: 1, deviceId: `dev_cap0000${i}` })).status, 200);
   }

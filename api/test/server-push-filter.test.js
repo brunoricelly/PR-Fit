@@ -99,7 +99,7 @@ test('a private literal already stored as an endpoint is refused at send time, n
   const r = await fetch(`${h.api}/api/push/test`, { method: 'POST', headers: cookie });
   assert.equal(r.status, 200);
   assert.deepEqual(hits, [], 'no socket reached the private address');
-  assert.match(h.log, /push endpoint refused u_test_1/);
+  assert.match(h.log, /push endpoint refused endpoint must not point at a private address/);
   const db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   assert.equal(db.subs.length, 0, 'the unusable subscription is gone from db.json');
 });

@@ -11,6 +11,8 @@ const ATTENDANCE_STATES = new Set(['attended', 'missed']);
 const LINK_STATUSES = new Set(['pending', 'active', 'suspended', 'ended']);
 const REMINDER_OFFSETS = new Set([5, 10, 15, 30, 60, 120, 1440, 2880, 10080]);
 const TERMINAL_STATUSES = new Set(['completed', 'canceled', 'no_show']);
+const REMINDER_ACTIVE_STATUSES = new Set(['pending', 'processing', 'retry']);
+const REMINDER_STATUSES = new Set([...REMINDER_ACTIVE_STATUSES, 'delivered', 'failed', 'canceled']);
 
 export const SCHEDULING_LIMITS = Object.freeze({
   maxActiveAppointmentsPerLink: 500,
@@ -385,10 +387,12 @@ function validateAttendance(value) {
 }
 
 function validateReminderCollections(db) {
+  const userIds = new Set(db.users.map(user => user.id));
+  const appointments = new Map(db.coachAppointments.map(appointment => [appointment.id, appointment]));
   const preferences = new Set();
   for (const preference of db.schedulingReminderPreferences) {
     if (!allowedKeys(preference, new Set(['userId', 'enabled', 'offsetsMinutes', 'timeZone', 'updatedAt']))
-        || !validId(preference.userId) || preferences.has(preference.userId) || !db.users.some(user => user.id === preference.userId)
+        || !validId(preference.userId) || preferences.has(preference.userId) || !userIds.has(preference.userId)
         || typeof preference.enabled !== 'boolean' || !validTimeZone(preference.timeZone)
         || !Array.isArray(preference.offsetsMinutes) || preference.offsetsMinutes.length > 5
         || preference.offsetsMinutes.some(offset => !REMINDER_OFFSETS.has(offset))
@@ -398,29 +402,57 @@ function validateReminderCollections(db) {
     preferences.add(preference.userId);
   }
   const stateIds = new Set();
+  const stateKeys = new Set();
+  const statesById = new Map();
   for (const state of db.appointmentReminderStates) {
+    const stateKey = `${state.appointmentId}\0${state.userId}\0${state.offsetMinutes}`;
+    const appointment = appointments.get(state.appointmentId);
     if (!allowedKeys(state, new Set(['id', 'appointmentId', 'userId', 'offsetMinutes', 'scheduledFor', 'status', 'createdAt', 'updatedAt']))
-        || !validId(state.id) || stateIds.has(state.id) || !db.coachAppointments.some(item => item.id === state.appointmentId)
-        || !db.users.some(user => user.id === state.userId) || !REMINDER_OFFSETS.has(state.offsetMinutes)
-        || !['pending', 'canceled', 'delivered'].includes(state.status) || parseInstant(state.scheduledFor) === null
+        || !validId(state.id) || stateIds.has(state.id) || stateKeys.has(stateKey) || !appointment
+        || !userIds.has(state.userId) || !REMINDER_OFFSETS.has(state.offsetMinutes)
+        || (state.userId !== appointment.coachId && state.userId !== appointment.athleteId)
+        || !REMINDER_STATUSES.has(state.status) || parseInstant(state.scheduledFor) === null
         || parseInstant(state.createdAt) === null || parseInstant(state.updatedAt) === null) {
       throw new Error('appointmentReminderStates contains an invalid record');
     }
     stateIds.add(state.id);
+    stateKeys.add(stateKey);
+    statesById.set(state.id, state);
   }
   const outboxIds = new Set();
+  const outboxStateIds = new Set();
   for (const item of db.schedulingReminderOutbox) {
-    if (!allowedKeys(item, new Set(['id', 'reminderStateId', 'appointmentId', 'userId', 'deliverAt', 'status', 'payload', 'createdAt', 'updatedAt']))
-        || !validId(item.id) || outboxIds.has(item.id) || !stateIds.has(item.reminderStateId)
-        || !db.coachAppointments.some(appointment => appointment.id === item.appointmentId)
-        || !db.users.some(user => user.id === item.userId) || parseInstant(item.deliverAt) === null
-        || !['pending', 'canceled', 'delivered'].includes(item.status)
+    const state = statesById.get(item.reminderStateId);
+    if (!allowedKeys(item, new Set([
+      'id', 'reminderStateId', 'appointmentId', 'userId', 'offsetMinutes', 'scheduledFor', 'status', 'attempts', 'nextAttemptAt',
+      'leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveredAt', 'failedAt', 'canceledAt', 'idempotencyKey', 'payload', 'createdAt', 'updatedAt',
+    ]))
+        || !validId(item.id) || outboxIds.has(item.id) || outboxStateIds.has(item.reminderStateId) || !state
+        || !appointments.has(item.appointmentId)
+        || !userIds.has(item.userId) || item.appointmentId !== state.appointmentId || item.userId !== state.userId
+        || item.offsetMinutes !== state.offsetMinutes || item.scheduledFor !== state.scheduledFor || item.status !== state.status
+        || parseInstant(item.scheduledFor) === null || !REMINDER_STATUSES.has(item.status)
+        || !Number.isSafeInteger(item.attempts) || item.attempts < 0
+        || !(item.nextAttemptAt === null || parseInstant(item.nextAttemptAt) !== null)
+        || !(item.leaseId === null || validId(item.leaseId)) || !(item.leaseExpiresAt === null || parseInstant(item.leaseExpiresAt) !== null)
+        || !(item.lastAttemptAt === null || parseInstant(item.lastAttemptAt) !== null)
+        || !(item.deliveredAt === null || parseInstant(item.deliveredAt) !== null)
+        || !(item.failedAt === null || parseInstant(item.failedAt) !== null)
+        || !(item.canceledAt === null || parseInstant(item.canceledAt) !== null)
+        || typeof item.idempotencyKey !== 'string' || item.idempotencyKey !== `appointment-reminder:${state.id}`
         || !allowedKeys(item.payload, new Set(['type', 'appointmentId'])) || item.payload.type !== 'appointment_reminder'
         || item.payload.appointmentId !== item.appointmentId || parseInstant(item.createdAt) === null || parseInstant(item.updatedAt) === null) {
       throw new Error('schedulingReminderOutbox contains an invalid record');
     }
+    if (item.status === 'processing' && (!item.leaseId || item.leaseExpiresAt === null)) throw new Error('schedulingReminderOutbox processing lease is invalid');
+    if (item.status !== 'processing' && (item.leaseId !== null || item.leaseExpiresAt !== null)) throw new Error('schedulingReminderOutbox contains a stale lease');
+    if (item.status === 'delivered' && item.deliveredAt === null) throw new Error('schedulingReminderOutbox delivered timestamp is missing');
+    if (item.status === 'failed' && item.failedAt === null) throw new Error('schedulingReminderOutbox failed timestamp is missing');
+    if (item.status === 'canceled' && item.canceledAt === null) throw new Error('schedulingReminderOutbox canceled timestamp is missing');
     outboxIds.add(item.id);
+    outboxStateIds.add(item.reminderStateId);
   }
+  if (outboxStateIds.size !== stateIds.size) throw new Error('appointmentReminderStates contains a record without outbox');
 }
 
 function rejectOverlaps(appointments, field) {
@@ -480,7 +512,7 @@ export function validateSchedulingState(db, limits = SCHEDULING_LIMITS) {
     const endMs = parseInstant(appointment.endAt);
     if (!record(appointment) || !validId(appointment.id) || appointmentIds.has(appointment.id)
         || !validId(appointment.coachId) || !validId(appointment.athleteId) || !validId(appointment.linkId)
-        || !coach || profileKind(coach) !== 'coach' || !athlete || profileKind(athlete) !== 'athlete'
+        || !coach || profileKind(coach) !== 'coach' || !athlete
         || !link || link.coachId !== appointment.coachId || link.athleteId !== appointment.athleteId
         || !Array.isArray(link.scopes) || !link.scopes.includes('training') || !LINK_STATUSES.has(link.status)
         || !APPOINTMENT_TYPES.has(appointment.type) || !APPOINTMENT_STATUSES.has(appointment.status)
@@ -554,6 +586,27 @@ function migrateAppointment(appointment, availabilityByCoach) {
   return changed;
 }
 
+function migrateReminderOutbox(db) {
+  let changed = false;
+  const states = new Map(db.appointmentReminderStates.map(state => [state.id, state]));
+  for (const item of db.schedulingReminderOutbox) {
+    const state = states.get(item.reminderStateId);
+    if (item.scheduledFor === undefined && item.deliverAt !== undefined) { item.scheduledFor = item.deliverAt; changed = true; }
+    if ('deliverAt' in item) { delete item.deliverAt; changed = true; }
+    if (item.offsetMinutes === undefined && state) { item.offsetMinutes = state.offsetMinutes; changed = true; }
+    if (item.attempts === undefined) { item.attempts = 0; changed = true; }
+    if (item.nextAttemptAt === undefined) { item.nextAttemptAt = REMINDER_ACTIVE_STATUSES.has(item.status) ? item.scheduledFor : null; changed = true; }
+    for (const field of ['leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveredAt', 'failedAt', 'canceledAt']) {
+      if (item[field] === undefined) { item[field] = null; changed = true; }
+    }
+    if (item.status === 'delivered' && item.deliveredAt === null) { item.deliveredAt = item.updatedAt; changed = true; }
+    if (item.status === 'failed' && item.failedAt === null) { item.failedAt = item.updatedAt; changed = true; }
+    if (item.status === 'canceled' && item.canceledAt === null) { item.canceledAt = item.updatedAt; changed = true; }
+    if (item.idempotencyKey === undefined && state) { item.idempotencyKey = `appointment-reminder:${state.id}`; changed = true; }
+  }
+  return changed;
+}
+
 export function migrateSchedulingState(db) {
   let changed = false;
   for (const key of ['coachAvailability', 'coachAppointments', 'schedulingReminderPreferences', 'appointmentReminderStates', 'schedulingReminderOutbox']) {
@@ -563,6 +616,7 @@ export function migrateSchedulingState(db) {
   for (const availability of db.coachAvailability) changed = migrateAvailability(availability) || changed;
   const availabilityByCoach = new Map(db.coachAvailability.map(item => [item.coachId, item]));
   for (const appointment of db.coachAppointments) changed = migrateAppointment(appointment, availabilityByCoach) || changed;
+  changed = migrateReminderOutbox(db) || changed;
   validateSchedulingState(db);
   return changed;
 }
@@ -577,12 +631,12 @@ export function compactSchedulingState(db, limits = SCHEDULING_LIMITS, nowMs = D
   const appointmentIds = new Set(keptAppointments.map(item => item.id));
   const reminderCutoff = nowMs - (limits.reminderRetentionDays ?? SCHEDULING_LIMITS.reminderRetentionDays) * 86400000;
   const keptStates = db.appointmentReminderStates.filter(state => appointmentIds.has(state.appointmentId)
-    && (state.status === 'pending' || parseInstant(state.updatedAt) >= reminderCutoff));
+    && (REMINDER_ACTIVE_STATUSES.has(state.status) || parseInstant(state.updatedAt) >= reminderCutoff));
   if (keptStates.length !== db.appointmentReminderStates.length) changed = true;
   db.appointmentReminderStates = keptStates;
   const stateIds = new Set(keptStates.map(item => item.id));
   const keptOutbox = db.schedulingReminderOutbox.filter(item => stateIds.has(item.reminderStateId)
-    && (item.status === 'pending' || parseInstant(item.updatedAt) >= reminderCutoff));
+    && (REMINDER_ACTIVE_STATUSES.has(item.status) || parseInstant(item.updatedAt) >= reminderCutoff));
   if (keptOutbox.length !== db.schedulingReminderOutbox.length) changed = true;
   db.schedulingReminderOutbox = keptOutbox;
   const hasSchedulingData = db.coachAvailability.length || db.coachAppointments.length
@@ -601,12 +655,17 @@ export function removeSchedulingUser(db, userId) {
   db.schedulingReminderOutbox = (db.schedulingReminderOutbox || []).filter(item => item.userId !== userId && !removedStateIds.has(item.reminderStateId));
 }
 
-function cancelReminderState(db, appointmentId, nowIso) {
+function cancelReminderState(db, appointmentId, nowIso, userId = null) {
   for (const state of db.appointmentReminderStates || []) {
-    if (state.appointmentId === appointmentId && state.status === 'pending') { state.status = 'canceled'; state.updatedAt = nowIso; }
+    if (state.appointmentId === appointmentId && (!userId || state.userId === userId) && REMINDER_ACTIVE_STATUSES.has(state.status)) {
+      state.status = 'canceled'; state.updatedAt = nowIso;
+    }
   }
   for (const item of db.schedulingReminderOutbox || []) {
-    if (item.appointmentId === appointmentId && item.status === 'pending') { item.status = 'canceled'; item.updatedAt = nowIso; }
+    if (item.appointmentId === appointmentId && (!userId || item.userId === userId) && REMINDER_ACTIVE_STATUSES.has(item.status)) {
+      item.status = 'canceled'; item.nextAttemptAt = null; item.leaseId = null; item.leaseExpiresAt = null;
+      item.canceledAt = nowIso; item.updatedAt = nowIso;
+    }
   }
 }
 
@@ -636,29 +695,69 @@ function deterministicId(prefix, values) {
   return `${prefix}_${crypto.createHash('sha256').update(values.join('\0')).digest('base64url').slice(0, 24)}`;
 }
 
-export function reconcileAppointmentReminders(db, appointment, nowMs = Date.now()) {
+export function reconcileAppointmentReminders(db, appointment, nowMs = Date.now(), { userId: scopedUserId = null } = {}) {
   const nowIso = iso(nowMs);
-  cancelReminderState(db, appointment.id, nowIso);
-  if (appointment.status !== 'scheduled') return;
-  for (const userId of [appointment.coachId, appointment.athleteId]) {
+  const participants = [appointment.coachId, appointment.athleteId].filter(userId => !scopedUserId || userId === scopedUserId);
+  const desired = new Map();
+  if (appointment.status === 'scheduled') for (const userId of participants) {
     const preference = (db.schedulingReminderPreferences || []).find(item => item.userId === userId);
-    if (!preference?.enabled) continue;
+    const user = (db.users || []).find(item => item.id === userId);
+    if (!preference?.enabled || user?.disabled) continue;
     for (const offsetMinutes of preference.offsetsMinutes) {
-      const deliverAtMs = parseInstant(appointment.startAt) - offsetMinutes * 60000;
-      if (deliverAtMs <= nowMs) continue;
-      const stateId = deterministicId('srem', [appointment.id, userId, offsetMinutes, appointment.startAt]);
+      const scheduledForMs = parseInstant(appointment.startAt) - offsetMinutes * 60000;
+      if (scheduledForMs <= nowMs) continue;
+      desired.set(`${userId}\0${offsetMinutes}`, { userId, offsetMinutes, scheduledFor: iso(scheduledForMs) });
+    }
+  }
+
+  const states = (db.appointmentReminderStates || []).filter(state => state.appointmentId === appointment.id && participants.includes(state.userId));
+  for (const state of states) {
+    const wanted = desired.get(`${state.userId}\0${state.offsetMinutes}`);
+    const item = (db.schedulingReminderOutbox || []).find(outbox => outbox.reminderStateId === state.id);
+    if (!item) throw new Error('appointment reminder state is missing its outbox record');
+    if (!wanted) {
+      if (REMINDER_ACTIVE_STATUSES.has(state.status)) {
+        state.status = 'canceled'; state.updatedAt = nowIso;
+        item.status = 'canceled'; item.nextAttemptAt = null; item.leaseId = null; item.leaseExpiresAt = null;
+        item.canceledAt = nowIso; item.updatedAt = nowIso;
+      }
+      continue;
+    }
+    desired.delete(`${state.userId}\0${state.offsetMinutes}`);
+    if (state.status === 'delivered' || state.status === 'failed') continue;
+    const changedSchedule = state.scheduledFor !== wanted.scheduledFor;
+    const reactivated = state.status === 'canceled';
+    if (!changedSchedule && !reactivated) continue;
+    state.scheduledFor = wanted.scheduledFor;
+    state.status = 'pending';
+    state.updatedAt = nowIso;
+    item.scheduledFor = wanted.scheduledFor;
+    item.status = 'pending';
+    item.attempts = 0;
+    item.nextAttemptAt = wanted.scheduledFor;
+    item.leaseId = null;
+    item.leaseExpiresAt = null;
+    item.lastAttemptAt = null;
+    item.deliveredAt = null;
+    item.failedAt = null;
+    item.canceledAt = null;
+    item.updatedAt = nowIso;
+  }
+
+  for (const { userId, offsetMinutes, scheduledFor } of desired.values()) {
+      const stateId = deterministicId('srem', [appointment.id, userId, offsetMinutes]);
       const outboxId = deterministicId('sout', [stateId]);
-      if ((db.appointmentReminderStates || []).some(item => item.id === stateId)) continue;
       db.appointmentReminderStates.push({
         id: stateId, appointmentId: appointment.id, userId, offsetMinutes,
-        scheduledFor: iso(deliverAtMs), status: 'pending', createdAt: nowIso, updatedAt: nowIso,
+        scheduledFor, status: 'pending', createdAt: nowIso, updatedAt: nowIso,
       });
       db.schedulingReminderOutbox.push({
-        id: outboxId, reminderStateId: stateId, appointmentId: appointment.id, userId,
-        deliverAt: iso(deliverAtMs), status: 'pending', payload: { type: 'appointment_reminder', appointmentId: appointment.id },
+        id: outboxId, reminderStateId: stateId, appointmentId: appointment.id, userId, offsetMinutes,
+        scheduledFor, status: 'pending', attempts: 0, nextAttemptAt: scheduledFor,
+        leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveredAt: null, failedAt: null, canceledAt: null,
+        idempotencyKey: `appointment-reminder:${stateId}`, payload: { type: 'appointment_reminder', appointmentId: appointment.id },
         createdAt: nowIso, updatedAt: nowIso,
       });
-    }
   }
 }
 
@@ -754,9 +853,9 @@ export function createSchedulingRoutes(context) {
     json(res, 429, { error: 'too many scheduling requests, try again later', code: 'rate_limited', violations: [] }, { 'Retry-After': String(wait) });
     return true;
   };
-  const commit = candidate => {
+  const commit = async candidate => {
     validateSchedulingState(candidate, limits);
-    if (typeof commitCandidate === 'function') commitCandidate(candidate);
+    if (typeof commitCandidate === 'function') await commitCandidate(candidate);
     else { saveDb(candidate); if (typeof publishDb === 'function') publishDb(candidate); }
   };
   const actorOnly = (req, res) => {
@@ -772,9 +871,7 @@ export function createSchedulingRoutes(context) {
   };
   const athleteOnly = (req, res) => {
     const athlete = actorOnly(req, res);
-    if (!athlete) return null;
-    if (profileOf(athlete).kind === 'coach') { fail(res, 403, 'role_forbidden', 'athlete profile required'); return null; }
-    return athlete;
+    return athlete || null;
   };
   const requestedLinkId = (req, body = null) => body?.linkId || new URL(req.url, 'http://x').searchParams.get('linkId');
   const resolveLink = (coachId, athleteId, req, body = null, requireActive = true) => {
@@ -899,7 +996,7 @@ export function createSchedulingRoutes(context) {
     target.localDate = getZonedParts(payload.startMs, availability.timeZone).dateStr;
     target.updatedAt = iso(now());
     reconcileAppointmentReminders(candidate, target, now());
-    try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be rescheduled'); }
+    try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be rescheduled'); }
     audit(req, 'b2b2c.appointment.reschedule', { user: actor, msg: target.id });
     json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), actor, now()) });
   };
@@ -920,7 +1017,7 @@ export function createSchedulingRoutes(context) {
     target.cancellation = { actor: role, actorId: actor.id, reason: body.reason.trim(), canceledAt: iso(nowMs) };
     target.updatedAt = iso(nowMs);
     cancelReminderState(candidate, target.id, target.updatedAt);
-    try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be canceled'); }
+    try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be canceled'); }
     audit(req, `b2b2c.appointment.${role}-cancel`, { user: actor, msg: target.id });
     json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), actor, now()) });
   };
@@ -954,7 +1051,7 @@ export function createSchedulingRoutes(context) {
       if (index >= 0) candidate.coachAvailability[index] = next; else candidate.coachAvailability.push(next);
       const futureConflicts = candidate.coachAppointments.filter(item => item.coachId === coach.id && item.status === 'scheduled' && parseInstant(item.startAt) >= now()
         && !isWithinAvailabilityWindows(parseInstant(item.startAt), parseInstant(item.endAt), next, item.durationMinutes)).map(item => item.id);
-      try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'availability could not be saved'); }
+      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'availability could not be saved'); }
       audit(req, 'b2b2c.availability.update', { user: coach, msg: next.id });
       json(res, 200, { availability: clone(next), futureConflicts });
     },
@@ -998,7 +1095,7 @@ export function createSchedulingRoutes(context) {
       const candidate = clone(db);
       if (!appointmentQuota(candidate, access.link.id)) return fail(res, 409, 'appointment_capacity', 'active appointment capacity reached');
       const appointment = createAppointment(candidate, access.link, payload, iso(now()));
-      try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
+      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
       audit(req, 'b2b2c.appointment.create', { user: coach, msg: appointment.id });
       json(res, 201, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === appointment.id), coach, now()) });
     },
@@ -1029,7 +1126,7 @@ export function createSchedulingRoutes(context) {
       target.attendance = { state: body.status === 'completed' ? 'attended' : 'missed', recordedBy: coach.id, recordedAt: nowIso };
       target.updatedAt = nowIso;
       cancelReminderState(candidate, target.id, nowIso);
-      try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'attendance could not be saved'); }
+      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'attendance could not be saved'); }
       audit(req, 'b2b2c.appointment.attendance', { user: coach, msg: `${target.id}:${body.status}` });
       json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), coach, now()) });
     },
@@ -1073,7 +1170,7 @@ export function createSchedulingRoutes(context) {
       const candidate = clone(db);
       if (!appointmentQuota(candidate, access.link.id)) return fail(res, 409, 'appointment_capacity', 'active appointment capacity reached');
       const appointment = createAppointment(candidate, access.link, payload, iso(now()));
-      try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
+      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
       audit(req, 'b2b2c.appointment.athlete-create', { user: athlete, msg: appointment.id });
       json(res, 201, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === appointment.id), athlete, now()) });
     },
@@ -1099,9 +1196,9 @@ export function createSchedulingRoutes(context) {
       const index = candidate.schedulingReminderPreferences.findIndex(item => item.userId === actor.id);
       if (index >= 0) candidate.schedulingReminderPreferences[index] = preference; else candidate.schedulingReminderPreferences.push(preference);
       for (const appointment of candidate.coachAppointments.filter(item => item.status === 'scheduled' && (item.coachId === actor.id || item.athleteId === actor.id))) {
-        reconcileAppointmentReminders(candidate, appointment, nowMs);
+        reconcileAppointmentReminders(candidate, appointment, nowMs, { userId: actor.id });
       }
-      try { commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'reminder preferences could not be saved'); }
+      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'reminder preferences could not be saved'); }
       audit(req, 'b2b2c.scheduling.reminder-preferences.update', { user: actor, msg: String(parsed.enabled) });
       json(res, 200, { preferences: clone(preference) });
     },

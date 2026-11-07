@@ -17,7 +17,9 @@ function reminderDb(overrides = {}) {
       id: 'appointment_1', linkId: 'link_1', coachId: 'coach_1', athleteId: 'athlete_1', status: 'scheduled',
       startAt: '2026-11-07T13:00:00.000Z', endAt: '2026-11-07T14:00:00.000Z',
     }],
-    schedulingReminderPreferences: [],
+    schedulingReminderPreferences: [{
+      userId: 'coach_1', enabled: true, offsetsMinutes: [60], timeZone: 'UTC', updatedAt: scheduledFor,
+    }],
     appointmentReminderStates: [{
       id: 'srem_1', appointmentId: 'appointment_1', userId: 'coach_1', offsetMinutes: 60,
       scheduledFor, status: 'pending', createdAt: scheduledFor, updatedAt: scheduledFor,
@@ -191,6 +193,9 @@ test('dispatcher preserves user and appointment isolation in each delivery', asy
     ...structuredClone(db.schedulingReminderOutbox[0]), id: 'sout_2', reminderStateId: 'srem_2', userId: 'athlete_1', offsetMinutes: 30,
     idempotencyKey: 'appointment-reminder:srem_2',
   };
+  db.schedulingReminderPreferences.push({
+    userId: 'athlete_1', enabled: true, offsetsMinutes: [30], timeZone: 'UTC', updatedAt: secondState.updatedAt,
+  });
   db.appointmentReminderStates.push(secondState);
   db.schedulingReminderOutbox.push(secondOutbox);
   const deliveries = [];
@@ -206,11 +211,13 @@ test('dispatcher lifecycle schedules one timer and teardown clears it and drains
   const scheduled = [];
   const cleared = [];
   let release;
+  let markStarted;
+  const started = new Promise(resolve => { markStarted = resolve; });
   let current = reminderDb();
   const dispatcher = createReminderDispatcher({
     getDb: () => current,
     commit: candidate => { current = structuredClone(candidate); },
-    deliver: () => new Promise(resolve => { release = resolve; }),
+    deliver: () => new Promise(resolve => { release = resolve; markStarted(); }),
     now: () => start,
     setIntervalFn: (fn, ms) => { const handle = { fn, ms, unref() {} }; scheduled.push(handle); return handle; },
     clearIntervalFn: handle => cleared.push(handle),
@@ -220,6 +227,7 @@ test('dispatcher lifecycle schedules one timer and teardown clears it and drains
   dispatcher.start();
   assert.equal(scheduled.length, 1);
   const tick = scheduled[0].fn();
+  await started;
   const stopping = dispatcher.stop();
   release({ status: 'delivered' });
   await tick;

@@ -16,7 +16,7 @@ import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
-import { dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
+import { appointmentReminderPush, dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
 import { verifyError, isMisconfigured, originHint } from './verify-error.js';
 import {
   hashPassword, verifyPassword, needsRehash, passwordProblem, passwordLength, nameKey, BusyError,
@@ -59,8 +59,10 @@ import {
   calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
 } from './progress-analytics.js';
 import {
-  cancelFutureAppointmentsForLink, createSchedulingRoutes, SCHEDULING_LIMITS,
+  cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS,
 } from './scheduling.js';
+import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
+import { SerialWriteQueue } from './serial-write-queue.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -511,10 +513,12 @@ if (Array.isArray(db.subs)) {
 async function sendPush(userId, payload, deviceId) {
   let subs = db.subs.filter(s => s.userId === userId);
   if (deviceId) subs = subs.filter(s => !s.deviceId || s.deviceId === deviceId);
-  if (!subs.length) return;
+  if (!subs.length) return { status: 'unavailable', delivered: 0 };
   const body = JSON.stringify(payload);
   let dirty = false;
   let next = 0;
+  let delivered = 0;
+  let transientFailures = 0;
   const worker = async () => {
     while (next < subs.length) {
       const sub = subs[next++];
@@ -522,7 +526,7 @@ async function sendPush(userId, payload, deviceId) {
       // that is private (however it got into db.json) is dropped here rather than connected to.
       const bad = pushEndpointError(sub.endpoint);
       if (bad) {
-        console.error('push endpoint refused', userId, bad);
+        console.error('push endpoint refused', bad);
         db.subs = db.subs.filter(s => s.endpoint !== sub.endpoint); dirty = true;
         continue;
       }
@@ -534,15 +538,16 @@ async function sendPush(userId, payload, deviceId) {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body,
           { urgency: 'high', timeout: PUSH_TIMEOUT_MS, agent: PUSH_AGENT });
+        delivered++;
       } catch (e) {
-        console.error('push send failed', userId, e.statusCode, e.body || e.message);
+        console.error('push send failed', e.statusCode || 'network');
         // 404/410: the push service says the subscription is gone. 403: it refuses our VAPID
         // signature — a subscription made against a key this instance no longer has (data/vapid.json
         // regenerated). Neither will ever deliver again; keeping them only hides the fact from the
         // Settings toggle, which reads the browser's side. The client re-subscribes on its next boot.
         if (e.statusCode === 404 || e.statusCode === 410 || e.statusCode === 403) {
           db.subs = db.subs.filter(s => s.endpoint !== sub.endpoint); dirty = true;
-        }
+        } else transientFailures++;
       }
     }
   };
@@ -554,6 +559,8 @@ async function sendPush(userId, payload, deviceId) {
   // memory, so only the copy on disk lags: the next saveDb() that succeeds, from any route,
   // writes it out, and a restart re-reads the old file and prunes it again on the next send.
   if (dirty) { try { saveDb(); } catch (e) { console.error('push: could not save db.json', e.message); } }
+  if (delivered) return { status: 'delivered', delivered };
+  return { status: transientFailures ? 'retry' : 'unavailable', delivered: 0 };
 }
 
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
@@ -2747,9 +2754,25 @@ const progressRoutes = createProgressRoutes({
     exportIp: B2B2C_RATE.progressExportIp,
   },
 });
+const schedulingDbWrites = new SerialWriteQueue();
+const commitSchedulingDb = candidate => schedulingDbWrites.run(() => { saveDb(candidate); publishDb(candidate); });
 const schedulingRoutes = createSchedulingRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb, cursorSecret: SECRET,
+  commitCandidate: commitSchedulingDb,
+});
+const appointmentReminderDispatcher = createReminderDispatcher({
+  getDb: () => db,
+  commit: commitSchedulingDb,
+  deliver: ({ userId, idempotencyKey }) => sendPush(userId, appointmentReminderPush(idempotencyKey)),
+  config: {
+    tickMs: envInt('B2B2C_SCHEDULING_REMINDER_TICK_MS', REMINDER_DISPATCH_DEFAULTS.tickMs, { min: 50, max: 3600000 }),
+    leaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.leaseMs, { min: 1000, max: 86400000 }),
+    baseRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_BASE_MS', REMINDER_DISPATCH_DEFAULTS.baseRetryMs, { min: 1000, max: 86400000 }),
+    maxRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_MAX_MS', REMINDER_DISPATCH_DEFAULTS.maxRetryMs, { min: 1000, max: 7 * 86400000 }),
+    maxAttempts: envInt('B2B2C_SCHEDULING_REMINDER_MAX_ATTEMPTS', REMINDER_DISPATCH_DEFAULTS.maxAttempts, { min: 1, max: 100 }),
+    batchSize: envInt('B2B2C_SCHEDULING_REMINDER_BATCH_SIZE', REMINDER_DISPATCH_DEFAULTS.batchSize, { min: 1, max: 10000 }),
+  },
 });
 
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
@@ -4348,13 +4371,21 @@ const routes = {
     const u = db.users.find(x => x.id === body.id);
     if (!u) return json(res, 404, { error: 'no such user' });
     if (isAdmin(u)) return json(res, 400, { error: 'cannot disable an admin' });
-    u.disabled = !!body.disabled;
-    if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
+    const candidate = structuredClone(db);
+    const candidateUser = candidate.users.find(x => x.id === u.id);
+    candidateUser.disabled = !!body.disabled;
+    if (candidateUser.disabled) presence.delete(candidateUser.id);   // drop them off "training now" at once
     // A device link made before the lock would otherwise still be waiting when it is lifted.
-    if (u.disabled) dropDeviceLinks(db, u.id);
-    saveDb();
-    audit(req, u.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: u });
-    json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
+    if (candidateUser.disabled) dropDeviceLinks(candidate, candidateUser.id);
+    const nowMs = Date.now();
+    for (const appointment of candidate.coachAppointments.filter(item => item.coachId === candidateUser.id || item.athleteId === candidateUser.id)) {
+      reconcileAppointmentReminders(candidate, appointment, nowMs, { userId: candidateUser.id });
+    }
+    try { await commitSchedulingDb(candidate); }
+    catch { return json(res, 503, { error: 'account status could not be saved', code: 'storage_unavailable' }); }
+    const published = db.users.find(x => x.id === candidateUser.id);
+    audit(req, published.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: published });
+    json(res, 200, { ok: true, id: published.id, disabled: published.disabled });
   },
 
   // Disable locks an account out; this removes it. The one destructive action in the app, so the
@@ -4909,7 +4940,22 @@ server.headersTimeout = 60000;
 // port that was actually bound: with PORT=0 the OS picks one, and a caller that did not choose it
 // (the tests spawn the server that way, and so does anyone running two instances on one box) has
 // no other way to learn it.
-server.listen(PORT, () => console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`));
+server.listen(PORT, () => {
+  console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`);
+  appointmentReminderDispatcher.start();
+  setImmediate(() => appointmentReminderDispatcher.tick().catch(error => console.error('appointment reminder dispatcher boot tick failed', error?.message || 'unknown')));
+});
+
+let shuttingDown = false;
+async function shutdownServer() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  try { await appointmentReminderDispatcher.stop(); }
+  finally { process.exit(0); }
+}
+process.once('SIGTERM', shutdownServer);
+process.once('SIGINT', shutdownServer);
 
 // The server's own command for a locked-out owner or admin (#584, recover.js): asked over a local
 // socket only this process's user can open (admin-socket.js explains why not by editing db.json).
