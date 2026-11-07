@@ -248,7 +248,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.4</span>
-    <span>151 endpoints</span>
+    <span>170 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -5417,6 +5417,1098 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     </div>
   </div>
 </details>
+
+<details class="ep" id="op-getProgressMetricCatalog">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/progress/metrics</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Catalog of supported progress metrics and evaluators</span>
+  </summary>
+  <div class="ep-body">
+<p>Lists the five core progress metrics, supported point semantics, evaluation states, and unavailable reasons. Requires an authenticated session.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Supported progress metric catalog.<span class="r-sig"><a href="#schema-MetricCatalogResponse">MetricCatalogResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listCoachAthleteProgressGoals">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-goals</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List progress goals for an athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Cursor-paginated list of progress goals for this athlete. Filterable by status and date range.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Page of progress goals for this athlete.<span class="r-sig"><a href="#schema-ProgressGoalsPage">ProgressGoalsPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createCoachAthleteProgressGoal">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-goals</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Create a progress goal for an athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Creates a new progress goal for the athlete within the active relationship scope. Enforces per-link and global goal capacity.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-ProgressGoalCreateInput">ProgressGoalCreateInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">201</span>
+    <span class="p-desc">Created progress goal.<span class="r-sig">{ goal: <a href="#schema-ProgressGoal">ProgressGoal</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Goal version conflict (stale_version) or goal/report storage capacity reached.<span class="r-sig"><code>{&quot;error&quot;:&quot;goal version is stale&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress goal capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report capacity reached&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The state or database commit could not be persisted.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal could not be saved&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getCoachAthleteProgressGoal">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-goals/{goalId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read one athlete progress goal</span>
+  </summary>
+  <div class="ep-body">
+<p>Fetches a single progress goal for the athlete, ensuring relationship and professional scopes match.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Progress goal detail.<span class="r-sig">{ goal: <a href="#schema-ProgressGoal">ProgressGoal</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-updateCoachAthleteProgressGoal">
+  <summary>
+    <span class="m patch">PATCH</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-goals/{goalId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Update an athlete progress goal</span>
+  </summary>
+  <div class="ep-body">
+<p>Updates an existing progress goal using optimistic concurrency control. The payload must include the current _rev and any modified fields.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-ProgressGoalPatchInput">ProgressGoalPatchInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Updated progress goal.<span class="r-sig">{ goal: <a href="#schema-ProgressGoal">ProgressGoal</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Goal version conflict (stale_version) or goal/report storage capacity reached.<span class="r-sig"><code>{&quot;error&quot;:&quot;goal version is stale&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress goal capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report capacity reached&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The state or database commit could not be persisted.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal could not be saved&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-archiveCoachAthleteProgressGoal">
+  <summary>
+    <span class="m delete">DELETE</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-goals/{goalId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Archive an athlete progress goal</span>
+  </summary>
+  <div class="ep-body">
+<p>Archives a progress goal using optimistic concurrency control. Requires _rev in body or If-Match header.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-ProgressGoalArchiveInput">ProgressGoalArchiveInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Goal archived successfully.<span class="r-sig">{ goal: <a href="#schema-ProgressGoal">ProgressGoal</a>, archived: true }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Goal version conflict (stale_version) or goal/report storage capacity reached.<span class="r-sig"><code>{&quot;error&quot;:&quot;goal version is stale&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress goal capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report capacity reached&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The state or database commit could not be persisted.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal could not be saved&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getCoachAthleteProgressSummary">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-summary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Longitudinal factual progress summary for an athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Generates a longitudinal factual summary of athlete progress across permitted metrics, evaluated against goals and relationship boundaries.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Longitudinal factual progress summary.<span class="r-sig">{ summary: <a href="#schema-ProgressSummary">ProgressSummary</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listCoachAthleteProgressReports">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-reports</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List immutable progress reports for an athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Cursor-paginated list of progress report metadata generated for this athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Page of report metadata.<span class="r-sig"><a href="#schema-ProgressReportsPage">ProgressReportsPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createCoachAthleteProgressReport">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-reports</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Generate an immutable progress report snapshot</span>
+  </summary>
+  <div class="ep-body">
+<p>Generates and persists an immutable progress snapshot for the athlete. Requires active relationship and valid metric selection.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-ProgressReportCreateInput">ProgressReportCreateInput</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">201</span>
+    <span class="p-desc">Created progress report.<span class="r-sig">{ report: <a href="#schema-ProgressReport">ProgressReport</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Goal version conflict (stale_version) or goal/report storage capacity reached.<span class="r-sig"><code>{&quot;error&quot;:&quot;goal version is stale&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress goal capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report capacity reached&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The state or database commit could not be persisted.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal could not be saved&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getCoachAthleteProgressReport">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-reports/{reportId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read an immutable progress report</span>
+  </summary>
+  <div class="ep-body">
+<p>Fetches full snapshot of an immutable progress report, or exports it if ?format=csv or ?format=json is specified.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Full progress report snapshot or formatted export file.<span class="r-sig">{ report: <a href="#schema-ProgressReport">ProgressReport</a> } &middot; sets <code>Content-Disposition</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">410</span>
+    <span class="p-desc">The requested progress report was revoked and is no longer accessible.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress report was revoked&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-exportCoachAthleteProgressReport">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-reports/{reportId}/export</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Export an immutable progress report as JSON or CSV</span>
+  </summary>
+  <div class="ep-body">
+<p>Exports the progress report as a downloadable attachment in JSON or CSV format.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Exported progress report file attachment.<span class="r-sig">{ report: <a href="#schema-ProgressReport">ProgressReport</a> } &middot; sets <code>Content-Disposition</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">410</span>
+    <span class="p-desc">The requested progress report was revoked and is no longer accessible.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress report was revoked&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-revokeCoachAthleteProgressReport">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Revoke an athlete progress report</span>
+  </summary>
+  <div class="ep-body">
+<p>Marks a progress report as revoked. Revoked reports can no longer be exported or viewed.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Revoked progress report metadata.<span class="r-sig">{ report: <a href="#schema-ProgressReportMetadata">ProgressReportMetadata</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">410</span>
+    <span class="p-desc">The requested progress report was revoked and is no longer accessible.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress report was revoked&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The state or database commit could not be persisted.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal could not be saved&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteProgressGoals">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/progress-goals</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List progress goals for the athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Cursor-paginated list of progress goals for the signed-in athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Page of progress goals for the athlete.<span class="r-sig"><a href="#schema-ProgressGoalsPage">ProgressGoalsPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAthleteProgressSummary">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/progress-summary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Longitudinal factual progress summary for the athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Generates a longitudinal factual summary of progress across permitted metrics for the signed-in athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Progress summary for the athlete.<span class="r-sig">{ summary: <a href="#schema-ProgressSummary">ProgressSummary</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteProgressReports">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/progress-reports</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List immutable progress reports for the athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Cursor-paginated list of progress reports generated for the signed-in athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Page of report metadata.<span class="r-sig"><a href="#schema-ProgressReportsPage">ProgressReportsPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAthleteProgressReport">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/progress-reports/{reportId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read an immutable progress report for the athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Fetches full snapshot of an immutable progress report, or exports it if ?format=csv or ?format=json is specified.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Full progress report snapshot or formatted export file.<span class="r-sig">{ report: <a href="#schema-ProgressReport">ProgressReport</a> } &middot; sets <code>Content-Disposition</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">410</span>
+    <span class="p-desc">The requested progress report was revoked and is no longer accessible.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress report was revoked&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-exportAthleteProgressReport">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/progress-reports/{reportId}/export</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Export an immutable progress report as JSON or CSV</span>
+  </summary>
+  <div class="ep-body">
+<p>Exports the progress report as a downloadable attachment for the athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Exported progress report file attachment.<span class="r-sig">{ report: <a href="#schema-ProgressReport">ProgressReport</a> } &middot; sets <code>Content-Disposition</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid goal, report, period, timezone, limit, cursor or format.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid progress goal&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;_rev is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;period must be 7, 30 or 90 days, or an interval up to 366 days&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;timezone must be a valid IANA timezone&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;at least one valid metric is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;format must be json or csv&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;status is invalid&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;limit must be between 1 and 100&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;cursor is invalid for this relationship or filter&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;linkId must be valid&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing professional profile, scope forbidden, or relationship inactive.<span class="r-sig"><code>{&quot;error&quot;:&quot;professional profile required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship scope assessments is required&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress relationship access denied&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Relationship, progress goal or report not found for this caller.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress goal not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;progress report not found&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;relationship not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">410</span>
+    <span class="p-desc">The requested progress report was revoked and is no longer accessible.<span class="r-sig"><code>{&quot;error&quot;:&quot;progress report was revoked&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
   </div>
 </section>
 
@@ -5676,6 +6768,104 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">404</span>
     <span class="p-desc">No user with that id.<span class="r-sig"><code>{&quot;error&quot;:&quot;no such user&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAccountCleanupJobs">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/admin/account-cleanup</code><span class="ep-chip admin">admin</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List background account cleanup jobs</span>
+  </summary>
+  <div class="ep-body">
+<p>Admin-only cursor-paginated list of background account cleanup jobs.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Admin only: a signed-in session whose user is an admin (<code>ADMIN_UIDS</code> or <code>admin:true</code>), as the session cookie or a Bearer token.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Page of account cleanup jobs.<span class="r-sig"><a href="#schema-AccountCleanupPage">AccountCleanupPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid status, limit or cursor parameter.<span class="r-sig"><code>{&quot;error&quot;:&quot;invalid status&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;invalid limit&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;invalid cursor&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Signed in, but not an admin. The attempt is recorded in the audit log.<span class="r-sig"><code>{&quot;error&quot;:&quot;forbidden&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAccountCleanupJob">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/admin/account-cleanup/{cleanupJobId}</code><span class="ep-chip admin">admin</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Read status of one background account cleanup job</span>
+  </summary>
+  <div class="ep-body">
+<p>Admin-only endpoint returning sanitized execution details for a background account cleanup job.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Admin only: a signed-in session whose user is an admin (<code>ADMIN_UIDS</code> or <code>admin:true</code>), as the session cookie or a Bearer token.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Sanitized account cleanup job details.<span class="r-sig"><a href="#schema-AccountCleanupJob">AccountCleanupJob</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Signed in, but not an admin. The attempt is recorded in the audit log.<span class="r-sig"><code>{&quot;error&quot;:&quot;forbidden&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Cleanup job not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -10766,6 +11956,1324 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">recent[].ms</span>
     <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressMetricName">
+  <summary>
+    <span class="sch-name"><code>ProgressMetricName</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressMetricUnit">
+  <summary>
+    <span class="sch-name"><code>ProgressMetricUnit</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalDirection">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalDirection</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalStatus">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalStatus</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalEvaluationState">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalEvaluationState</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressCoverage">
+  <summary>
+    <span class="sch-name"><code>ProgressCoverage</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">observed<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">expected</span>
+    <span class="p-type">integer | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">percent</span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">periodDays</span>
+    <span class="p-type">integer | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressFreshness">
+  <summary>
+    <span class="sch-name"><code>ProgressFreshness</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;fresh&quot; | &quot;stale&quot; | &quot;none&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">latestDate</span>
+    <span class="p-type">string | null <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">ageDays</span>
+    <span class="p-type">integer | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">staleAfterDays<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressTrend">
+  <summary>
+    <span class="sch-name"><code>ProgressTrend</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">available<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">change</span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">direction</span>
+    <span class="p-type">&quot;increase&quot; | &quot;decrease&quot; | &quot;stable&quot; | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">reason</span>
+    <span class="p-type">&quot;insufficient_observations&quot; | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressPoint">
+  <summary>
+    <span class="sch-name"><code>ProgressPoint</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressPointInstant">
+  <summary>
+    <span class="sch-name"><code>ProgressPointInstant</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">kind<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;instant&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">date<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">value<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">source</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">numerator</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">denominator</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coverage<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressCoverage">ProgressCoverage</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">freshness<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressFreshness">ProgressFreshness</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressPointInterval">
+  <summary>
+    <span class="sch-name"><code>ProgressPointInterval</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">kind<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;interval&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">from<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">value<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">numerator<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">denominator<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coverage<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressCoverage">ProgressCoverage</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">freshness<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressFreshness">ProgressFreshness</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressRelationship">
+  <summary>
+    <span class="sch-name"><code>ProgressRelationship</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;pending&quot; | &quot;active&quot; | &quot;suspended&quot; | &quot;ended&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">readOnly<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoal">
+  <summary>
+    <span class="sch-name"><code>ProgressGoal</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coachId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">athleteId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metric<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">direction<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalDirection">ProgressGoalDirection</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">baselineValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">tolerance<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">startDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalStatus">ProgressGoalStatus</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">_rev<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">achievedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">archivedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">archiveReason<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalCreateInput">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalCreateInput</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">metric<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">direction<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalDirection">ProgressGoalDirection</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">baselineValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">tolerance</span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">startDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status</span>
+    <span class="p-type"><a href="#schema-ProgressGoalStatus">ProgressGoalStatus</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalPatchInput">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalPatchInput</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">_rev<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metric</span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">direction</span>
+    <span class="p-type"><a href="#schema-ProgressGoalDirection">ProgressGoalDirection</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">baselineValue</span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetValue</span>
+    <span class="p-type">number</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">tolerance</span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">startDate</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetDate</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status</span>
+    <span class="p-type"><a href="#schema-ProgressGoalStatus">ProgressGoalStatus</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalArchiveInput">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalArchiveInput</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">_rev</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-GoalProgress">
+  <summary>
+    <span class="sch-name"><code>GoalProgress</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">goalId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metric<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">storedStatus<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalStatus">ProgressGoalStatus</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">state<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalEvaluationState">ProgressGoalEvaluationState</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">currentValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">percent<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coverage<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressCoverage">ProgressCoverage</a> | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">freshness<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressFreshness">ProgressFreshness</a> | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unavailableReason<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">evaluationPolicy<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalWithProgress">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalWithProgress</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<p class="p-desc">Free-form object.</p>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressGoalsPage">
+  <summary>
+    <span class="sch-name"><code>ProgressGoalsPage</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">items<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoal">ProgressGoal</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">limit<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hasMore<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nextCursor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">relationship<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressRelationship">ProgressRelationship</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-MetricSummary">
+  <summary>
+    <span class="sch-name"><code>MetricSummary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">metric<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">available<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">currentValue<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unavailableReason<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">points<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressPoint">ProgressPoint</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coverage<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressCoverage">ProgressCoverage</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">freshness<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressFreshness">ProgressFreshness</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">trend</span>
+    <span class="p-type"><a href="#schema-ProgressTrend">ProgressTrend</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">volume</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">volume.value</span>
+    <span class="p-type">number | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">volume.unit</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">volume.observedWorkouts</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">prescriptions</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">prescriptions.availableRoutines</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">prescriptions.historicalWeeklyScheduleAvailable</span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">workoutsCompleted</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">numerator</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">denominator</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">methodology</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">habits</span>
+    <span class="p-type">any[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressPeriodSummary">
+  <summary>
+    <span class="sch-name"><code>ProgressPeriodSummary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">from<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">days<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">requestedFrom<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">requestedTo<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">preset<em class="p-req" title="required">required</em></span>
+    <span class="p-type">7 | 30 | 90 | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressSummary">
+  <summary>
+    <span class="sch-name"><code>ProgressSummary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">generatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">period<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressPeriodSummary">ProgressPeriodSummary</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">relationship<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressRelationship">ProgressRelationship</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metrics<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">goals<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalWithProgress">ProgressGoalWithProgress</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">disclaimer<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressReport">
+  <summary>
+    <span class="sch-name"><code>ProgressReport</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coachId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">athleteId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval.from<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval.to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metrics<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">summary<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">snapshot</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">revokedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">revocation</span>
+    <span class="p-type">object | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressReportMetadata">
+  <summary>
+    <span class="sch-name"><code>ProgressReportMetadata</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval.from<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">interval.to<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">metrics<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">summary<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">revokedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">revocation</span>
+    <span class="p-type">object | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressReportsPage">
+  <summary>
+    <span class="sch-name"><code>ProgressReportsPage</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">items<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressReportMetadata">ProgressReportMetadata</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">limit<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hasMore<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nextCursor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">relationship<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressRelationship">ProgressRelationship</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-ProgressReportCreateInput">
+  <summary>
+    <span class="sch-name"><code>ProgressReportCreateInput</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">metrics<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricName">ProgressMetricName</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timezone</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">period</span>
+    <span class="p-type">7 | 30 | 90</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">from</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">to</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-MetricCatalogItem">
+  <summary>
+    <span class="sch-name"><code>MetricCatalogItem</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">unit<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressMetricUnit">ProgressMetricUnit</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">pointKind<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;instant&quot; | &quot;interval&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">pointSemantics<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">directions<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalDirection">ProgressGoalDirection</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">scope<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;assessments&quot; | &quot;training&quot; | &quot;nutrition&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">labelKey<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">labelPtBr<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">volume</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-MetricCatalogResponse">
+  <summary>
+    <span class="sch-name"><code>MetricCatalogResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">metrics<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">states<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-ProgressGoalEvaluationState">ProgressGoalEvaluationState</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unavailableReasons<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">goalProgressReasons<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">trendReasons<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AccountCleanupJob">
+  <summary>
+    <span class="sch-name"><code>AccountCleanupJob</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;pending&quot; | &quot;complete&quot; | &quot;failed&quot; | &quot;manual_review&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">steps<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">steps.total<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">steps.pending<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">steps.complete<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">attempts<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nextAttemptAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">terminalAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">lastError<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AccountCleanupPage">
+  <summary>
+    <span class="sch-name"><code>AccountCleanupPage</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">items<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AccountCleanupJob">AccountCleanupJob</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">limit<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hasMore<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nextCursor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
     <span class="p-desc"></span>
   </div>
 </div>

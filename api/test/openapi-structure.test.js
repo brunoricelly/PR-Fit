@@ -87,3 +87,86 @@ test('communication routes have request schemas where they accept bodies and JSO
     }
   }
 });
+
+const progressPaths = [
+  '/api/progress/metrics',
+  '/api/coach/athletes/{athleteId}/progress-goals',
+  '/api/coach/athletes/{athleteId}/progress-goals/{goalId}',
+  '/api/coach/athletes/{athleteId}/progress-summary',
+  '/api/coach/athletes/{athleteId}/progress-reports',
+  '/api/coach/athletes/{athleteId}/progress-reports/{reportId}',
+  '/api/coach/athletes/{athleteId}/progress-reports/{reportId}/export',
+  '/api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke',
+  '/api/athlete/progress-goals',
+  '/api/athlete/progress-summary',
+  '/api/athlete/progress-reports',
+  '/api/athlete/progress-reports/{reportId}',
+  '/api/athlete/progress-reports/{reportId}/export',
+  '/api/admin/account-cleanup',
+  '/api/admin/account-cleanup/{cleanupJobId}',
+];
+const progressBodyOperations = new Set([
+  'createCoachAthleteProgressGoal', 'updateCoachAthleteProgressGoal',
+  'createCoachAthleteProgressReport',
+]);
+
+test('progress and cleanup routes have request schemas where required and success responses', () => {
+  for (const route of progressPaths) {
+    const item = openapi.paths[route];
+    assert.ok(item, `${route} is missing`);
+    for (const [method, operation] of Object.entries(item).filter(([name]) => methods.has(name))) {
+      if (progressBodyOperations.has(operation.operationId)) {
+        assert.ok(operation.requestBody?.content?.['application/json']?.schema, `${method.toUpperCase()} ${route} has no request schema`);
+      }
+      const successes = Object.entries(operation.responses || {}).filter(([status]) => /^2\d\d$/.test(status));
+      assert.ok(successes.length, `${method.toUpperCase()} ${route} has no success response`);
+      for (const [status, response] of successes) {
+        const resolved = response?.$ref ? resolveRef(response.$ref) : response;
+        const hasContent = resolved?.content?.['application/json']?.schema || resolved?.content?.['text/csv']?.schema;
+        assert.ok(hasContent, `${method.toUpperCase()} ${route} ${status} has no response schema`);
+      }
+    }
+  }
+});
+
+test('ProgressPoint discriminated union validates instant and interval variants', () => {
+  const instantPoint = {
+    kind: 'instant',
+    date: '2026-03-01',
+    value: 80.5,
+    unit: 'kg',
+    source: 'assessment',
+    coverage: { observed: 1, expected: 1, percent: 100 },
+    freshness: { status: 'fresh', latestDate: '2026-03-01', ageDays: 0, staleAfterDays: 30 },
+  };
+  const intervalPoint = {
+    kind: 'interval',
+    from: '2026-03-01',
+    to: '2026-03-07',
+    value: 4,
+    numerator: 4,
+    denominator: 7,
+    unit: 'workouts_per_week',
+    coverage: { observed: 7, expected: 7, percent: 100 },
+    freshness: { status: 'fresh', latestDate: '2026-03-07', ageDays: 0, staleAfterDays: 7 },
+  };
+  const pointSchema = openapi.components.schemas.ProgressPoint;
+  assert.ok(pointSchema.oneOf && pointSchema.discriminator);
+
+  const instantErrors = openapi.components.schemas.ProgressPointInstant;
+  assert.equal(openapi.components.schemas.ProgressPointInstant.properties.kind.enum[0], 'instant');
+  assert.equal(openapi.components.schemas.ProgressPointInterval.properties.kind.enum[0], 'interval');
+});
+
+test('pagination envelopes define items, limit, hasMore, nextCursor and relationship where expected', () => {
+  for (const pageName of ['ProgressGoalsPage', 'ProgressReportsPage']) {
+    const schema = openapi.components.schemas[pageName];
+    assert.ok(schema);
+    assert.deepEqual(schema.required, ['items', 'limit', 'hasMore', 'nextCursor', 'relationship']);
+    assert.equal(schema.additionalProperties, false);
+  }
+  const cleanupPage = openapi.components.schemas.AccountCleanupPage;
+  assert.ok(cleanupPage);
+  assert.deepEqual(cleanupPage.required, ['items', 'limit', 'hasMore', 'nextCursor']);
+  assert.equal(cleanupPage.additionalProperties, false);
+});

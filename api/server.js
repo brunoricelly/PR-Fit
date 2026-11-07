@@ -53,12 +53,11 @@ import {
   PARQ_QUESTIONS, PARQ_VERSION,
 } from './b2b2c.js';
 import {
-  pollock3Men, pollock3Women, pollock7Men, pollock7Women, faulkner4,
-  siri, bodyComposition,
-} from './anthropometrics.js';
-import {
   COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes, validateCommunicationHabitsLimits,
 } from './communication-habits.js';
+import {
+  calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
+} from './progress-analytics.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -138,6 +137,20 @@ const B2B2C_LIMITS = {
   maxCheckinsPerLink: envInt('B2B2C_CHECKINS_PER_LINK', COMMUNICATION_HABITS_LIMITS.maxCheckinsPerLink, { min: 1, max: 100000 }),
   maxCheckins: envInt('B2B2C_MAX_CHECKINS', COMMUNICATION_HABITS_LIMITS.maxCheckins, { min: 1, max: 1000000 }),
   checkinRetentionDays: envInt('B2B2C_CHECKIN_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.checkinRetentionDays, { min: 1, max: 36500 }),
+  maxGoalsPerLink: envInt('B2B2C_PROGRESS_GOALS_PER_LINK', PROGRESS_LIMITS.maxGoalsPerLink, { min: 1, max: 1000 }),
+  maxGoals: envInt('B2B2C_MAX_PROGRESS_GOALS', PROGRESS_LIMITS.maxGoals, { min: 1, max: 1000000 }),
+  maxTerminalGoals: envInt('B2B2C_MAX_TERMINAL_PROGRESS_GOALS', PROGRESS_LIMITS.maxTerminalGoals, { min: 1, max: 5000000 }),
+  goalRetentionDays: envInt('B2B2C_PROGRESS_GOAL_RETENTION_DAYS', PROGRESS_LIMITS.goalRetentionDays, { min: 1, max: 36500 }),
+  maxReportsPerLink: envInt('B2B2C_PROGRESS_REPORTS_PER_LINK', PROGRESS_LIMITS.maxReportsPerLink, { min: 1, max: 10000 }),
+  maxReports: envInt('B2B2C_MAX_PROGRESS_REPORTS', PROGRESS_LIMITS.maxReports, { min: 1, max: 1000000 }),
+  maxTerminalReports: envInt('B2B2C_MAX_TERMINAL_PROGRESS_REPORTS', PROGRESS_LIMITS.maxTerminalReports, { min: 1, max: 5000000 }),
+  reportRetentionDays: envInt('B2B2C_PROGRESS_REPORT_RETENTION_DAYS', PROGRESS_LIMITS.reportRetentionDays, { min: 1, max: 36500 }),
+  maxReportBytes: envInt('B2B2C_PROGRESS_REPORT_MAX_BYTES', PROGRESS_LIMITS.maxReportBytes, { min: 16384, max: 5 * 1024 * 1024 }),
+  maxPendingAccountCleanupJobs: envInt('B2B2C_MAX_PENDING_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxPendingAccountCleanupJobs, { min: 1, max: 1000000 }),
+  maxCompleteAccountCleanupJobs: envInt('B2B2C_MAX_COMPLETE_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxCompleteAccountCleanupJobs, { min: 1, max: 1000000 }),
+  maxFailedAccountCleanupJobs: envInt('B2B2C_MAX_FAILED_ACCOUNT_CLEANUP_JOBS', B2B2C_DEFAULT_LIMITS.maxFailedAccountCleanupJobs, { min: 1, max: 1000000 }),
+  accountCleanupCompleteRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_COMPLETE_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupCompleteRetentionDays, { min: 1, max: 3650 }),
+  accountCleanupFailedRetentionDays: envInt('B2B2C_ACCOUNT_CLEANUP_FAILED_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.accountCleanupFailedRetentionDays, { min: 1, max: 3650 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -164,6 +177,10 @@ const B2B2C_RATE = {
   habitIp: envInt('B2B2C_HABIT_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
   readAccount: envInt('B2B2C_MESSAGE_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   readIp: envInt('B2B2C_MESSAGE_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
+  progressMutationAccount: envInt('B2B2C_PROGRESS_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  progressMutationIp: envInt('B2B2C_PROGRESS_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
+  progressExportAccount: envInt('B2B2C_PROGRESS_EXPORT_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  progressExportIp: envInt('B2B2C_PROGRESS_EXPORT_IP_MAX', 600, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -1480,17 +1497,16 @@ function retainedMealAdherence(now = Date.now()) {
   return db.mealAdherence.filter(item => item.date >= cutoff);
 }
 
-function commitAssessmentConsent(link, scopes, now) {
-  const previousScopes = link.scopes;
-  const previousUpdatedAt = link.updatedAt;
-  link.scopes = scopes;
-  link.updatedAt = now;
-  try { saveDb(); }
-  catch (error) {
-    link.scopes = previousScopes;
-    link.updatedAt = previousUpdatedAt;
-    throw error;
-  }
+function commitAssessmentConsent(link, scopes, now, actorId) {
+  const candidate = structuredClone(db);
+  const candidateLink = candidate.coachAthleteLinks.find(item => item.id === link.id);
+  const removedScopes = candidateLink.scopes.filter(scope => !scopes.includes(scope));
+  candidateLink.scopes = scopes;
+  candidateLink.updatedAt = now;
+  reconcileProgressScopes(candidate, { linkId: link.id, removedScopes, actorId, at: now });
+  validateProgressState(candidate, PROGRESS_LIMITS);
+  saveDb(candidate);
+  publishDb(candidate);
 }
 
 function compactRelationships() {
@@ -1510,35 +1526,7 @@ function auditB2B2CDenied(req, event, user, reason, target) {
   auditFail(req, event, { ok: false, user, ...(target ? { target } : {}), msg: reason });
 }
 
-function assessmentResults(assessment) {
-  let density;
-  let bodyFatPercent;
-  const skinfolds = assessment.skinfolds;
-  if (skinfolds?.protocol) {
-    const { protocol, sex, age, ...measurements } = skinfolds;
-    if (protocol === 'pollock3') density = sex === 'male'
-      ? pollock3Men(measurements, age)
-      : pollock3Women(measurements, age);
-    if (protocol === 'pollock7') density = sex === 'male'
-      ? pollock7Men(measurements, age)
-      : pollock7Women(measurements, age);
-    if (protocol === 'faulkner4') bodyFatPercent = faulkner4(measurements);
-    else if (density !== undefined) bodyFatPercent = siri(density);
-  } else if (assessment.bioimpedance?.bodyFatPercent !== undefined) {
-    bodyFatPercent = assessment.bioimpedance.bodyFatPercent;
-  }
-  if (bodyFatPercent === undefined) return undefined;
-  if (!Number.isFinite(bodyFatPercent) || bodyFatPercent < 0 || bodyFatPercent > 100
-      || (density !== undefined && (!Number.isFinite(density) || density <= 0))) return null;
-  let composition = {};
-  try { if (assessment.weightKg !== undefined) composition = bodyComposition(assessment.weightKg, bodyFatPercent); }
-  catch { return null; }
-  return {
-    ...(density === undefined ? {} : { density }),
-    bodyFatPercent,
-    ...composition,
-  };
-}
+const assessmentResults = calculateAssessmentResults;
 
 function serializeAssessment(item) {
   const { coachId, athleteId, photoOwnerId, ...assessment } = item;
@@ -1788,9 +1776,175 @@ async function removeEmail(req, res, user, body) {
   json(res, 200, { ok: true, email: null });
 }
 
-// Everything of an account, gone for good: the user record, their passkeys, push subscriptions,
-// device links and live presence, and outside db.json their training history, any Coach
-// credential and their photos and videos. The admin's delete and the account's own both end here.
+const cleanupKey = crypto.createHash('sha256').update(`${SECRET}:account-cleanup`).digest();
+const cleanupRetryBaseMs = envInt('ACCOUNT_CLEANUP_RETRY_BASE_MS', 30000, { min: 10, max: 86400000 });
+const cleanupRetryMaxMs = envInt('ACCOUNT_CLEANUP_RETRY_MAX_MS', Math.max(3600000, cleanupRetryBaseMs), { min: cleanupRetryBaseMs, max: 604800000 });
+const cleanupMaxAttempts = envInt('ACCOUNT_CLEANUP_MAX_ATTEMPTS', 8, { min: 1, max: 100 });
+const cleanupReadWindowMs = envInt('ACCOUNT_CLEANUP_READ_WINDOW_MS', 60000, { min: 1000, max: 86400000 });
+const cleanupReadAccount = createWindow({ max: envInt('ACCOUNT_CLEANUP_READ_ACCOUNT_MAX', 120, { min: 1, max: 10000 }), windowMs: cleanupReadWindowMs });
+const cleanupReadIp = createWindow({ max: envInt('ACCOUNT_CLEANUP_READ_IP_MAX', 600, { min: 1, max: 100000 }), windowMs: cleanupReadWindowMs });
+let cleanupRetryTimer = null;
+setInterval(() => { cleanupReadAccount.sweep(); cleanupReadIp.sweep(); }, Math.min(cleanupReadWindowMs, 60000)).unref();
+function sealCleanupSubject(userId) {
+  const iv = crypto.randomBytes(12);
+  const cipher = crypto.createCipheriv('aes-256-gcm', cleanupKey, iv);
+  const encrypted = Buffer.concat([cipher.update(userId, 'utf8'), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), encrypted]).toString('base64url');
+}
+function openCleanupSubject(subject) {
+  const bytes = Buffer.from(subject, 'base64url');
+  const decipher = crypto.createDecipheriv('aes-256-gcm', cleanupKey, bytes.subarray(0, 12));
+  decipher.setAuthTag(bytes.subarray(12, 28));
+  return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
+}
+const cleanupStepNames = ['state', 'watch', 'coachAuth', 'media', 'integrations'];
+const cleanupStatuses = new Set(['pending', 'complete', 'failed', 'manual_review']);
+const cleanupIdPattern = /^acj_[A-Za-z0-9_-]{16}$/;
+function sanitizeCleanupError(value) {
+  if (value === null) return null;
+  if (value === 'subject:invalid') return value;
+  if (/^(state|watch|coachAuth|media|integrations):(EACCES|EIO|EPERM|external_error)$/.test(value)) return value;
+  return 'external_error';
+}
+function serializeCleanupJob(job) {
+  const values = Object.values(job.steps);
+  const complete = values.filter(value => value === 'complete').length;
+  return {
+    id: job.id,
+    status: job.status,
+    steps: { total: values.length, pending: values.length - complete, complete },
+    attempts: job.attempts,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    nextAttemptAt: job.nextAttemptAt,
+    terminalAt: job.terminalAt,
+    lastError: sanitizeCleanupError(job.lastError),
+  };
+}
+function cleanupReadThrottle(req, res, admin) {
+  const wait = Math.max(cleanupReadAccount.take(admin.id), cleanupReadIp.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, 'admin.account-cleanup.throttled', { ok: false, user: admin, msg: 'rate_limited' });
+  json(res, 429, { error: 'too many requests', code: 'rate_limited' }, { 'Retry-After': String(wait) });
+  return true;
+}
+function cleanupCursor(payload) {
+  const text = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const mac = crypto.createHmac('sha256', cleanupKey).update(`cleanup-list:${text}`).digest('base64url');
+  return `${text}.${mac}`;
+}
+function readCleanupCursor(raw, status) {
+  if (!raw) return null;
+  try {
+    const [text, mac, extra] = raw.split('.');
+    const expected = crypto.createHmac('sha256', cleanupKey).update(`cleanup-list:${text || ''}`).digest('base64url');
+    if (extra || !text || !mac || mac.length !== expected.length
+        || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return false;
+    const value = JSON.parse(Buffer.from(text, 'base64url').toString('utf8'));
+    return value && value.status === status && cleanupIdPattern.test(value.id) && typeof value.updatedAt === 'string' ? value : false;
+  } catch { return false; }
+}
+function cleanupUnlink(file) {
+  try { fs.unlinkSync(file); }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+}
+function persistCleanupJob(updated) {
+  const candidate = structuredClone(db);
+  const index = candidate.accountCleanupJobs.findIndex(item => item.id === updated.id);
+  if (index < 0) return;
+  candidate.accountCleanupJobs[index] = updated;
+  saveDb(candidate);
+  publishDb(candidate);
+}
+function cleanupRetryDelay(attempts) {
+  return Math.min(cleanupRetryMaxMs, cleanupRetryBaseMs * (2 ** Math.max(0, attempts - 1)));
+}
+function settleCleanupAttempt(updated, timestamp) {
+  if (Object.values(updated.steps).every(value => value === 'complete')) {
+    updated.status = 'complete';
+    updated.nextAttemptAt = null;
+    updated.terminalAt = timestamp;
+    return;
+  }
+  if (updated.attempts >= cleanupMaxAttempts) {
+    updated.status = 'manual_review';
+    updated.nextAttemptAt = null;
+    updated.terminalAt = timestamp;
+    console.warn('account cleanup requires manual review:', updated.id, updated.lastError || 'incomplete');
+    return;
+  }
+  updated.status = 'pending';
+  updated.nextAttemptAt = new Date(Date.parse(timestamp) + cleanupRetryDelay(updated.attempts)).toISOString();
+  updated.terminalAt = null;
+}
+function executeAccountCleanup(job) {
+  const updated = structuredClone(job);
+  updated.attempts += 1;
+  updated.updatedAt = new Date().toISOString();
+  updated.lastError = null;
+  let userId;
+  try { userId = openCleanupSubject(updated.subject); }
+  catch {
+    updated.lastError = 'subject:invalid';
+    settleCleanupAttempt(updated, updated.updatedAt);
+    persistCleanupJob(updated);
+    return updated;
+  }
+  const actions = {
+    state: () => cleanupUnlink(stateFile(userId)),
+    watch: () => cleanupUnlink(watchFile(userId)),
+    coachAuth: () => coachConfig.clearProfileAuth(userId),
+    media: () => MEDIA.removeUser(userId),
+    integrations: () => integrations.removeUser(userId),
+  };
+  const injected = new Set((process.env.ACCOUNT_CLEANUP_FAIL_STEP || '').split(',').map(value => value.trim()).filter(Boolean));
+  const failFile = process.env.ACCOUNT_CLEANUP_FAIL_FILE
+    ? (path.isAbsolute(process.env.ACCOUNT_CLEANUP_FAIL_FILE) ? process.env.ACCOUNT_CLEANUP_FAIL_FILE : path.join(DATA, process.env.ACCOUNT_CLEANUP_FAIL_FILE)) : null;
+  if (failFile && fs.existsSync(failFile)) {
+    for (const value of fs.readFileSync(failFile, 'utf8').split(',')) if (value.trim()) injected.add(value.trim());
+    fs.unlinkSync(failFile);
+  }
+  for (const step of cleanupStepNames) {
+    if (updated.steps[step] === 'complete') continue;
+    try {
+      if (injected.has(step)) { const error = new Error('injected cleanup failure'); error.code = 'EIO'; throw error; }
+      actions[step]();
+      updated.steps[step] = 'complete';
+    } catch (error) {
+      updated.lastError = `${step}:${['EACCES', 'EIO', 'EPERM'].includes(error.code) ? error.code : 'external_error'}`;
+    }
+  }
+  settleCleanupAttempt(updated, updated.updatedAt);
+  persistCleanupJob(updated);
+  return updated;
+}
+function retryAccountCleanupJobs({ force = false } = {}) {
+  const timestamp = Date.now();
+  let persistenceFailed = false;
+  for (const job of [...(db.accountCleanupJobs || [])]) {
+    if (job.status === 'pending' && (force || !job.nextAttemptAt || Date.parse(job.nextAttemptAt) <= timestamp)) {
+      try { executeAccountCleanup(job); }
+      catch (error) { persistenceFailed = true; console.error('account cleanup retry could not be persisted:', error.message); }
+    }
+  }
+  scheduleAccountCleanupRetries(persistenceFailed ? cleanupRetryBaseMs : 0);
+}
+function scheduleAccountCleanupRetries(minimumDelay = 0) {
+  if (cleanupRetryTimer) clearTimeout(cleanupRetryTimer);
+  cleanupRetryTimer = null;
+  const next = (db.accountCleanupJobs || []).filter(job => job.status === 'pending')
+    .map(job => Date.parse(job.nextAttemptAt || job.updatedAt)).filter(Number.isFinite).sort((left, right) => left - right)[0];
+  if (next === undefined) return;
+  const delay = Math.max(10, minimumDelay, Math.min(cleanupRetryMaxMs, next - Date.now()));
+  cleanupRetryTimer = setTimeout(() => {
+    cleanupRetryTimer = null;
+    retryAccountCleanupJobs();
+  }, delay);
+  cleanupRetryTimer.unref();
+}
+
+// Everything of an account, gone for good: durable access removal first, then observable,
+// idempotent cleanup of external artifacts. The admin's delete and the account's own both end here.
 function removeAccount(u) {
   const candidate = structuredClone(db);
   candidate.users = candidate.users.filter(x => x.id !== u.id);
@@ -1799,16 +1953,20 @@ function removeAccount(u) {
   removeB2B2CUser(candidate, u.id);
   dropDeviceLinks(candidate, u.id);
   dropWatchLinks(candidate, u.id);
+  const timestamp = new Date().toISOString();
+  const job = {
+    id: `acj_${crypto.randomBytes(12).toString('base64url')}`, subject: sealCleanupSubject(u.id), status: 'pending',
+    steps: Object.fromEntries(cleanupStepNames.map(step => [step, 'pending'])), attempts: 0, lastError: null,
+    createdAt: timestamp, updatedAt: timestamp, nextAttemptAt: timestamp, terminalAt: null,
+  };
+  candidate.accountCleanupJobs.push(job);
+  compactB2B2C(candidate, B2B2C_LIMITS);
   saveDb(candidate);
   publishDb(candidate);
   dropWatchCodes(watchCodes, u.id);
   presence.delete(u.id);
-  // External resources are only deleted after saveDb succeeds
-  try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
-  try { fs.unlinkSync(watchFile(u.id)); } catch { /* never had a watch */ }
-  try { coachConfig.clearProfileAuth(u.id); } catch { /* nothing stored */ }
-  try { MEDIA.removeUser(u.id); } catch (e) { console.error('media: could not remove uploads of', u.id, e.message); }
-  try { integrations.removeUser(u.id); } catch (e) { console.error('integrations: could not remove', u.id, e.message); }
+  try { return executeAccountCleanup(job); }
+  finally { scheduleAccountCleanupRetries(cleanupRetryBaseMs); }
 }
 
 const passwordRoutes = {
@@ -2558,9 +2716,25 @@ const communicationHabitsRoutes = createCommunicationHabitsRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb,
 });
+const progressRoutes = createProgressRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  readBody, readSession, readState, isCoach: user => profileOf(user).kind === 'coach',
+  coachScopes: user => profileOf(user).coachSpecialties,
+  cursorSecret: SECRET,
+  commitCandidate: candidate => { saveDb(candidate); publishDb(candidate); },
+  rate: {
+    windowMs: B2B2C_RATE.windowMs,
+    mutationAccount: B2B2C_RATE.progressMutationAccount,
+    mutationIp: B2B2C_RATE.progressMutationIp,
+    exportAccount: B2B2C_RATE.progressExportAccount,
+    exportIp: B2B2C_RATE.progressExportIp,
+  },
+});
+setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const routes = {
   ...communicationHabitsRoutes,
+  ...progressRoutes,
   // 503 rather than a flag in a 200: the container healthcheck is `wget --spider`, which reads
   // the status and nothing else, and an instance that cannot write its data directory is exactly
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
@@ -3132,10 +3306,10 @@ const routes = {
     }
     const now = new Date().toISOString();
     const scopes = body.granted ? [...new Set([...link.scopes, 'assessments'])] : link.scopes.filter(scope => scope !== 'assessments');
-    try { commitAssessmentConsent(link, scopes, now); }
+    try { commitAssessmentConsent(link, scopes, now, athlete.id); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'consent could not be saved'); }
     audit(req, body.granted ? 'b2b2c.assessment.consent.grant' : 'b2b2c.assessment.consent.revoke', { user: athlete, target: coach, msg: link.id });
-    json(res, 200, { link: serializeLink(db, link, athlete) });
+    json(res, 200, { link: serializeLink(db, db.coachAthleteLinks.find(item => item.id === link.id), athlete) });
   },
 
   'GET /api/coach/athletes/{athleteId}/assessments': async (req, res) => {
@@ -3665,9 +3839,10 @@ const routes = {
     // Everything above awaited: the session may have ended, and another admin may have left.
     if (readSession(req) !== user) return json(res, 401, { error: 'not signed in' });
     if (lastAdmin()) return refuseLastAdmin();
-    removeAccount(user);
+    const cleanup = removeAccount(user);
     audit(req, 'auth.account.delete', { user, msg: proof });
-    json(res, 200, { ok: true }, { 'Set-Cookie': clearCookie });
+    json(res, 200, cleanup.status === 'complete' ? { ok: true }
+      : { ok: true, status: 'cleanup_pending', cleanupJobId: cleanup.id }, { 'Set-Cookie': clearCookie });
   },
 
   // Mobile app pairing: called from an already signed-in browser tab (Settings → "Pair the
@@ -4172,10 +4347,50 @@ const routes = {
     if (isOwner(u)) return json(res, 400, { error: 'the owner cannot be deleted; hand the role to another admin first' });
     if (isAdmin(u) && !isOwner(admin)) { audit(req, 'admin.denied', { ok: false, user: admin, target: u }); return json(res, 403, { error: 'only the owner can delete an admin' }); }
     const name = u.name;
-    removeAccount(u);
+    const cleanup = removeAccount(u);
     // Logged with the name, because the id is about to mean nothing to anyone reading this back.
     audit(req, 'admin.user.delete', { user: admin, msg: name });
-    json(res, 200, { ok: true, id: u.id });
+    json(res, 200, cleanup.status === 'complete' ? { ok: true, id: u.id }
+      : { ok: true, id: u.id, status: 'cleanup_pending', cleanupJobId: cleanup.id });
+  },
+
+  'GET /api/admin/account-cleanup': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    if (cleanupReadThrottle(req, res, admin)) return;
+    const query = new URL(req.url, 'http://x').searchParams;
+    const status = query.get('status');
+    if (status && !cleanupStatuses.has(status)) return json(res, 400, { error: 'invalid status', code: 'invalid_status' });
+    const rawLimit = query.get('limit');
+    const limit = rawLimit === null ? 25 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) return json(res, 400, { error: 'invalid limit', code: 'invalid_limit' });
+    const cursor = readCleanupCursor(query.get('cursor'), status || '');
+    if (cursor === false) return json(res, 400, { error: 'invalid cursor', code: 'invalid_cursor' });
+    const rows = (db.accountCleanupJobs || []).filter(job => !status || job.status === status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id));
+    let start = 0;
+    if (cursor) {
+      start = rows.findIndex(job => job.id === cursor.id && job.updatedAt === cursor.updatedAt) + 1;
+      if (!start) return json(res, 400, { error: 'invalid cursor', code: 'invalid_cursor' });
+    }
+    const selected = rows.slice(start, start + limit);
+    const hasMore = start + selected.length < rows.length;
+    const last = selected.at(-1);
+    json(res, 200, {
+      items: selected.map(serializeCleanupJob),
+      limit,
+      hasMore,
+      nextCursor: hasMore ? cleanupCursor({ status: status || '', id: last.id, updatedAt: last.updatedAt }) : null,
+    });
+  },
+
+  'GET /api/admin/account-cleanup/{cleanupJobId}': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    if (cleanupReadThrottle(req, res, admin)) return;
+    const job = cleanupIdPattern.test(req.cleanupJobId)
+      ? (db.accountCleanupJobs || []).find(item => item.id === req.cleanupJobId)
+      : null;
+    if (!job) return json(res, 404, { error: 'not found' });
+    json(res, 200, serializeCleanupJob(job));
   },
 
   // Appoint or remove an admin. Owner only, never on themselves, and not for an admin named in
@@ -4386,6 +4601,11 @@ const server = http.createServer(async (req, res) => {
   // lookup, and so csrfOk and the catch-all see one name for every concrete resource.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
   if (mm) { key = req.method + ' /api/media/{hash}'; req.mediaHash = mm[1]; }
+  const accountCleanup = /^\/api\/admin\/account-cleanup\/(acj_[A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (accountCleanup) {
+    key = req.method + ' /api/admin/account-cleanup/{cleanupJobId}';
+    req.cleanupJobId = accountCleanup[1];
+  }
   const coachRoutine = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines$/.exec(url.pathname);
   if (coachRoutine) {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines';
@@ -4396,6 +4616,57 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
     req.athleteId = coachRoutineItem[1];
     req.routineId = coachRoutineItem[2];
+  }
+  const coachProgressGoals = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-goals$/.exec(url.pathname);
+  if (coachProgressGoals) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-goals';
+    req.athleteId = coachProgressGoals[1];
+  }
+  const coachProgressGoal = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-goals\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachProgressGoal) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-goals/{goalId}';
+    req.athleteId = coachProgressGoal[1];
+    req.goalId = coachProgressGoal[2];
+  }
+  const coachProgressSummary = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-summary$/.exec(url.pathname);
+  if (coachProgressSummary) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-summary';
+    req.athleteId = coachProgressSummary[1];
+  }
+  const coachProgressReports = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports$/.exec(url.pathname);
+  if (coachProgressReports) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports';
+    req.athleteId = coachProgressReports[1];
+  }
+  const coachProgressReportRevoke = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)\/revoke$/.exec(url.pathname);
+  if (coachProgressReportRevoke) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke';
+    req.athleteId = coachProgressReportRevoke[1];
+    req.reportId = coachProgressReportRevoke[2];
+  }
+  const coachProgressReportExport = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)\/export$/.exec(url.pathname);
+  if (coachProgressReportExport) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}/export';
+    req.athleteId = coachProgressReportExport[1];
+    req.reportId = coachProgressReportExport[2];
+  }
+  const coachProgressReport = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachProgressReport) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}';
+    req.athleteId = coachProgressReport[1];
+    req.reportId = coachProgressReport[2];
+  }
+  if (url.pathname === '/api/progress/metrics') key = req.method + ' /api/progress/metrics';
+  if (url.pathname === '/api/athlete/progress-reports') key = req.method + ' /api/athlete/progress-reports';
+  const athleteProgressReportExport = /^\/api\/athlete\/progress-reports\/([A-Za-z0-9_-]+)\/export$/.exec(url.pathname);
+  if (athleteProgressReportExport) {
+    key = req.method + ' /api/athlete/progress-reports/{reportId}/export';
+    req.reportId = athleteProgressReportExport[1];
+  }
+  const athleteProgressReport = /^\/api\/athlete\/progress-reports\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteProgressReport) {
+    key = req.method + ' /api/athlete/progress-reports/{reportId}';
+    req.reportId = athleteProgressReport[1];
   }
   const coachAssessment = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments$/.exec(url.pathname);
   if (coachAssessment) {

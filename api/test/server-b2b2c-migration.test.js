@@ -51,6 +51,8 @@ for (const [name, db] of [
   ['corrupt message record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [{ id: 'cmsg_bad' }], coachHabits: [], habitCheckins: [] }],
   ['corrupt habit record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [{ id: 'hab_bad' }], habitCheckins: [] }],
   ['orphan habit check-in', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [{ id: 'hchk_bad', habitId: 'hab_missing' }] }],
+  ['corrupt progress collection', { schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: {}, progressReports: [] }],
+  ['corrupt progress goal', { schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: [{ id: 'pgoal_bad' }], progressReports: [] }],
   ['duplicate meal plan ids', {
     schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
     mealPlans: [1, 2].map(() => ({ id: 'mp_duplicate', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000,
@@ -91,7 +93,7 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 6);
+  assert.equal(stored.schemaVersion, 7);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
@@ -101,16 +103,18 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   assert.deepEqual(stored.coachMessages, []);
   assert.deepEqual(stored.coachHabits, []);
   assert.deepEqual(stored.habitCheckins, []);
+  assert.deepEqual(stored.progressGoals, []);
+  assert.deepEqual(stored.progressReports, []);
 });
 
-test('known schema versions migrate to version 6', async t => {
-  for (const schemaVersion of [1, 2, 3, 4, 5]) {
+test('known schema versions migrate to version 7', async t => {
+  for (const schemaVersion of [1, 2, 3, 4, 5, 6]) {
     const sample = fixture(t, { schemaVersion, users: [], creds: [], subs: [], invites: [] });
     const server = start(sample.dataDir);
     await boundPort(server.child, server.log);
     await stop(server.child);
     const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-    assert.equal(stored.schemaVersion, 6);
+    assert.equal(stored.schemaVersion, 7);
     assert.deepEqual(stored.coachInvites, []);
     assert.deepEqual(stored.coachAthleteLinks, []);
     assert.deepEqual(stored.coachPrescriptions, []);
@@ -120,7 +124,43 @@ test('known schema versions migrate to version 6', async t => {
     assert.deepEqual(stored.coachMessages, []);
     assert.deepEqual(stored.coachHabits, []);
     assert.deepEqual(stored.habitCheckins, []);
+    assert.deepEqual(stored.progressGoals, []);
+    assert.deepEqual(stored.progressReports, []);
   }
+});
+
+test('historical archived goals and revoked reports migrate once without changing historical payloads', async t => {
+  const timestamp = '2026-06-01T12:00:00.000Z';
+  const snapshot = { version: 1, generatedAt: timestamp, period: { from: '2026-05-01', to: '2026-05-31' }, metrics: { body_weight: { available: false } } };
+  const sample = fixture(t, {
+    schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], accountCleanupJobs: [],
+    coachAthleteLinks: [{ id: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', scopes: ['assessments'], status: 'ended', createdAt: timestamp, updatedAt: timestamp, endedAt: timestamp }],
+    progressGoals: [{
+      id: 'pgoal_history', linkId: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', metric: 'body_weight',
+      direction: 'decrease', baselineValue: 90, targetValue: 85, tolerance: 0.5, startDate: '2026-05-01', targetDate: '2026-05-31',
+      timezone: 'UTC', status: 'archived', createdAt: timestamp, updatedAt: timestamp, achievedAt: null, archivedAt: timestamp,
+    }],
+    progressReports: [{
+      id: 'prep_history', linkId: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', interval: { from: '2026-05-01', to: '2026-05-31' },
+      timezone: 'UTC', metrics: ['body_weight'], summary: 'body_weight: historical.', snapshot, createdAt: timestamp, revokedAt: timestamp,
+    }],
+  });
+  let server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  const firstText = fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8');
+  const first = JSON.parse(firstText);
+  assert.deepEqual({ unit: first.progressGoals[0].unit, rev: first.progressGoals[0]._rev, reason: first.progressGoals[0].archiveReason }, { unit: 'kg', rev: 1, reason: 'manual' });
+  assert.equal(first.progressReports[0].revocation, null);
+  assert.deepEqual(first.progressReports[0].snapshot, snapshot);
+  assert.equal(first.progressReports[0].createdAt, timestamp);
+  assert.equal(first.progressReports[0].revokedAt, timestamp);
+
+  server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), firstText);
 });
 
 test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {

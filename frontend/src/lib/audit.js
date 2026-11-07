@@ -75,6 +75,7 @@ const LABELS = {
   'admin.audit.clear': 'Cleared the activity log',
   // FIRST_USER_ADMIN=1: the first profile on a fresh instance is made admin as it signs up.
   'admin.first-user': 'Became admin as the first profile',
+  'admin.account-cleanup.throttled': 'Too many account cleanup requests',
   'admin.denied': 'Blocked from an admin action',
   // Photos and videos of custom exercises: "Reset everything" clearing a profile's files, and the
   // upload or clean-up throttle pausing a profile (`msg` says which).

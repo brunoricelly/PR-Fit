@@ -2,8 +2,11 @@ import crypto from 'node:crypto';
 import {
   compactCommunicationHabits, removeCommunicationHabitsUser, validateCommunicationHabitsState,
 } from './communication-habits.js';
+import {
+  compactProgressState, migrateProgressState, progressDependentLinkIds, removeProgressUser,
+} from './progress-analytics.js';
 
-export const B2B2C_SCHEMA_VERSION = 6;
+export const B2B2C_SCHEMA_VERSION = 7;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
@@ -14,6 +17,20 @@ export const B2B2C_LIMITS = {
   maxMealAdherencePerAthlete: 1000,
   maxMealAdherence: 50000,
   mealAdherenceRetentionDays: 730,
+  maxGoalsPerLink: 50,
+  maxGoals: 10000,
+  maxTerminalGoals: 50000,
+  goalRetentionDays: 730,
+  maxReportsPerLink: 100,
+  maxReports: 20000,
+  maxTerminalReports: 50000,
+  reportRetentionDays: 1095,
+  maxReportBytes: 1024 * 1024,
+  maxPendingAccountCleanupJobs: 1000,
+  maxCompleteAccountCleanupJobs: 10000,
+  maxFailedAccountCleanupJobs: 10000,
+  accountCleanupCompleteRetentionDays: 90,
+  accountCleanupFailedRetentionDays: 365,
 };
 
 export const PARQ_VERSION = '2024.1';
@@ -57,7 +74,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, 4, 5, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, 5, 6, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -65,9 +82,23 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  for (const job of db.accountCleanupJobs) {
+    if (!record(job)) throw new B2B2CDataError('accountCleanupJobs contains an invalid record');
+    if (job.nextAttemptAt === undefined) { job.nextAttemptAt = job.status === 'pending' ? job.updatedAt : null; changed = true; }
+    if (job.terminalAt === undefined) { job.terminalAt = job.status === 'complete' ? job.updatedAt : null; changed = true; }
+    if (typeof job.id !== 'string' || typeof job.subject !== 'string'
+        || !['pending', 'complete', 'failed', 'manual_review'].includes(job.status) || !Number.isSafeInteger(job.attempts) || job.attempts < 0
+        || !Number.isFinite(Date.parse(job.createdAt)) || !Number.isFinite(Date.parse(job.updatedAt))
+        || !record(job.steps) || Object.values(job.steps).some(value => !['pending', 'complete'].includes(value))
+        || !(job.lastError === null || typeof job.lastError === 'string' && job.lastError.length <= 160)
+        || !(job.nextAttemptAt === null || Number.isFinite(Date.parse(job.nextAttemptAt)))
+        || !(job.terminalAt === null || Number.isFinite(Date.parse(job.terminalAt)))) {
+      throw new B2B2CDataError('accountCleanupJobs contains an invalid record');
+    }
   }
   // Nutrition did not exist before schema 5. If a pre-release schema 4 fixture already contains
   // plans, converge it on the phase-4 rule deterministically instead of keeping two active plans.
@@ -117,6 +148,8 @@ export function migrateB2B2C(db) {
   validateNutritionState(db.mealPlans, db.mealAdherence);
   try { validateCommunicationHabitsState(db); }
   catch (error) { throw new B2B2CDataError(error.message); }
+  try { changed = migrateProgressState(db) || changed; }
+  catch (error) { throw new B2B2CDataError(error.message); }
   return changed;
 }
 
@@ -154,11 +187,33 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   db.coachMessages ||= [];
   db.coachHabits ||= [];
   db.habitCheckins ||= [];
+  db.progressGoals ||= [];
+  db.progressReports ||= [];
+  db.accountCleanupJobs ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
   const cutoff = nowMs - limits.terminalRetentionDays * 86400000;
   let changed = false;
+  const completeCleanupCutoff = nowMs - (limits.accountCleanupCompleteRetentionDays ?? 90) * 86400000;
+  const failedCleanupCutoff = nowMs - (limits.accountCleanupFailedRetentionDays ?? 365) * 86400000;
+  const cleanupBefore = db.accountCleanupJobs.length;
+  db.accountCleanupJobs = db.accountCleanupJobs.filter(job => {
+    if (job.status === 'complete') return Date.parse(job.terminalAt || job.updatedAt) >= completeCleanupCutoff;
+    if (job.status === 'failed' || job.status === 'manual_review') return Date.parse(job.terminalAt || job.updatedAt) >= failedCleanupCutoff;
+    return true;
+  });
+  changed = changed || cleanupBefore !== db.accountCleanupJobs.length;
+  const pendingCleanupJobs = db.accountCleanupJobs.filter(job => job.status === 'pending').length;
+  const completeCleanupJobs = db.accountCleanupJobs.filter(job => job.status === 'complete').length;
+  const failedCleanupJobs = db.accountCleanupJobs.length - pendingCleanupJobs - completeCleanupJobs;
+  if (pendingCleanupJobs > (limits.maxPendingAccountCleanupJobs ?? 1000)) throw new B2B2CDataError(`pending accountCleanupJobs exceed configured limit ${limits.maxPendingAccountCleanupJobs ?? 1000}`);
+  if (completeCleanupJobs > (limits.maxCompleteAccountCleanupJobs ?? 10000)) throw new B2B2CDataError(`complete accountCleanupJobs exceed configured limit ${limits.maxCompleteAccountCleanupJobs ?? 10000}`);
+  if (failedCleanupJobs > (limits.maxFailedAccountCleanupJobs ?? 10000)) throw new B2B2CDataError(`failed accountCleanupJobs exceed configured limit ${limits.maxFailedAccountCleanupJobs ?? 10000}`);
+  let progress;
+  try { progress = compactProgressState(db, limits, nowMs); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  changed = changed || progress.changed;
   let linksById = new Map(db.coachAthleteLinks.map(link => [link.id, link]));
 
   for (const invite of db.coachInvites) {
@@ -195,6 +250,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     ...db.coachMessages.map(item => item.linkId),
     ...db.coachHabits.map(item => item.linkId),
     ...db.habitCheckins.map(item => item.linkId),
+    ...progressDependentLinkIds(db),
   ]);
   const protectedTerminalSource = db.coachAthleteLinks
     .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id));
@@ -214,6 +270,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
         scopes: [...link.scopes],
         status: 'ended',
         createdAt: link.createdAt,
+        ...(link.acceptedAt ? { acceptedAt: link.acceptedAt } : {}),
         updatedAt: link.updatedAt,
         endedAt: link.endedAt || link.updatedAt,
         ...(link.suspendedAt ? { suspendedAt: link.suspendedAt } : {}),
@@ -332,6 +389,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
     mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length,
     messages: db.coachMessages.length, habits: db.coachHabits.length, checkins: db.habitCheckins.length,
+    goals: db.progressGoals.length, reports: db.progressReports.length,
     expiredAssessments,
   };
 }
@@ -864,6 +922,7 @@ export function serializeLink(db, link, viewer) {
 
 export function removeB2B2CUser(db, userId) {
   removeCommunicationHabitsUser(db, userId);
+  removeProgressUser(db, userId);
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);

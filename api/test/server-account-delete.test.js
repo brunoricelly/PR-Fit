@@ -26,6 +26,7 @@ const GOOD = 'correct horse battery staple';
 let pwHash;
 before(async () => { pwHash ??= await hashPassword(GOOD); });
 const ADMIN = 'u_adm_1', ADMIN2 = 'u_adm_2', USER = 'u_usr_1';
+const COACH = 'u_coach_1', ORDINARY = 'u_ordinary_1';
 const as = uid => ({ Cookie: `gymsid=${mintSession(uid)}`, 'Content-Type': 'application/json', Origin: 'http://localhost:8080' });
 async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {}) {
   pwHash ??= await hashPassword(GOOD);
@@ -37,6 +38,8 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     admin: { id: ADMIN, name: 'Adminna', created: new Date().toISOString(), admin: true, pw },
     admin2: { id: ADMIN2, name: 'Second', created: new Date().toISOString(), admin: true, pw },
     user: { id: USER, name: 'Mallory', created: new Date().toISOString(), invitedBy: 'CODE1', pw },
+    coach: { id: COACH, name: 'Coach', created: new Date().toISOString(), profile: { kind: 'coach', coachSpecialties: ['training'] }, pw },
+    ordinary: { id: ORDINARY, name: 'Ordinary', created: new Date().toISOString(), pw },
     // Passkey-only: no password that could prove anything.
     nopw: { id: 'u_nopw', name: 'Keyonly', created: new Date().toISOString() },
   };
@@ -57,6 +60,20 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     description: '', targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active', createdAt: communicationNow, updatedAt: communicationNow, archivedAt: null }] : [];
   const habitCheckins = coachHabits.length ? [{ id: 'hchk_delete_fixture', linkId: 'cal_delete_fixture', athleteId, habitId: coachHabits[0].id,
     date: new Date().toISOString().slice(0, 10), value: 1, completed: true, notes: '', updatedAt: communicationNow }] : [];
+  const progressTimestamp = '2026-11-01T00:00:00.000Z';
+  const progressGoals = coachId && athleteId ? [{
+    id: 'pgoal_delete_fixture', linkId: 'cal_delete_fixture', coachId, athleteId,
+    metric: 'nutrition_adherence_percent', direction: 'increase', baselineValue: 50, targetValue: 80, tolerance: 2,
+    startDate: '2026-11-01', targetDate: '2026-12-01', timezone: 'UTC', status: 'active',
+    createdAt: progressTimestamp, updatedAt: progressTimestamp, achievedAt: null, archivedAt: null,
+  }] : [];
+  const progressReports = coachId && athleteId ? [{
+    id: 'prep_delete_fixture', linkId: 'cal_delete_fixture', coachId, athleteId,
+    interval: { from: '2026-11-01', to: '2026-11-06' }, timezone: 'UTC', metrics: ['nutrition_adherence_percent'],
+    summary: 'nutrition_adherence_percent: unavailable (fixture).',
+    snapshot: { version: 1, generatedAt: progressTimestamp, period: { from: '2026-11-01', to: '2026-11-06' }, metrics: {} },
+    createdAt: progressTimestamp, revokedAt: null,
+  }] : [];
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
     users: which.map(k => all[k]),
     creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }],
@@ -66,6 +83,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
     coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
     coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence, coachMessages, coachHabits, habitCheckins,
+    progressGoals, progressReports,
   }));
   for (const uid of [USER, ADMIN]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
   const processEnv = { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', PASSWORD_LOGIN: '1', AUDIT_LOG: '1', ...env };
@@ -89,6 +107,11 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     const r = await fetch(`${h.api}/api/account/delete`, { method: 'POST', headers: as(uid), body: JSON.stringify(body) });
     return { status: r.status, body: await r.json(), cookie: r.headers.get('set-cookie') || '' };
   };
+  h.get = async (uid, route) => {
+    const r = await fetch(`${h.api}${route}`, { headers: as(uid) });
+    const text = await r.text();
+    return { status: r.status, headers: r.headers, text, body: text ? JSON.parse(text) : null };
+  };
   h.db = () => JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   h.audit = () => fs.readFileSync(path.join(h.dataDir, 'audit.log'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
   h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
@@ -104,6 +127,7 @@ for (const [label, deleted, survivors] of [
     const before = h.db();
     assert.ok(before.mealPlans.length && before.mealAdherence.length);
     assert.ok(before.coachMessages.length && before.coachHabits.length && before.habitCheckins.length);
+    assert.ok(before.progressGoals.length && before.progressReports.length);
     fs.writeFileSync(path.join(h.dataDir, 'fail-db-write'), 'once');
     const account = before.users.find(user => user.id === deleted);
     const failed = await h.del(deleted, { name: account.name, current: GOOD });
@@ -113,6 +137,8 @@ for (const [label, deleted, survivors] of [
     assert.deepEqual(h.db().coachMessages, before.coachMessages, 'disk messages rolled back');
     assert.deepEqual(h.db().coachHabits, before.coachHabits, 'disk habits rolled back');
     assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'disk check-ins rolled back');
+    assert.deepEqual(h.db().progressGoals, before.progressGoals, 'disk progress goals rolled back');
+    assert.deepEqual(h.db().progressReports, before.progressReports, 'disk progress reports rolled back');
     assert.deepEqual(h.db().deviceLinks, before.deviceLinks, 'disk device links rolled back');
     assert.deepEqual(h.db().watchLinks, before.watchLinks, 'disk watch links rolled back');
     await h.restart();
@@ -128,6 +154,8 @@ for (const [label, deleted, survivors] of [
     assert.deepEqual(h.db().coachMessages, before.coachMessages, 'next save proves in-memory messages survived');
     assert.deepEqual(h.db().coachHabits, before.coachHabits, 'next save proves in-memory habits survived');
     assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'next save proves in-memory check-ins survived');
+    assert.deepEqual(h.db().progressGoals, before.progressGoals, 'next save proves in-memory progress goals survived');
+    assert.deepEqual(h.db().progressReports, before.progressReports, 'next save proves in-memory progress reports survived');
   });
 }
 
@@ -143,6 +171,7 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.deepEqual(db.creds.map(c => c.userId), [ADMIN], 'their passkeys are gone');
   assert.deepEqual(db.subs.map(s => s.userId), [ADMIN], 'their push subscriptions are gone');
   assert.deepEqual([db.coachMessages.length, db.coachHabits.length, db.habitCheckins.length], [0, 0, 0], 'communication and habits are gone');
+  assert.deepEqual([db.progressGoals.length, db.progressReports.length], [0, 0], 'progress goals and reports are gone');
   assert.equal(db.deviceLinks.some(link => link.userId === USER), false);
   assert.equal(db.watchLinks.some(link => link.userId === USER), false);
   assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false, 'their history is gone');
@@ -156,6 +185,131 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.equal(ev.uid, USER);
   assert.equal(ev.name, 'Mallory', 'by name, since the id stops meaning anything');
   assert.equal(h.stackFrames(), 0, `no stack traces:\n${h.log}`);
+});
+
+test('external cleanup failure is observable and boot retry never resurrects the account', async t => {
+  const h = await startServer(t, { env: { ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail' } });
+  fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'state,integrations');
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.status, 'cleanup_pending');
+  let stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false, 'access is removed before cleanup');
+  assert.equal(stored.accountCleanupJobs.length, 1);
+  assert.equal(stored.accountCleanupJobs[0].status, 'pending');
+  assert.match(stored.accountCleanupJobs[0].lastError, /integrations:EIO/);
+  assert.equal(JSON.stringify(stored.accountCleanupJobs[0]).includes('user'), false, 'cleanup metadata has no plaintext subject id');
+
+  await h.restart();
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false, 'retry does not resurrect the account');
+  assert.equal(stored.accountCleanupJobs[0].status, 'complete');
+  assert.ok(stored.accountCleanupJobs[0].attempts >= 2);
+  assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false);
+});
+
+test('external cleanup retries during runtime with bounded attempts and no account resurrection', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail', ACCOUNT_CLEANUP_RETRY_BASE_MS: '80',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '80', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '3',
+  } });
+  fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'integrations');
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  const pending = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.equal(pending.status, 200, pending.text);
+  assert.deepEqual([pending.body.id, pending.body.status, pending.body.attempts], [res.body.cleanupJobId, 'pending', 1]);
+  assert.deepEqual(Object.keys(pending.body).sort(), ['attempts', 'createdAt', 'id', 'lastError', 'nextAttemptAt', 'status', 'steps', 'terminalAt', 'updatedAt']);
+  assert.deepEqual(pending.body.steps, { total: 5, pending: 1, complete: 4 });
+  assert.equal(JSON.stringify(pending.body).includes(USER), false);
+  const listed = await h.get(ADMIN, '/api/admin/account-cleanup?status=pending&limit=1');
+  assert.deepEqual([listed.status, listed.body.items.length, listed.body.hasMore, listed.body.nextCursor, listed.body.limit], [200, 1, false, null, 1]);
+  assert.equal(JSON.stringify(listed.body).includes(USER), false);
+  await new Promise(resolve => setTimeout(resolve, 30));
+  assert.deepEqual([h.db().accountCleanupJobs[0].status, h.db().accountCleanupJobs[0].attempts], ['pending', 1], 'retry honors its persisted backoff');
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false);
+  assert.equal(stored.accountCleanupJobs[0].status, 'complete');
+  assert.ok(stored.accountCleanupJobs[0].attempts >= 2);
+  const complete = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.equal(complete.body.status, 'complete');
+  assert.equal(complete.body.steps.pending, 0);
+  assert.ok(complete.body.terminalAt);
+});
+
+test('cleanup status is admin-only, anti-enumerating and exposes manual review without PII', async t => {
+  const h = await startServer(t, { users: ['admin', 'user', 'coach', 'ordinary'], env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '10',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '20', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '2',
+  } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status === 'pending'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const job = h.db().accountCleanupJobs[0];
+  assert.equal(job.status, 'manual_review');
+  assert.equal(job.attempts, 2);
+  assert.match(job.lastError, /integrations:EIO/);
+  assert.equal(JSON.stringify(job).includes(USER), false);
+  const status = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.deepEqual([status.status, status.body.status, status.body.lastError], [200, 'manual_review', 'integrations:EIO']);
+  assert.equal(JSON.stringify(status.body).includes(USER), false);
+  assert.equal('subject' in status.body, false);
+  assert.deepEqual([...(await Promise.all([
+    h.get(COACH, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+    h.get(ORDINARY, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+    h.get(USER, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+  ]))].map(item => item.status), [403, 403, 401]);
+  const missing = await h.get(ADMIN, '/api/admin/account-cleanup/acj_missing_opaque_id');
+  assert.deepEqual([missing.status, missing.body.error], [404, 'not found']);
+  const forbiddenMissing = await h.get(COACH, '/api/admin/account-cleanup/acj_missing_opaque_id');
+  assert.equal(forbiddenMissing.status, 403);
+});
+
+test('cleanup status and listing share an authenticated read rate limit', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '60000',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '60000', ACCOUNT_CLEANUP_READ_ACCOUNT_MAX: '1', ACCOUNT_CLEANUP_READ_IP_MAX: '10',
+  } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  assert.equal((await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`)).status, 200);
+  const limited = await h.get(ADMIN, '/api/admin/account-cleanup');
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers.get('retry-after')) >= 1);
+});
+
+test('cleanup subject decryption failure is fail-closed and observable without exposing the account', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '60000',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '60000', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '2',
+  } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  fs.writeFileSync(path.join(h.dataDir, 'secret'), crypto.randomBytes(32).toString('hex'), { mode: 0o600 });
+  await h.restart();
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status === 'pending'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const job = h.db().accountCleanupJobs[0];
+  assert.deepEqual([job.status, job.lastError], ['manual_review', 'subject:invalid']);
+  assert.equal(h.log.includes(USER), false);
+  assert.equal(h.db().users.some(user => user.id === USER), false);
+});
+
+test('missing external files are successful idempotent cleanup, not pending work', async t => {
+  const h = await startServer(t);
+  fs.unlinkSync(path.join(h.dataDir, `state-${USER}.json`));
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.deepEqual(res.body, { ok: true });
+  assert.equal(h.db().accountCleanupJobs[0].status, 'complete');
 });
 
 test('needs the account name typed back', async t => {
