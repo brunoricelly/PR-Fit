@@ -13,6 +13,7 @@ import { Button, TextArea, TextField } from '../components/ui.jsx'
 import AssessmentPanel from './AssessmentPanel.jsx'
 import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
 import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
+import { CoachProgressPanel, AthleteProgressDashboard } from './ProgressAnalytics.jsx'
 import './ProfessionalHub.css'
 
 const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === 'assessments' ? p('Physical assessments') : p('Training')
@@ -336,6 +337,7 @@ function CoachPortfolio({ user, inbox }) {
             {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
             <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
             {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
+            {link.athlete && <CoachProgressPanel link={link} athleteId={link.athlete.id} />}
           </RelationshipCard>)}</div>}
     </section>
   </>
@@ -446,6 +448,7 @@ function AthleteProfessionals({ initialToken, userId, inbox, embedded = false })
     <section aria-labelledby="athlete-nutrition-section"><h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2><AthleteNutritionView /></section>
     <section aria-labelledby="athlete-assessments-title"><h2 className="pro-section-title" id="athlete-assessments-title">{p('My physical assessments')}</h2><AssessmentPanel athlete /></section>
     {links && <AthleteHabitsDashboard links={links} />}
+    {links && <section aria-labelledby="athlete-progress-section"><h2 className="pro-section-title" id="athlete-progress-section">{p('My progress')}</h2><AthleteProgressDashboard links={links} /></section>}
     <section aria-labelledby="pro-athlete-list-title">
       <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>
       {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>

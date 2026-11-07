@@ -104,7 +104,7 @@ async function exchange(url, init) {
     const e = new Error(refusal(r.status, body))
     e.status = r.status
     e.data = body || {}
-    e.code = body?.code || 'http'
+    e.code = body?.code || (r.status === 401 ? 'auth' : 'http')
     const retryAfter = Number(r.headers?.get?.('Retry-After'))
     if (r.status === 429 && Number.isFinite(retryAfter) && retryAfter >= 0) e.retryAfter = retryAfter
     throw e
