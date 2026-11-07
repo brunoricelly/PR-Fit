@@ -190,12 +190,37 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     throw new B2B2CDataError(`live coachAthleteLinks exceed configured limit ${limits.maxLinks}`);
   }
 
-  const terminalSlots = Math.max(0, limits.maxLinks - liveLinks.length);
+  const dependentLinkIds = new Set([
+    ...db.coachMessages.map(item => item.linkId),
+    ...db.coachHabits.map(item => item.linkId),
+    ...db.habitCheckins.map(item => item.linkId),
+  ]);
+  const protectedTerminalLinks = db.coachAthleteLinks
+    .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id))
+    .map(link => {
+      if (rowTime(link) >= cutoff) return link;
+      const tombstone = {
+        id: link.id,
+        coachId: link.coachId,
+        athleteId: link.athleteId,
+        scopes: [...link.scopes],
+        status: 'ended',
+        createdAt: link.createdAt,
+        updatedAt: link.updatedAt,
+        endedAt: link.endedAt || link.updatedAt,
+        tombstone: true,
+      };
+      if (Object.keys(link).length !== Object.keys(tombstone).length || !link.tombstone) changed = true;
+      return tombstone;
+    });
+  const protectedIds = new Set(protectedTerminalLinks.map(link => link.id));
+  const terminalSlots = Math.max(0, limits.maxLinks - liveLinks.length - protectedTerminalLinks.length);
   const terminalLinks = db.coachAthleteLinks
     .filter(link => link.status === 'ended' && limits.terminalRetentionDays > 0 && rowTime(link) >= cutoff)
+    .filter(link => !protectedIds.has(link.id))
     .sort(newestFirst)
     .slice(0, Math.min(limits.terminalLinksKeep, terminalSlots));
-  const keptLinks = [...liveLinks, ...terminalLinks];
+  const keptLinks = [...liveLinks, ...protectedTerminalLinks, ...terminalLinks];
   const keptLinkIds = new Set(keptLinks.map(link => link.id));
   if (keptLinks.length !== db.coachAthleteLinks.length) changed = true;
   db.coachAthleteLinks = keptLinks;

@@ -37,7 +37,7 @@ import { startAdminSocket } from './admin-socket.js';
 import { createMediaStore, mediaLimits, mediaConfig, MediaError, HASH_RE, referencedHashes } from './media.js';
 import { effectiveRoutineId } from './queue.js';
 import { stampPut } from './sync-stamps.js';
-import { atomicWrite as durableWrite } from './durable.js';
+import { atomicWrite as durableWrite, syncDir } from './durable.js';
 import { adoptPrescriptionState, prescriptionStateReadable } from './prescription-adoption.js';
 import { StateWriteQueue, StateWriteQueueFullError } from './state-write-queue.js';
 import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT } from './net-guard.js';
@@ -57,7 +57,7 @@ import {
   siri, bodyComposition,
 } from './anthropometrics.js';
 import {
-  COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes,
+  COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes, validateCommunicationHabitsLimits,
 } from './communication-habits.js';
 
 const PORT = +(process.env.PORT || 3000);
@@ -143,6 +143,7 @@ const B2B2C_LIMITS = {
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
   terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
 };
+validateCommunicationHabitsLimits(B2B2C_LIMITS);
 const B2B2C_RATE = {
   windowMs: envInt('B2B2C_RATE_WINDOW_MS', 3600000, { min: 1000, max: 86400000 }),
   createAccount: envInt('B2B2C_INVITE_CREATE_ACCOUNT_MAX', 20, { min: 1, max: 10000 }),
@@ -159,6 +160,10 @@ const B2B2C_RATE = {
   messageIp: envInt('B2B2C_MESSAGE_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
   checkinAccount: envInt('B2B2C_HABIT_CHECKIN_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   checkinIp: envInt('B2B2C_HABIT_CHECKIN_IP_MAX', 3000, { min: 1, max: 100000 }),
+  habitAccount: envInt('B2B2C_HABIT_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  habitIp: envInt('B2B2C_HABIT_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
+  readAccount: envInt('B2B2C_MESSAGE_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
+  readIp: envInt('B2B2C_MESSAGE_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -195,6 +200,38 @@ const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 const integrations = createIntegrations({ dataDir: DATA, secret: SECRET, version: '1' });
 
 const dbFile = path.join(DATA, 'db.json');
+const dbTxnFile = dbFile + '.txn';
+const dbTxnOldFile = dbFile + '.txn.old';
+const dbTxnNewFile = dbFile + '.txn.new';
+function removeDbTransactionFiles({ strict = false } = {}) {
+  for (const file of [dbTxnFile, dbTxnOldFile, dbTxnNewFile, dbFile + '.next', dbFile + '.bak.next']) {
+    try { fs.unlinkSync(file); }
+    catch (error) {
+      if (error.code === 'ENOENT') continue;
+      if (strict) throw error;
+      console.error('db transaction cleanup failed', path.basename(file), error.message);
+    }
+  }
+  syncDir(DATA);
+}
+function reconcileDbTransaction() {
+  if (!fs.existsSync(dbTxnFile)) return;
+  const transaction = JSON.parse(fs.readFileSync(dbTxnFile, 'utf8'));
+  if (!transaction || !['prepared', 'committed'].includes(transaction.phase)) throw new Error('invalid db transaction journal');
+  const source = transaction.phase === 'committed' ? dbTxnNewFile : dbTxnOldFile;
+  const snapshot = JSON.parse(fs.readFileSync(source, 'utf8'));
+  if (!snapshot || typeof snapshot.exists !== 'boolean' || typeof snapshot.text !== 'string') throw new Error('invalid db transaction snapshot');
+  if (snapshot.exists) {
+    atomicWrite(dbFile, snapshot.text, 0o600);
+    atomicWrite(dbFile + '.bak', snapshot.text, 0o600);
+  } else {
+    for (const file of [dbFile, dbFile + '.bak']) {
+      try { fs.unlinkSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    }
+    syncDir(DATA);
+  }
+  removeDbTransactionFiles({ strict: true });
+}
 // Every account, passkey and invite. Only a missing file starts empty: an unreadable one (a write
 // cut short by a power loss, a damaged restore) used to boot with no users at all, and the first
 // save then replaced it — every profile locked out, every training history orphaned, and with
@@ -202,6 +239,7 @@ const dbFile = path.join(DATA, 'db.json');
 // saveDb keeps of each version it writes (db.json.bak) is used; with neither readable the server
 // refuses to start, saying why, rather than start as a new instance.
 function loadDb() {
+  reconcileDbTransaction();
   let raw;
   try { raw = fs.readFileSync(dbFile, 'utf8'); }
   catch (e) { if (e.code === 'ENOENT') return { users: [], creds: [], subs: [], invites: [] }; throw e; }
@@ -257,16 +295,34 @@ const isOwner = user => !!user && isAdmin(user) && user.id === ownerId();
 // way: loadDb falls back to it. A copy of the version being replaced, as it used to be, lost
 // whatever the last save wrote (a profile just created) when db.json was later found unreadable.
 // A write cut short leaves the previous db.json.bak whole (temporary file and rename).
-function saveDb() {
+function saveDb(candidate = db) {
   const failMarker = process.env.B2B2C_DB_FAIL_FILE;
   if (failMarker && fs.existsSync(failMarker)) {
     fs.unlinkSync(failMarker);
     throw new Error('injected db write failure');
   }
-  const text = JSON.stringify(db, null, 2);
-  atomicWrite(dbFile, text, 0o600);
-  try { atomicWrite(dbFile + '.bak', text, 0o600); }
-  catch (e) { console.error('db.json.bak could not be written', e.message); }
+  const text = JSON.stringify(candidate, null, 2);
+  const previous = fs.existsSync(dbFile) ? fs.readFileSync(dbFile, 'utf8') : '';
+  atomicWrite(dbTxnOldFile, JSON.stringify({ exists: fs.existsSync(dbFile), text: previous }), 0o600);
+  atomicWrite(dbTxnNewFile, JSON.stringify({ exists: true, text }), 0o600);
+  atomicWrite(dbTxnFile, JSON.stringify({ phase: 'prepared' }), 0o600);
+  atomicWrite(dbFile + '.next', text, 0o600);
+  const backupFailMarker = process.env.B2B2C_DB_BACKUP_FAIL_FILE;
+  if (backupFailMarker && fs.existsSync(backupFailMarker)) {
+    fs.unlinkSync(backupFailMarker);
+    throw new Error('injected db backup write failure');
+  }
+  atomicWrite(dbFile + '.bak.next', text, 0o600);
+  fs.renameSync(dbFile + '.bak.next', dbFile + '.bak');
+  syncDir(DATA);
+  fs.renameSync(dbFile + '.next', dbFile);
+  syncDir(DATA);
+  atomicWrite(dbTxnFile, JSON.stringify({ phase: 'committed' }), 0o600);
+  removeDbTransactionFiles();
+}
+function publishDb(candidate) {
+  for (const key of Object.keys(db)) delete db[key];
+  Object.assign(db, candidate);
 }
 if (b2b2cMigrated) saveDb();
 // Flushed before and after the rename (durable.js): a host reset must not bring back the file
@@ -1438,11 +1494,15 @@ function commitAssessmentConsent(link, scopes, now) {
 }
 
 function compactRelationships() {
-  const result = compactB2B2C(db, B2B2C_LIMITS);
+  const candidate = structuredClone(db);
+  const result = compactB2B2C(candidate, B2B2C_LIMITS);
+  if (result.changed) {
+    saveDb(candidate);
+    publishDb(candidate);
+  }
   if (result?.expiredAssessments?.length) {
     for (const item of result.expiredAssessments) removeOrphanedAssessmentPhotos(item);
   }
-  if (result.changed) saveDb();
   return result;
 }
 
@@ -1732,34 +1792,17 @@ async function removeEmail(req, res, user, body) {
 // device links and live presence, and outside db.json their training history, any Coach
 // credential and their photos and videos. The admin's delete and the account's own both end here.
 function removeAccount(u) {
-  const snapshot = {
-    users: [...db.users],
-    creds: db.creds ? [...db.creds] : [],
-    subs: db.subs ? [...db.subs] : [],
-    coachInvites: db.coachInvites ? [...db.coachInvites] : [],
-    coachAthleteLinks: db.coachAthleteLinks ? [...db.coachAthleteLinks] : [],
-    coachPrescriptions: db.coachPrescriptions ? [...db.coachPrescriptions] : [],
-    coachAssessments: db.coachAssessments ? [...db.coachAssessments] : [],
-    mealPlans: db.mealPlans ? [...db.mealPlans] : [],
-    mealAdherence: db.mealAdherence ? [...db.mealAdherence] : [],
-    coachMessages: db.coachMessages ? [...db.coachMessages] : [],
-    coachHabits: db.coachHabits ? [...db.coachHabits] : [],
-    habitCheckins: db.habitCheckins ? [...db.habitCheckins] : [],
-  };
-  try {
-    db.users = db.users.filter(x => x.id !== u.id);
-    db.creds = (db.creds || []).filter(c => c.userId !== u.id);
-    db.subs = (db.subs || []).filter(x => x.userId !== u.id);
-    removeB2B2CUser(db, u.id);
-    dropDeviceLinks(db, u.id);
-    dropWatchLinks(db, u.id);
-    dropWatchCodes(watchCodes, u.id);
-    presence.delete(u.id);
-    saveDb();
-  } catch (err) {
-    Object.assign(db, snapshot);
-    throw err;
-  }
+  const candidate = structuredClone(db);
+  candidate.users = candidate.users.filter(x => x.id !== u.id);
+  candidate.creds = (candidate.creds || []).filter(c => c.userId !== u.id);
+  candidate.subs = (candidate.subs || []).filter(x => x.userId !== u.id);
+  removeB2B2CUser(candidate, u.id);
+  dropDeviceLinks(candidate, u.id);
+  dropWatchLinks(candidate, u.id);
+  saveDb(candidate);
+  publishDb(candidate);
+  dropWatchCodes(watchCodes, u.id);
+  presence.delete(u.id);
   // External resources are only deleted after saveDb succeeds
   try { fs.unlinkSync(stateFile(u.id)); } catch { /* already gone */ }
   try { fs.unlinkSync(watchFile(u.id)); } catch { /* never had a watch */ }
@@ -2635,13 +2678,15 @@ const routes = {
       id: makeEntityId('cai', db.coachInvites), linkId: link.id, coachId: coach.id,
       tokenHash: opaque.tokenHash, createdAt, expiresAt, acceptedAt: null, acceptedBy: null,
     };
-    db.coachAthleteLinks.push(link);
-    db.coachInvites.push(invite);
-    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    const candidate = structuredClone(db);
+    candidate.coachAthleteLinks.push(link);
+    candidate.coachInvites.push(invite);
+    const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
+    saveDb(candidate);
+    publishDb(candidate);
     if (compactionResult?.expiredAssessments?.length) {
       for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
     }
-    saveDb();
     audit(req, 'b2b2c.invite.create', { user: coach, msg: `${link.id}:${scopes.join(',')}` });
     json(res, 201, { invite: { id: invite.id, linkId: link.id, token: opaque.token, scopes, expiresAt } });
   },
@@ -2693,21 +2738,26 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'relationship_exists');
       return b2bError(res, 409, 'relationship_exists', 'a relationship already exists');
     }
+    const candidate = structuredClone(db);
+    const candidateLink = candidate.coachAthleteLinks.find(item => item.id === link.id);
+    const candidateInvite = candidate.coachInvites.find(item => item.id === invite.id);
     const now = new Date().toISOString();
-    link.athleteId = athlete.id;
-    link.status = 'active';
-    link.acceptedAt = now;
-    link.updatedAt = now;
-    invite.acceptedAt = now;
-    invite.acceptedBy = athlete.id;
-    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    candidateLink.athleteId = athlete.id;
+    candidateLink.status = 'active';
+    candidateLink.acceptedAt = now;
+    candidateLink.updatedAt = now;
+    candidateInvite.acceptedAt = now;
+    candidateInvite.acceptedBy = athlete.id;
+    const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
+    saveDb(candidate);
+    publishDb(candidate);
     if (compactionResult?.expiredAssessments?.length) {
       for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
     }
-    saveDb();
-    const coach = db.users.find(user => user.id === link.coachId);
-    audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: link.id });
-    json(res, 200, { link: serializeLink(db, link, athlete) });
+    const publishedLink = db.coachAthleteLinks.find(item => item.id === link.id);
+    const coach = db.users.find(user => user.id === publishedLink.coachId);
+    audit(req, 'b2b2c.invite.accept', { user: athlete, target: coach, msg: publishedLink.id });
+    json(res, 200, { link: serializeLink(db, publishedLink, athlete) });
   },
 
   'GET /api/coach/athletes': async (req, res) => {
@@ -2775,12 +2825,14 @@ const routes = {
       createdAt: now,
       updatedAt: now,
     };
-    db.coachPrescriptions.push(prescription);
-    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    const candidate = structuredClone(db);
+    candidate.coachPrescriptions.push(prescription);
+    const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
+    saveDb(candidate);
+    publishDb(candidate);
     if (compactionResult?.expiredAssessments?.length) {
       for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
     }
-    saveDb();
     audit(req, 'b2b2c.prescription.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     json(res, 201, { routine: serializePrescription(db, prescription) });
   },
@@ -2801,18 +2853,21 @@ const routes = {
       return b2bError(res, 404, 'routine_not_found', 'prescribed routine not found');
     }
     if (prescription.state !== 'withdrawn') {
+      const candidate = structuredClone(db);
+      const candidatePrescription = candidate.coachPrescriptions.find(item => item.id === prescription.id);
       const now = new Date().toISOString();
-      prescription.state = 'withdrawn';
-      prescription.updatedAt = now;
-      prescription.withdrawnAt = now;
-      const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
-    if (compactionResult?.expiredAssessments?.length) {
-      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
-    }
-      saveDb();
+      candidatePrescription.state = 'withdrawn';
+      candidatePrescription.updatedAt = now;
+      candidatePrescription.withdrawnAt = now;
+      const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
+      saveDb(candidate);
+      publishDb(candidate);
+      if (compactionResult?.expiredAssessments?.length) {
+        for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
+      }
       audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     }
-    json(res, 200, { routine: serializePrescription(db, prescription) });
+    json(res, 200, { routine: serializePrescription(db, db.coachPrescriptions.find(item => item.id === prescription.id) || prescription) });
   },
 
   'GET /api/coach/athletes/{athleteId}/meal-plans': async (req, res) => {
@@ -3388,21 +3443,26 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.link.transition.denied', actor, 'invalid_transition');
       return b2bError(res, 409, 'invalid_transition', 'invalid relationship transition');
     }
+    const candidate = structuredClone(db);
+    const candidateLink = candidate.coachAthleteLinks.find(item => item.id === link.id);
     const now = new Date().toISOString();
-    link.status = body.status;
-    link.updatedAt = now;
-    if (body.status === 'suspended') { link.suspendedAt = now; link.suspendedBy = actor.id; }
-    if (body.status === 'ended') { link.endedAt = now; link.endedBy = actor.id; }
-    const compactionResult = compactB2B2C(db, B2B2C_LIMITS);
+    candidateLink.status = body.status;
+    candidateLink.updatedAt = now;
+    if (body.status === 'suspended') { candidateLink.suspendedAt = now; candidateLink.suspendedBy = actor.id; }
+    if (body.status === 'ended') { candidateLink.endedAt = now; candidateLink.endedBy = actor.id; }
+    const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
+    try { saveDb(candidate); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'relationship transition could not be saved'); }
+    publishDb(candidate);
     if (compactionResult?.expiredAssessments?.length) {
       for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
     }
-    saveDb();
-    const targetId = actor.id === link.coachId ? link.athleteId : link.coachId;
+    const publishedLink = db.coachAthleteLinks.find(item => item.id === link.id);
+    const targetId = actor.id === publishedLink.coachId ? publishedLink.athleteId : publishedLink.coachId;
     audit(req, body.status === 'suspended' ? 'b2b2c.link.suspend' : 'b2b2c.link.end', {
-      user: actor, target: db.users.find(user => user.id === targetId), msg: link.id,
+      user: actor, target: db.users.find(user => user.id === targetId), msg: publishedLink.id,
     });
-    json(res, 200, { link: serializeLink(db, link, actor) });
+    json(res, 200, { link: serializeLink(db, publishedLink, actor) });
   },
 
   'POST /api/register/options': async (req, res) => {
@@ -4395,6 +4455,11 @@ const server = http.createServer(async (req, res) => {
   if (coachHabitSummary) {
     key = req.method + ' /api/coach/athletes/{athleteId}/habits-summary';
     req.athleteId = coachHabitSummary[1];
+  }
+  const coachCheckins = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/checkins$/.exec(url.pathname);
+  if (coachCheckins) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/checkins';
+    req.athleteId = coachCheckins[1];
   }
   const athleteAssessment = /^\/api\/athlete\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (athleteAssessment) {
