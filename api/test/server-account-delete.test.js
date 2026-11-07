@@ -274,8 +274,12 @@ test('cleanup status is admin-only, anti-enumerating and exposes manual review w
 });
 
 test('cleanup status and listing share an authenticated read rate limit', async t => {
-  const h = await startServer(t, { env: { ACCOUNT_CLEANUP_READ_ACCOUNT_MAX: '1', ACCOUNT_CLEANUP_READ_IP_MAX: '10' } });
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '60000',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '60000', ACCOUNT_CLEANUP_READ_ACCOUNT_MAX: '1', ACCOUNT_CLEANUP_READ_IP_MAX: '10',
+  } });
   const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
   assert.equal((await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`)).status, 200);
   const limited = await h.get(ADMIN, '/api/admin/account-cleanup');
   assert.equal(limited.status, 429);

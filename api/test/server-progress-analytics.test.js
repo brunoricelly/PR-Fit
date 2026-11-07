@@ -327,6 +327,11 @@ test('athlete report reads, metadata catalog, timezone errors and detail egress 
     if (metric.unavailableReason) metricReasons.add(metric.unavailableReason);
     if (metric.trend?.reason) trendReasons.add(metric.trend.reason);
   }
+  const expectedUnavailableReasons = ['outside_relationship_period', 'no_measurements', 'training_state_unavailable',
+    'no_adherence_records', 'no_meal_plan', 'no_habits', 'no_scheduled_habit_days'];
+  assert.deepEqual([...metricReasons].sort(), [...expectedUnavailableReasons].sort());
+  assert.deepEqual(response.body.unavailableReasons, expectedUnavailableReasons);
+  assert.deepEqual(response.body.trendReasons, ['insufficient_observations']);
   const goalFixture = { id: 'pgoal_catalog', metric: 'body_weight', status: 'active', direction: 'decrease', baselineValue: 90,
     targetValue: 80, tolerance: 0, startDate: '2026-11-01', targetDate: '2026-11-07' };
   const goalReasons = new Set([...metricReasons]);
@@ -342,6 +347,10 @@ test('athlete report reads, metadata catalog, timezone errors and detail egress 
     const reason = calculateGoalProgress(fixtureGoal, metricResult, '2026-11-07').unavailableReason;
     if (reason) goalReasons.add(reason);
   }
+  assert.deepEqual([...goalReasons].sort(), [...expectedUnavailableReasons, 'insufficient_data', 'zero_coverage', 'stale_data',
+    'insufficient_longitudinal_coverage'].sort());
+  assert.deepEqual(response.body.goalProgressReasons, [...expectedUnavailableReasons, 'insufficient_data', 'zero_coverage', 'stale_data',
+    'insufficient_longitudinal_coverage']);
   for (const reason of metricReasons) assert.ok(response.body.unavailableReasons.includes(reason), `metric reason ${reason}`);
   for (const reason of goalReasons) assert.ok(response.body.goalProgressReasons.includes(reason), `goal reason ${reason}`);
   for (const reason of trendReasons) assert.ok(response.body.trendReasons.includes(reason), `trend reason ${reason}`);

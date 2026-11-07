@@ -1780,7 +1780,11 @@ const cleanupKey = crypto.createHash('sha256').update(`${SECRET}:account-cleanup
 const cleanupRetryBaseMs = envInt('ACCOUNT_CLEANUP_RETRY_BASE_MS', 30000, { min: 10, max: 86400000 });
 const cleanupRetryMaxMs = envInt('ACCOUNT_CLEANUP_RETRY_MAX_MS', Math.max(3600000, cleanupRetryBaseMs), { min: cleanupRetryBaseMs, max: 604800000 });
 const cleanupMaxAttempts = envInt('ACCOUNT_CLEANUP_MAX_ATTEMPTS', 8, { min: 1, max: 100 });
+const cleanupReadWindowMs = envInt('ACCOUNT_CLEANUP_READ_WINDOW_MS', 60000, { min: 1000, max: 86400000 });
+const cleanupReadAccount = createWindow({ max: envInt('ACCOUNT_CLEANUP_READ_ACCOUNT_MAX', 120, { min: 1, max: 10000 }), windowMs: cleanupReadWindowMs });
+const cleanupReadIp = createWindow({ max: envInt('ACCOUNT_CLEANUP_READ_IP_MAX', 600, { min: 1, max: 100000 }), windowMs: cleanupReadWindowMs });
 let cleanupRetryTimer = null;
+setInterval(() => { cleanupReadAccount.sweep(); cleanupReadIp.sweep(); }, Math.min(cleanupReadWindowMs, 60000)).unref();
 function sealCleanupSubject(userId) {
   const iv = crypto.randomBytes(12);
   const cipher = crypto.createCipheriv('aes-256-gcm', cleanupKey, iv);
@@ -1794,6 +1798,52 @@ function openCleanupSubject(subject) {
   return Buffer.concat([decipher.update(bytes.subarray(28)), decipher.final()]).toString('utf8');
 }
 const cleanupStepNames = ['state', 'watch', 'coachAuth', 'media', 'integrations'];
+const cleanupStatuses = new Set(['pending', 'complete', 'failed', 'manual_review']);
+const cleanupIdPattern = /^acj_[A-Za-z0-9_-]{16}$/;
+function sanitizeCleanupError(value) {
+  if (value === null) return null;
+  if (value === 'subject:invalid') return value;
+  if (/^(state|watch|coachAuth|media|integrations):(EACCES|EIO|EPERM|external_error)$/.test(value)) return value;
+  return 'external_error';
+}
+function serializeCleanupJob(job) {
+  const values = Object.values(job.steps);
+  const complete = values.filter(value => value === 'complete').length;
+  return {
+    id: job.id,
+    status: job.status,
+    steps: { total: values.length, pending: values.length - complete, complete },
+    attempts: job.attempts,
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    nextAttemptAt: job.nextAttemptAt,
+    terminalAt: job.terminalAt,
+    lastError: sanitizeCleanupError(job.lastError),
+  };
+}
+function cleanupReadThrottle(req, res, admin) {
+  const wait = Math.max(cleanupReadAccount.take(admin.id), cleanupReadIp.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, 'admin.account-cleanup.throttled', { ok: false, user: admin, msg: 'rate_limited' });
+  json(res, 429, { error: 'too many requests', code: 'rate_limited' }, { 'Retry-After': String(wait) });
+  return true;
+}
+function cleanupCursor(payload) {
+  const text = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const mac = crypto.createHmac('sha256', cleanupKey).update(`cleanup-list:${text}`).digest('base64url');
+  return `${text}.${mac}`;
+}
+function readCleanupCursor(raw, status) {
+  if (!raw) return null;
+  try {
+    const [text, mac, extra] = raw.split('.');
+    const expected = crypto.createHmac('sha256', cleanupKey).update(`cleanup-list:${text || ''}`).digest('base64url');
+    if (extra || !text || !mac || mac.length !== expected.length
+        || !crypto.timingSafeEqual(Buffer.from(mac), Buffer.from(expected))) return false;
+    const value = JSON.parse(Buffer.from(text, 'base64url').toString('utf8'));
+    return value && value.status === status && cleanupIdPattern.test(value.id) && typeof value.updatedAt === 'string' ? value : false;
+  } catch { return false; }
+}
 function cleanupUnlink(file) {
   try { fs.unlinkSync(file); }
   catch (error) { if (error.code !== 'ENOENT') throw error; }
@@ -4304,6 +4354,45 @@ const routes = {
       : { ok: true, id: u.id, status: 'cleanup_pending', cleanupJobId: cleanup.id });
   },
 
+  'GET /api/admin/account-cleanup': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    if (cleanupReadThrottle(req, res, admin)) return;
+    const query = new URL(req.url, 'http://x').searchParams;
+    const status = query.get('status');
+    if (status && !cleanupStatuses.has(status)) return json(res, 400, { error: 'invalid status', code: 'invalid_status' });
+    const rawLimit = query.get('limit');
+    const limit = rawLimit === null ? 25 : Number(rawLimit);
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) return json(res, 400, { error: 'invalid limit', code: 'invalid_limit' });
+    const cursor = readCleanupCursor(query.get('cursor'), status || '');
+    if (cursor === false) return json(res, 400, { error: 'invalid cursor', code: 'invalid_cursor' });
+    const rows = (db.accountCleanupJobs || []).filter(job => !status || job.status === status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id));
+    let start = 0;
+    if (cursor) {
+      start = rows.findIndex(job => job.id === cursor.id && job.updatedAt === cursor.updatedAt) + 1;
+      if (!start) return json(res, 400, { error: 'invalid cursor', code: 'invalid_cursor' });
+    }
+    const selected = rows.slice(start, start + limit);
+    const hasMore = start + selected.length < rows.length;
+    const last = selected.at(-1);
+    json(res, 200, {
+      items: selected.map(serializeCleanupJob),
+      limit,
+      hasMore,
+      nextCursor: hasMore ? cleanupCursor({ status: status || '', id: last.id, updatedAt: last.updatedAt }) : null,
+    });
+  },
+
+  'GET /api/admin/account-cleanup/{cleanupJobId}': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    if (cleanupReadThrottle(req, res, admin)) return;
+    const job = cleanupIdPattern.test(req.cleanupJobId)
+      ? (db.accountCleanupJobs || []).find(item => item.id === req.cleanupJobId)
+      : null;
+    if (!job) return json(res, 404, { error: 'not found' });
+    json(res, 200, serializeCleanupJob(job));
+  },
+
   // Appoint or remove an admin. Owner only, never on themselves, and not for an admin named in
   // ADMIN_UIDS: that one comes back on the next restart whatever db.json says, so the switch
   // would lie. A disabled account is enabled first, so nobody is promoted while locked out.
@@ -4512,6 +4601,11 @@ const server = http.createServer(async (req, res) => {
   // lookup, and so csrfOk and the catch-all see one name for every concrete resource.
   const mm = /^\/api\/media\/([0-9a-f]{64})$/.exec(url.pathname);
   if (mm) { key = req.method + ' /api/media/{hash}'; req.mediaHash = mm[1]; }
+  const accountCleanup = /^\/api\/admin\/account-cleanup\/(acj_[A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (accountCleanup) {
+    key = req.method + ' /api/admin/account-cleanup/{cleanupJobId}';
+    req.cleanupJobId = accountCleanup[1];
+  }
   const coachRoutine = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines$/.exec(url.pathname);
   if (coachRoutine) {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines';

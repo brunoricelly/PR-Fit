@@ -39,6 +39,23 @@ const METRIC_CATALOG = Object.freeze({
   nutrition_adherence_percent: { unit: 'percent', pointKind: 'instant', pointSemantics: { numerator: 'completed_meals', denominator: 'recorded_meal_opportunities' }, directions: ['increase', 'decrease', 'maintain'], scope: 'nutrition', labelKey: 'progress.metric.nutrition_adherence_percent', labelPtBr: 'Adesão nutricional' },
   habit_adherence_percent: { unit: 'percent', pointKind: 'instant', pointSemantics: { numerator: 'completed_checkins', denominator: 'recorded_checkins' }, directions: ['increase', 'decrease', 'maintain'], scope: 'training', labelKey: 'progress.metric.habit_adherence_percent', labelPtBr: 'Adesão a hábitos' },
 });
+const UNAVAILABLE_REASONS = Object.freeze([
+  'outside_relationship_period',
+  'no_measurements',
+  'training_state_unavailable',
+  'no_adherence_records',
+  'no_meal_plan',
+  'no_habits',
+  'no_scheduled_habit_days',
+]);
+const GOAL_PROGRESS_REASONS = Object.freeze([
+  ...UNAVAILABLE_REASONS,
+  'insufficient_data',
+  'zero_coverage',
+  'stale_data',
+  'insufficient_longitudinal_coverage',
+]);
+const TREND_REASONS = Object.freeze(['insufficient_observations']);
 const GOAL_KEYS = [
   'id', 'linkId', 'coachId', 'athleteId', 'metric', 'direction', 'baselineValue', 'targetValue',
   'tolerance', 'unit', 'startDate', 'targetDate', 'timezone', 'status', '_rev', 'createdAt', 'updatedAt',
@@ -72,8 +89,18 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 const isoTimestamp = value => typeof value === 'string' && Number.isFinite(Date.parse(value))
   && new Date(Date.parse(value)).toISOString() === value;
 const validId = value => typeof value === 'string' && ID_RE.test(value);
-const shiftDate = (date, days) => new Date(Date.parse(`${date}T00:00:00.000Z`) + days * DAY_MS).toISOString().slice(0, 10);
-const inclusiveDays = (from, to) => Math.floor((Date.parse(`${to}T00:00:00.000Z`) - Date.parse(`${from}T00:00:00.000Z`)) / DAY_MS) + 1;
+function civilUtcMs(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+function shiftDate(date, days) {
+  const shifted = new Date(civilUtcMs(date) + days * DAY_MS);
+  const year = shifted.getUTCFullYear();
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(shifted.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+const inclusiveDays = (from, to) => Math.floor((civilUtcMs(to) - civilUtcMs(from)) / DAY_MS) + 1;
 const cleanText = (value, max) => typeof value === 'string' && value.length <= max && !CONTROL_RE.test(value) ? value : null;
 const timestampOf = value => finite(value) ? value : Date.parse(value);
 const newest = (left, right) => Date.parse(right.updatedAt || right.createdAt) - Date.parse(left.updatedAt || left.createdAt)
@@ -282,11 +309,13 @@ export function parseProgressPeriod(searchParams, timeZone, now = Date.now()) {
   const today = dateInTimeZone(now, timeZone);
   const from = searchParams.get('from');
   const to = searchParams.get('to');
+  const requestedPeriod = searchParams.get('period');
+  if (requestedPeriod !== null && (from !== null || to !== null)) return null;
   if (from !== null || to !== null) {
     if (!validIsoDate(from) || !validIsoDate(to) || from > to || inclusiveDays(from, to) > 366) return null;
     return { from, to, days: inclusiveDays(from, to), preset: null };
   }
-  const raw = searchParams.get('period') || '30';
+  const raw = requestedPeriod || '30';
   const days = Number(raw);
   if (![7, 30, 90].includes(days)) return null;
   return { from: shiftDate(today, -(days - 1)), to: today, days, preset: days };
@@ -570,9 +599,11 @@ export function buildProgressSummary({ db, link, state, period, timeZone, metric
     else if (metric === 'nutrition_adherence_percent') results[metric] = nutritionMetric(db, link, effective, timeZone);
     else if (metric === 'habit_adherence_percent') results[metric] = habitMetric(db, link, effective, timeZone);
   }
-  const today = dateInTimeZone(now, timeZone);
   const goals = db.progressGoals.filter(goal => goal.linkId === link.id && metrics.includes(goal.metric))
-    .sort(newest).map(goal => ({ ...structuredClone(goal), progress: calculateGoalProgress(goal, results[goal.metric], today) }));
+    .sort(newest).map(goal => ({
+      ...structuredClone(goal),
+      progress: calculateGoalProgress(goal, results[goal.metric], dateInTimeZone(now, goal.timezone)),
+    }));
   return {
     generatedAt: new Date(now).toISOString(), timezone: timeZone,
     period: { from: effective.from, to: effective.to, days: effective.days, requestedFrom: period.from, requestedTo: period.to, preset: period.preset },
@@ -748,7 +779,7 @@ export function createProgressRoutes({
     const selected = rows.slice(start, start + limit);
     const hasMore = start + selected.length < rows.length;
     const last = selected.at(-1);
-    return { items: selected.map(serialize), hasMore, nextCursor: hasMore
+    return { items: selected.map(serialize), limit, hasMore, nextCursor: hasMore
       ? encodeCursor({ kind, linkId: context.access.link.id, filters, id: last.id, at: last.updatedAt || last.createdAt }) : null };
   };
   const listPeriod = (res, url) => {
@@ -837,7 +868,9 @@ export function createProgressRoutes({
       const actor = readSession(req);
       if (!actor) return b2bError(res, 401, 'not_signed_in', 'not signed in');
       json(res, 200, { metrics: METRIC_CATALOG, states: ['not_started', 'in_progress', 'within_tolerance', 'outside_tolerance', 'achieved', 'archived', 'insufficient_data', 'stale', 'unavailable'],
-        reasons: ['insufficient_data', 'zero_coverage', 'stale_data', 'insufficient_longitudinal_coverage', 'outside_relationship_period', 'no_measurements', 'no_adherence_records', 'no_meal_plan', 'no_habits'] });
+        unavailableReasons: UNAVAILABLE_REASONS,
+        goalProgressReasons: GOAL_PROGRESS_REASONS,
+        trendReasons: TREND_REASONS });
     },
     'GET /api/coach/athletes/{athleteId}/progress-goals': (req, res) => listGoals(req, res, { athleteId: req.athleteId, coachOnly: true }),
     'GET /api/coach/athletes/{athleteId}/progress-goals/{goalId}': (req, res) => {
