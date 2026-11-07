@@ -558,6 +558,213 @@ paths:
         '403': { description: Professional profile, active relationship or training scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: Relationship or routine absent or outside this professional's scope., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
+  /api/coach/athletes/{athleteId}/meal-plans:
+    parameters:
+      - in: path
+        name: athleteId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [professionals]
+      operationId: listAthleteMealPlans
+      summary: List meal plans prescribed for one linked athlete
+      description: Requires an active relationship with the `nutrition` scope. Only plans created by the signed-in professional are returned.
+      responses:
+        '200':
+          description: Meal plans, newest update first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mealPlans: { type: array, items: { $ref: '#/components/schemas/MealPlanResponse' } }
+                  quota: { $ref: '#/components/schemas/NutritionQuota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or nutrition scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    post:
+      tags: [professionals]
+      operationId: createAthleteMealPlan
+      summary: Prescribe a meal plan for one linked athlete
+      description: Strictly validates realistic positive nutrition targets, meals, foods and substitutions. Target macro calories may differ by at most 35%; summed food calories/macros must remain within 50–150% of targets. Every mutation is rate limited, quota bounded and persisted atomically. Activating a plan archives every other active plan for the athlete, regardless of professional.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MealPlanCreateInput' }
+      responses:
+        '201':
+          description: Persisted meal plan.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  mealPlan: { $ref: '#/components/schemas/MealPlanResponse' }
+        '400': { description: Invalid meal plan or nutrition bounds., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or nutrition scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Per professional/athlete or global meal-plan quota reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { description: Per-account or per-address creation rate limit reached., headers: { Retry-After: { schema: { type: integer } } }, content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '503': { description: The meal plan could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/coach/athletes/{athleteId}/meal-plans/{planId}:
+    parameters:
+      - in: path
+        name: athleteId
+        required: true
+        schema: { type: string }
+      - in: path
+        name: planId
+        required: true
+        schema: { type: string }
+    get:
+      tags: [professionals]
+      operationId: getAthleteMealPlan
+      summary: Read one prescribed meal plan
+      responses:
+        '200':
+          description: Meal plan owned by the signed-in professional.
+          content:
+            application/json:
+              schema: { type: object, properties: { mealPlan: { $ref: '#/components/schemas/MealPlanResponse' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Nutrition scope missing or the plan belongs to another professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or meal plan absent., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    patch:
+      tags: [professionals]
+      operationId: updateAthleteMealPlan
+      summary: Update or activate a prescribed meal plan
+      description: Accepts one or more editable fields, including existing meal/item ids so clients can preserve identity. Activating a plan archives every other active plan for this athlete. Removed meal ids are atomically removed from existing check-ins before the combined state is validated and saved.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MealPlanPatchInput' }
+      responses:
+        '200':
+          description: Updated meal plan.
+          content:
+            application/json:
+              schema: { type: object, properties: { mealPlan: { $ref: '#/components/schemas/MealPlanResponse' } } }
+        '400': { description: Invalid meal plan fields., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Nutrition scope missing or the plan belongs to another professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or meal plan absent., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/NutritionRateLimited' }
+        '503': { description: The update could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+    delete:
+      tags: [professionals]
+      operationId: deleteAthleteMealPlan
+      summary: Delete a prescribed meal plan and its check-ins
+      description: Atomically removes the professional-owned plan and every adherence record that references it.
+      responses:
+        '200':
+          description: Deleted meal plan.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deleted: { type: boolean, const: true }
+                  mealPlan: { $ref: '#/components/schemas/MealPlanResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Nutrition scope missing or the plan belongs to another professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: Relationship or meal plan absent., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/NutritionRateLimited' }
+        '503': { description: The deletion could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/coach/athletes/{athleteId}/meal-adherence:
+    get:
+      tags: [professionals]
+      operationId: listAthleteMealAdherence
+      summary: List meal adherence for one linked athlete
+      description: Requires the `nutrition` scope and returns only check-ins for plans created by the signed-in professional. Cursor pagination is stable in newest-first order; retained history is automatically compacted after the configured retention period.
+      parameters:
+        - in: path
+          name: athleteId
+          required: true
+          schema: { type: string }
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+        - in: query
+          name: cursor
+          schema: { type: string }
+      responses:
+        '200':
+          description: Daily check-ins, newest date first.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [adherence, page, quota]
+                properties:
+                  adherence: { type: array, items: { $ref: '#/components/schemas/MealAdherenceResponse' } }
+                  page: { $ref: '#/components/schemas/CursorPage' }
+                  quota: { $ref: '#/components/schemas/AdherenceQuota' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { description: Professional profile, active relationship or nutrition scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '400': { description: Invalid limit or cursor., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
+  /api/athlete/meal-plan:
+    get:
+      tags: [professionals]
+      operationId: getActiveAthleteMealPlan
+      summary: Read the signed-in athlete's active meal plan
+      description: Returns the athlete's single global active plan backed by a currently active nutrition relationship, including the responsible professional, or null.
+      responses:
+        '200':
+          description: Active meal plan or null.
+          content:
+            application/json:
+              schema: { type: object, properties: { mealPlan: { oneOf: [{ $ref: '#/components/schemas/MealPlanResponse' }, { type: 'null' }] } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+
+  /api/athlete/meal-adherence:
+    get:
+      tags: [professionals]
+      operationId: getAthleteMealAdherence
+      summary: Read the signed-in athlete's meal adherence for a day
+      parameters:
+        - in: query
+          name: date
+          required: true
+          schema: { type: string, format: date }
+      responses:
+        '200':
+          description: Most recently updated daily adherence record or null, plus all active-plan rows for that day.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  adherence: { oneOf: [{ $ref: '#/components/schemas/MealAdherenceResponse' }, { type: 'null' }] }
+                  adherenceRecords: { type: array, items: { $ref: '#/components/schemas/MealAdherenceResponse' } }
+        '400': { description: Date is absent or invalid., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+    post:
+      tags: [professionals]
+      operationId: upsertAthleteMealAdherence
+      summary: Mutate one meal completion or merge daily water/notes
+      description: Upserts one athlete-owned row per active meal plan and date. `mealUpdate` changes only one meal id; water and notes merge independently, so concurrent controls cannot replace unrelated fields. All writes are atomic and rate limited.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/MealAdherenceMutationInput' }
+      responses:
+        '200': { description: Existing adherence record updated., content: { application/json: { schema: { type: object, properties: { adherence: { $ref: '#/components/schemas/MealAdherenceResponse' } } } } } }
+        '201': { description: New adherence record created., content: { application/json: { schema: { type: object, properties: { adherence: { $ref: '#/components/schemas/MealAdherenceResponse' } } } } } }
+        '400': { description: Invalid date, meal ids, water amount or notes., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { description: Active athlete-owned meal plan absent., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '409': { description: Meal-adherence quota reached., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '429': { $ref: '#/components/responses/NutritionRateLimited' }
+        '503': { description: The check-in could not be persisted atomically., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+
   /api/assessments/config:
     get:
       tags: [professionals]
@@ -4528,6 +4735,16 @@ components:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
           example: { error: "slow down a little", code: "rate", retryAfter: 9 }
+    NutritionRateLimited:
+      description: The per-account or per-address nutrition mutation budget is exhausted for this window.
+      headers:
+        Retry-After:
+          description: Seconds until the fixed window resets.
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: "too many nutrition mutations, try again later", code: "rate_limited" }
     TooManyRequests:
       description: >-
         Paused by the sign-in throttle (see *Throttling* in the description). The request
@@ -4820,6 +5037,174 @@ components:
           description: OpenGym routine ids added for the prescribed divisions, in division order.
           items: { type: string }
         withdrawnAt: { type: string, format: date-time }
+
+    MealSubstitute:
+      type: object
+      required: [name, portion]
+      description: Suggested replacement. Optional nutrition fields are accepted only when each supplied value is within 30% (with a small absolute allowance) of the source food; a suggestion without every field is not claimed as nutritionally equivalent.
+      properties:
+        name: { type: string, minLength: 1, maxLength: 120 }
+        portion: { type: string, minLength: 1, maxLength: 120 }
+        calories: { type: number, minimum: 0, maximum: 5000 }
+        protein: { type: number, minimum: 0, maximum: 500 }
+        carbs: { type: number, minimum: 0, maximum: 1000 }
+        fats: { type: number, minimum: 0, maximum: 500 }
+        fiber: { type: number, minimum: 0, maximum: 200 }
+      additionalProperties: false
+
+    MealItem:
+      type: object
+      required: [name, portion, calories, protein, carbs, fats, fiber, substitutes]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,80}$', description: Optional on create and preserved on PATCH. }
+        name: { type: string, minLength: 1, maxLength: 120 }
+        portion: { type: string, minLength: 1, maxLength: 120 }
+        calories: { type: number, minimum: 0, maximum: 5000 }
+        protein: { type: number, minimum: 0, maximum: 500 }
+        carbs: { type: number, minimum: 0, maximum: 1000 }
+        fats: { type: number, minimum: 0, maximum: 500 }
+        fiber: { type: number, minimum: 0, maximum: 200 }
+        substitutes:
+          type: array
+          maxItems: 20
+          items: { $ref: '#/components/schemas/MealSubstitute' }
+      additionalProperties: false
+
+    Meal:
+      type: object
+      required: [name, time, items]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,80}$', description: Optional on create and preserved on PATCH. }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        time: { type: string, pattern: '^(?:[01]\d|2[0-3]):[0-5]\d$', example: '07:30' }
+        items:
+          type: array
+          minItems: 1
+          maxItems: 50
+          items: { $ref: '#/components/schemas/MealItem' }
+      additionalProperties: false
+
+    MealMacros:
+      type: object
+      required: [protein, carbs, fats, fiber, waterMl]
+      properties:
+        protein: { type: number, minimum: 1, maximum: 500 }
+        carbs: { type: number, minimum: 1, maximum: 1200 }
+        fats: { type: number, minimum: 1, maximum: 500 }
+        fiber: { type: number, minimum: 0, maximum: 200 }
+        waterMl: { type: number, minimum: 1, maximum: 15000 }
+      additionalProperties: false
+
+    MealPlanCreateInput:
+      type: object
+      required: [title, status, targetCalories, targetMacros, meals]
+      description: Complete plan. Macro-derived calories may be 65–135% of targetCalories; summed item calories and macros must each be 50–150% of their target.
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        status: { type: string, enum: [active, archived, draft] }
+        targetCalories: { type: number, minimum: 1, maximum: 10000 }
+        targetMacros: { $ref: '#/components/schemas/MealMacros' }
+        meals:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/Meal' }
+        notes: { type: string, maxLength: 2000 }
+      additionalProperties: false
+
+    MealPlanPatchInput:
+      type: object
+      minProperties: 1
+      properties:
+        title: { type: string, minLength: 1, maxLength: 120 }
+        status: { type: string, enum: [active, archived, draft] }
+        targetCalories: { type: number, minimum: 1, maximum: 10000 }
+        targetMacros: { $ref: '#/components/schemas/MealMacros' }
+        meals:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items: { $ref: '#/components/schemas/Meal' }
+        notes: { type: string, maxLength: 2000 }
+      additionalProperties: false
+
+    MealPlanResponse:
+      type: object
+      required: [id, coach, athlete, title, status, targetCalories, targetMacros, meals, notes, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        coach: { $ref: '#/components/schemas/SessionUser' }
+        athlete: { $ref: '#/components/schemas/SessionUser' }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        status: { type: string, enum: [active, archived, draft] }
+        targetCalories: { type: number, minimum: 1, maximum: 10000 }
+        targetMacros: { $ref: '#/components/schemas/MealMacros' }
+        meals: { type: array, minItems: 1, maxItems: 20, items: { $ref: '#/components/schemas/Meal' } }
+        notes: { type: string, maxLength: 2000 }
+        createdAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
+        updatedAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
+      additionalProperties: false
+
+    MealAdherenceMutationInput:
+      type: object
+      required: [mealPlanId, date]
+      anyOf:
+        - required: [mealUpdate]
+        - required: [waterDrunkMl]
+        - required: [notes]
+      properties:
+        mealPlanId: { type: string }
+        date: { type: string, format: date }
+        mealUpdate:
+          type: object
+          required: [mealId, checked]
+          properties:
+            mealId: { type: string, description: One meal id from the active plan. }
+            checked: { type: boolean }
+          additionalProperties: false
+        waterDrunkMl: { type: number, minimum: 0, maximum: 20000 }
+        notes: { type: string, maxLength: 1000 }
+      additionalProperties: false
+
+    MealAdherenceResponse:
+      type: object
+      required: [id, athleteId, mealPlanId, date, mealsChecked, waterDrunkMl, notes, updatedAt]
+      properties:
+        id: { type: string }
+        athleteId: { type: string }
+        mealPlanId: { type: string }
+        date: { type: string, format: date }
+        mealsChecked: { type: array, uniqueItems: true, maxItems: 20, items: { type: string } }
+        waterDrunkMl: { type: number, minimum: 0, maximum: 20000 }
+        notes: { type: string, maxLength: 1000 }
+        updatedAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
+      additionalProperties: false
+
+    NutritionQuota:
+      type: object
+      required: [used, limit]
+      properties:
+        used: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1 }
+      additionalProperties: false
+
+    AdherenceQuota:
+      type: object
+      required: [used, limit, retentionDays]
+      properties:
+        used: { type: integer, minimum: 0 }
+        limit: { type: integer, minimum: 1 }
+        retentionDays: { type: integer, minimum: 1 }
+      additionalProperties: false
+
+    CursorPage:
+      type: object
+      required: [limit, hasMore, nextCursor]
+      properties:
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { oneOf: [{ type: string }, { type: 'null' }] }
+      additionalProperties: false
 
     SkinfoldAssessment:
       type: object

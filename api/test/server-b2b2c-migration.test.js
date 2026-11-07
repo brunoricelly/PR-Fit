@@ -47,6 +47,29 @@ for (const [name, db] of [
   ['corrupt assessment record', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'bad' }] }],
   ['corrupt assessment payload', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'cas_bad', coachId: 'u_c', athleteId: 'u_a', assessedAt: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', parq: { version: '2024.1', answers: [] } }] }],
   ['corrupt baseline collection', { schemaVersion: 3, users: null, creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [] }],
+  ['duplicate meal plan ids', {
+    schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [1, 2].map(() => ({ id: 'mp_duplicate', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000,
+      targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 }, meals: [{ id: 'm_1', name: 'Day', time: '08:00', items: [{ id: 'it_1', name: 'Menu', portion: 'day', calories: 2000, protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [] }] }], notes: '', createdAt: 1, updatedAt: 1 })),
+    mealAdherence: [],
+  }],
+  ['duplicate adherence ids', {
+    schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [{ id: 'mp_1', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000,
+      targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 }, meals: [{ id: 'm_1', name: 'Day', time: '08:00', items: [{ id: 'it_1', name: 'Menu', portion: 'day', calories: 2000, protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [] }] }], notes: '', createdAt: 1, updatedAt: 1 }],
+    mealAdherence: ['2026-11-05', '2026-11-06'].map(date => ({ id: 'adh_duplicate', athleteId: 'u_a', mealPlanId: 'mp_1', date, mealsChecked: [], waterDrunkMl: 0, notes: '', updatedAt: 1 })),
+  }],
+  ['duplicate meal ids', (() => {
+    const item = { id: 'it_1', name: 'Menu', portion: 'day', calories: 2000, protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [] };
+    const meal = { id: 'm_duplicate', name: 'Day', time: '08:00', items: [item] };
+    return { schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealAdherence: [],
+      mealPlans: [{ id: 'mp_1', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 4000, targetMacros: { protein: 300, carbs: 500, fats: 130, fiber: 60, waterMl: 2500 }, meals: [meal, structuredClone(meal)], notes: '', createdAt: 1, updatedAt: 1 }] };
+  })()],
+  ['duplicate meal item ids', (() => {
+    const item = { id: 'it_duplicate', name: 'Menu', portion: 'half day', calories: 1000, protein: 75, carbs: 125, fats: 32.5, fiber: 15, substitutes: [] };
+    return { schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealAdherence: [],
+      mealPlans: [{ id: 'mp_1', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000, targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 }, meals: [{ id: 'm_1', name: 'Day', time: '08:00', items: [item, structuredClone(item)] }], notes: '', createdAt: 1, updatedAt: 1 }] };
+  })()],
 ]) {
   test(`${name} refuses boot without overwriting db.json or db.json.bak`, async t => {
     const sample = fixture(t, db);
@@ -64,24 +87,28 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 4);
+  assert.equal(stored.schemaVersion, 5);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
   assert.deepEqual(stored.coachAssessments, []);
+  assert.deepEqual(stored.mealPlans, []);
+  assert.deepEqual(stored.mealAdherence, []);
 });
 
-test('known schema versions migrate to version 4', async t => {
+test('known schema versions migrate to version 5', async t => {
   const sample = fixture(t, { schemaVersion: 1, users: [], creds: [], subs: [], invites: [] });
   const server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 4);
+  assert.equal(stored.schemaVersion, 5);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
   assert.deepEqual(stored.coachAssessments, []);
+  assert.deepEqual(stored.mealPlans, []);
+  assert.deepEqual(stored.mealAdherence, []);
 });
 
 test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {

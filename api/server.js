@@ -49,6 +49,7 @@ import {
   B2B2CDataError, B2B2C_LIMITS as B2B2C_DEFAULT_LIMITS, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
   authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, validateAssessment, removeB2B2CUser,
+  validateMealPlan, validateMealAdherence, validateNutritionState, serializeMealPlan,
   PARQ_QUESTIONS, PARQ_VERSION,
 } from './b2b2c.js';
 import {
@@ -119,6 +120,11 @@ const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: envInt('B2B2C_ASSESSMENTS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxAssessmentsPerAthlete, { min: 1, max: 10000 }),
   maxAssessments: envInt('B2B2C_MAX_ASSESSMENTS', B2B2C_DEFAULT_LIMITS.maxAssessments, { min: 1, max: 1000000 }),
   assessmentRetentionDays: envInt('B2B2C_ASSESSMENT_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.assessmentRetentionDays, { min: 30, max: 36500 }),
+  maxMealPlansPerAthlete: envInt('B2B2C_MEAL_PLANS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxMealPlansPerAthlete, { min: 1, max: 1000 }),
+  maxMealPlans: envInt('B2B2C_MAX_MEAL_PLANS', B2B2C_DEFAULT_LIMITS.maxMealPlans, { min: 1, max: 1000000 }),
+  maxMealAdherencePerAthlete: envInt('B2B2C_MEAL_ADHERENCE_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxMealAdherencePerAthlete, { min: 1, max: 10000 }),
+  maxMealAdherence: envInt('B2B2C_MAX_MEAL_ADHERENCE', B2B2C_DEFAULT_LIMITS.maxMealAdherence, { min: 1, max: 1000000 }),
+  mealAdherenceRetentionDays: envInt('B2B2C_MEAL_ADHERENCE_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.mealAdherenceRetentionDays, { min: 1, max: 36500 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -132,6 +138,10 @@ const B2B2C_RATE = {
   acceptIp: envInt('B2B2C_INVITE_ACCEPT_IP_MAX', 200, { min: 1, max: 100000 }),
   assessmentAccount: envInt('B2B2C_ASSESSMENT_CREATE_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
   assessmentIp: envInt('B2B2C_ASSESSMENT_CREATE_IP_MAX', 300, { min: 1, max: 100000 }),
+  mealPlanAccount: envInt('B2B2C_MEAL_PLAN_MUTATION_ACCOUNT_MAX', envInt('B2B2C_MEAL_PLAN_CREATE_ACCOUNT_MAX', 120, { min: 1, max: 10000 }), { min: 1, max: 10000 }),
+  mealPlanIp: envInt('B2B2C_MEAL_PLAN_MUTATION_IP_MAX', envInt('B2B2C_MEAL_PLAN_CREATE_IP_MAX', 600, { min: 1, max: 100000 }), { min: 1, max: 100000 }),
+  mealAdherenceAccount: envInt('B2B2C_MEAL_ADHERENCE_MUTATION_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
+  mealAdherenceIp: envInt('B2B2C_MEAL_ADHERENCE_MUTATION_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -1308,10 +1318,16 @@ const B2B2C_ACCEPT_ACCOUNT = createWindow({ max: B2B2C_RATE.acceptAccount, windo
 const B2B2C_ACCEPT_IP = createWindow({ max: B2B2C_RATE.acceptIp, windowMs: B2B2C_RATE.windowMs });
 const B2B2C_ASSESSMENT_ACCOUNT = createWindow({ max: B2B2C_RATE.assessmentAccount, windowMs: B2B2C_RATE.windowMs });
 const B2B2C_ASSESSMENT_IP = createWindow({ max: B2B2C_RATE.assessmentIp, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_MEAL_PLAN_ACCOUNT = createWindow({ max: B2B2C_RATE.mealPlanAccount, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_MEAL_PLAN_IP = createWindow({ max: B2B2C_RATE.mealPlanIp, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_MEAL_ADHERENCE_ACCOUNT = createWindow({ max: B2B2C_RATE.mealAdherenceAccount, windowMs: B2B2C_RATE.windowMs });
+const B2B2C_MEAL_ADHERENCE_IP = createWindow({ max: B2B2C_RATE.mealAdherenceIp, windowMs: B2B2C_RATE.windowMs });
 setInterval(() => {
   B2B2C_CREATE_ACCOUNT.sweep(); B2B2C_CREATE_IP.sweep();
   B2B2C_ACCEPT_ACCOUNT.sweep(); B2B2C_ACCEPT_IP.sweep();
   B2B2C_ASSESSMENT_ACCOUNT.sweep(); B2B2C_ASSESSMENT_IP.sweep();
+  B2B2C_MEAL_PLAN_ACCOUNT.sweep(); B2B2C_MEAL_PLAN_IP.sweep();
+  B2B2C_MEAL_ADHERENCE_ACCOUNT.sweep(); B2B2C_MEAL_ADHERENCE_IP.sweep();
 }, Math.min(B2B2C_RATE.windowMs, 60000)).unref();
 
 function b2b2cThrottle(req, res, user, action) {
@@ -1332,6 +1348,22 @@ function assessmentThrottle(req, res, user) {
   return true;
 }
 
+function mealPlanThrottle(req, res, user, action) {
+  const wait = Math.max(B2B2C_MEAL_PLAN_ACCOUNT.take(user.id), B2B2C_MEAL_PLAN_IP.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, `b2b2c.meal-plan.${action}.throttled`, { ok: false, user, msg: 'rate_limited' });
+  b2bError(res, 429, 'rate_limited', 'too many meal plan attempts, try again later', { 'Retry-After': String(wait) });
+  return true;
+}
+
+function mealAdherenceThrottle(req, res, user) {
+  const wait = Math.max(B2B2C_MEAL_ADHERENCE_ACCOUNT.take(user.id), B2B2C_MEAL_ADHERENCE_IP.take(limitAddress(req)));
+  if (!wait) return false;
+  auditFail(req, 'b2b2c.meal-adherence.update.throttled', { ok: false, user, msg: 'rate_limited' });
+  b2bError(res, 429, 'rate_limited', 'too many meal adherence attempts, try again later', { 'Retry-After': String(wait) });
+  return true;
+}
+
 function commitAssessmentCollection(next) {
   const previous = db.coachAssessments;
   db.coachAssessments = next;
@@ -1340,6 +1372,39 @@ function commitAssessmentCollection(next) {
     db.coachAssessments = previous;
     throw error;
   }
+}
+
+function commitNutrition(nextPlans, nextAdherence = db.mealAdherence) {
+  const previousPlans = db.mealPlans;
+  const previousAdherence = db.mealAdherence;
+  db.mealPlans = nextPlans;
+  db.mealAdherence = nextAdherence;
+  try {
+    validateNutritionState(db.mealPlans, db.mealAdherence);
+    saveDb();
+  }
+  catch (error) {
+    db.mealPlans = previousPlans;
+    db.mealAdherence = previousAdherence;
+    throw error;
+  }
+}
+
+const adherenceNewestFirst = (left, right) => right.date.localeCompare(left.date)
+  || right.updatedAt - left.updatedAt || String(right.id).localeCompare(String(left.id));
+const adherenceCursor = item => Buffer.from(JSON.stringify([item.date, item.updatedAt, item.id])).toString('base64url');
+function parseAdherenceCursor(value) {
+  if (!value) return null;
+  try {
+    const decoded = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+    if (!Array.isArray(decoded) || decoded.length !== 3 || typeof decoded[0] !== 'string'
+        || !Number.isFinite(decoded[1]) || typeof decoded[2] !== 'string') return false;
+    return { date: decoded[0], updatedAt: decoded[1], id: decoded[2] };
+  } catch { return false; }
+}
+function retainedMealAdherence(now = Date.now()) {
+  const cutoff = new Date(now - B2B2C_LIMITS.mealAdherenceRetentionDays * 86400000).toISOString().slice(0, 10);
+  return db.mealAdherence.filter(item => item.date >= cutoff);
 }
 
 function commitAssessmentConsent(link, scopes, now) {
@@ -1360,9 +1425,6 @@ function compactRelationships() {
   if (result?.expiredAssessments?.length) {
     for (const item of result.expiredAssessments) removeOrphanedAssessmentPhotos(item);
   }
-    if (compactionResult?.expiredAssessments?.length) {
-      for (const item of compactionResult.expiredAssessments) removeOrphanedAssessmentPhotos(item);
-    }
   if (result.changed) saveDb();
   return result;
 }
@@ -1661,6 +1723,8 @@ function removeAccount(u) {
     coachAthleteLinks: db.coachAthleteLinks ? [...db.coachAthleteLinks] : [],
     coachPrescriptions: db.coachPrescriptions ? [...db.coachPrescriptions] : [],
     coachAssessments: db.coachAssessments ? [...db.coachAssessments] : [],
+    mealPlans: db.mealPlans ? [...db.mealPlans] : [],
+    mealAdherence: db.mealAdherence ? [...db.mealAdherence] : [],
   };
   try {
     db.users = db.users.filter(x => x.id !== u.id);
@@ -2723,6 +2787,245 @@ const routes = {
       audit(req, 'b2b2c.prescription.withdraw', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: prescription.id });
     }
     json(res, 200, { routine: serializePrescription(db, prescription) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/meal-plans': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:read');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.list.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    }
+    const mealPlans = db.mealPlans.filter(plan => plan.coachId === coach.id && plan.athleteId === req.athleteId)
+      .sort((left, right) => right.updatedAt - left.updatedAt).map(plan => serializeMealPlan(db, plan));
+    audit(req, 'b2b2c.meal-plan.list', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: String(mealPlans.length) });
+    json(res, 200, { mealPlans, quota: { used: mealPlans.length, limit: B2B2C_LIMITS.maxMealPlansPerAthlete } });
+  },
+
+  'POST /api/coach/athletes/{athleteId}/meal-plans': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    if (mealPlanThrottle(req, res, coach, 'create')) return;
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:write');
+    if (!access.ok) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.create.denied', coach, access.code);
+      return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    }
+    const normalized = validateMealPlan(await readBody(req));
+    if (!normalized) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.create.denied', coach, 'invalid_meal_plan');
+      return b2bError(res, 400, 'invalid_meal_plan', 'invalid meal plan');
+    }
+    const pairCount = db.mealPlans.filter(plan => plan.coachId === coach.id && plan.athleteId === req.athleteId).length;
+    if (pairCount >= B2B2C_LIMITS.maxMealPlansPerAthlete || db.mealPlans.length >= B2B2C_LIMITS.maxMealPlans) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.create.denied', coach, 'meal_plan_capacity');
+      return b2bError(res, 409, 'meal_plan_capacity', 'meal plan storage capacity reached');
+    }
+    const now = Date.now();
+    const row = { id: makeEntityId('mp', db.mealPlans), coachId: coach.id, athleteId: req.athleteId, ...normalized, createdAt: now, updatedAt: now };
+    let next = db.mealPlans;
+    if (row.status === 'active') {
+      next = next.map(plan => plan.athleteId === req.athleteId && plan.status === 'active'
+        ? { ...plan, status: 'archived', updatedAt: now } : plan);
+    }
+    try { commitNutrition([...next, row]); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'meal plan could not be saved'); }
+    audit(req, 'b2b2c.meal-plan.create', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: row.id });
+    json(res, 201, { mealPlan: serializeMealPlan(db, row) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/meal-plans/{planId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:read');
+    if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    const candidate = db.mealPlans.find(plan => plan.id === req.planId && plan.athleteId === req.athleteId);
+    if (candidate && candidate.coachId !== coach.id) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.read.denied', coach, 'meal_plan_forbidden');
+      return b2bError(res, 403, 'meal_plan_forbidden', 'meal plan belongs to another professional');
+    }
+    if (!candidate) return b2bError(res, 404, 'meal_plan_not_found', 'meal plan not found');
+    audit(req, 'b2b2c.meal-plan.read', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: candidate.id });
+    json(res, 200, { mealPlan: serializeMealPlan(db, candidate) });
+  },
+
+  'PATCH /api/coach/athletes/{athleteId}/meal-plans/{planId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    if (mealPlanThrottle(req, res, coach, 'update')) return;
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:write');
+    if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    const index = db.mealPlans.findIndex(plan => plan.id === req.planId && plan.athleteId === req.athleteId);
+    if (index < 0) return b2bError(res, 404, 'meal_plan_not_found', 'meal plan not found');
+    if (db.mealPlans[index].coachId !== coach.id) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.update.denied', coach, 'meal_plan_forbidden');
+      return b2bError(res, 403, 'meal_plan_forbidden', 'meal plan belongs to another professional');
+    }
+    const body = await readBody(req);
+    if (!body || typeof body !== 'object' || Array.isArray(body) || !Object.keys(body).length
+        || Object.keys(body).some(key => !['meals', 'notes', 'status', 'targetCalories', 'targetMacros', 'title'].includes(key))) {
+      return b2bError(res, 400, 'invalid_meal_plan', 'invalid meal plan');
+    }
+    const current = db.mealPlans[index];
+    const normalized = validateMealPlan({
+      title: current.title, status: current.status, targetCalories: current.targetCalories,
+      targetMacros: current.targetMacros, meals: current.meals, notes: current.notes, ...body,
+    });
+    if (!normalized) return b2bError(res, 400, 'invalid_meal_plan', 'invalid meal plan');
+    const now = Date.now();
+    const updated = { ...current, ...normalized, updatedAt: now };
+    let next = db.mealPlans.map((plan, planIndex) => planIndex === index ? updated : plan);
+    if (updated.status === 'active') {
+      next = next.map(plan => plan.id !== updated.id && plan.athleteId === req.athleteId && plan.status === 'active'
+        ? { ...plan, status: 'archived', updatedAt: now } : plan);
+    }
+    const allowedMealIds = new Set(updated.meals.map(meal => meal.id));
+    const nextAdherence = db.mealAdherence.map(item => item.athleteId === updated.athleteId && item.mealPlanId === updated.id
+      ? { ...item, mealsChecked: item.mealsChecked.filter(mealId => allowedMealIds.has(mealId)), updatedAt: now }
+      : item);
+    try { commitNutrition(next, nextAdherence); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'meal plan could not be saved'); }
+    audit(req, 'b2b2c.meal-plan.update', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: updated.id });
+    json(res, 200, { mealPlan: serializeMealPlan(db, updated) });
+  },
+
+  'DELETE /api/coach/athletes/{athleteId}/meal-plans/{planId}': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    if (mealPlanThrottle(req, res, coach, 'delete')) return;
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:write');
+    if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    const plan = db.mealPlans.find(item => item.id === req.planId && item.athleteId === req.athleteId);
+    if (!plan) return b2bError(res, 404, 'meal_plan_not_found', 'meal plan not found');
+    if (plan.coachId !== coach.id) {
+      auditB2B2CDenied(req, 'b2b2c.meal-plan.delete.denied', coach, 'meal_plan_forbidden');
+      return b2bError(res, 403, 'meal_plan_forbidden', 'meal plan belongs to another professional');
+    }
+    try {
+      commitNutrition(
+        db.mealPlans.filter(item => !(item.id === plan.id && item.athleteId === plan.athleteId)),
+        db.mealAdherence.filter(item => !(item.athleteId === plan.athleteId && item.mealPlanId === plan.id)),
+      );
+    } catch { return b2bError(res, 503, 'storage_unavailable', 'meal plan could not be deleted'); }
+    audit(req, 'b2b2c.meal-plan.delete', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: plan.id });
+    json(res, 200, { deleted: true, mealPlan: serializeMealPlan(db, plan) });
+  },
+
+  'GET /api/athlete/meal-plan': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const active = db.mealPlans.filter(plan => plan.athleteId === athlete.id && plan.status === 'active'
+      && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
+        && link.status === 'active' && link.scopes.includes('nutrition')))
+      .sort((left, right) => right.updatedAt - left.updatedAt)[0] || null;
+    audit(req, 'b2b2c.meal-plan.athlete-read', { user: athlete, msg: active?.id || 'none' });
+    json(res, 200, { mealPlan: active ? serializeMealPlan(db, active) : null });
+  },
+
+  'GET /api/athlete/meal-adherence': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    const date = new URL(req.url, 'http://x').searchParams.get('date');
+    if (!date || !validateMealAdherence({ date, mealsChecked: [], waterDrunkMl: 0, notes: '' })) {
+      return b2bError(res, 400, 'invalid_adherence', 'date must use YYYY-MM-DD');
+    }
+    const activePlanIds = new Set(db.mealPlans.filter(plan => plan.athleteId === athlete.id && plan.status === 'active'
+      && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
+        && link.status === 'active' && link.scopes.includes('nutrition'))).map(plan => plan.id));
+    const rows = db.mealAdherence.filter(item => item.athleteId === athlete.id && item.date === date && activePlanIds.has(item.mealPlanId))
+      .sort((left, right) => right.updatedAt - left.updatedAt).map(item => structuredClone(item));
+    json(res, 200, { adherence: rows[0] || null, adherenceRecords: rows });
+  },
+
+  'POST /api/athlete/meal-adherence': async (req, res) => {
+    const athlete = readSession(req);
+    if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (mealAdherenceThrottle(req, res, athlete)) return;
+    const body = await readBody(req);
+    if (!body || typeof body !== 'object' || Array.isArray(body)
+        || Object.keys(body).some(key => !['date', 'mealPlanId', 'mealUpdate', 'notes', 'waterDrunkMl'].includes(key))
+        || typeof body.mealPlanId !== 'string' || typeof body.date !== 'string'
+        || !['mealUpdate', 'notes', 'waterDrunkMl'].some(key => Object.hasOwn(body, key))) {
+      return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence mutation');
+    }
+    const plan = db.mealPlans.find(item => item.id === body.mealPlanId && item.athleteId === athlete.id && item.status === 'active');
+    const allowed = plan && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
+      && link.status === 'active' && link.scopes.includes('nutrition'));
+    if (!allowed) return b2bError(res, 404, 'meal_plan_not_found', 'active meal plan not found');
+    if (body.mealUpdate !== undefined && (!body.mealUpdate || typeof body.mealUpdate !== 'object' || Array.isArray(body.mealUpdate)
+        || Object.keys(body.mealUpdate).some(key => !['checked', 'mealId'].includes(key))
+        || typeof body.mealUpdate.mealId !== 'string' || typeof body.mealUpdate.checked !== 'boolean'
+        || !plan.meals.some(meal => meal.id === body.mealUpdate.mealId))) {
+      return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence mutation');
+    }
+    const retained = retainedMealAdherence();
+    const existingIndex = retained.findIndex(item => item.athleteId === athlete.id && item.mealPlanId === plan.id && item.date === body.date);
+    const current = existingIndex < 0 ? {
+      date: body.date, mealsChecked: [], waterDrunkMl: 0, notes: '',
+    } : retained[existingIndex];
+    const checked = new Set(current.mealsChecked);
+    if (body.mealUpdate) {
+      if (body.mealUpdate.checked) checked.add(body.mealUpdate.mealId);
+      else checked.delete(body.mealUpdate.mealId);
+    }
+    const normalized = validateMealAdherence({
+      date: body.date,
+      mealsChecked: [...checked],
+      waterDrunkMl: Object.hasOwn(body, 'waterDrunkMl') ? body.waterDrunkMl : current.waterDrunkMl,
+      notes: Object.hasOwn(body, 'notes') ? body.notes : current.notes,
+    }, plan);
+    if (!normalized) return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence');
+    if (existingIndex < 0 && (retained.filter(item => item.athleteId === athlete.id).length >= B2B2C_LIMITS.maxMealAdherencePerAthlete
+        || retained.length >= B2B2C_LIMITS.maxMealAdherence)) {
+      return b2bError(res, 409, 'meal_adherence_capacity', 'meal adherence storage capacity reached');
+    }
+    const now = Date.now();
+    const row = existingIndex < 0
+      ? { id: makeEntityId('adh', retained), athleteId: athlete.id, mealPlanId: plan.id, ...normalized, updatedAt: now }
+      : { ...retained[existingIndex], ...normalized, updatedAt: now };
+    const next = existingIndex < 0 ? [...retained, row]
+      : retained.map((item, index) => index === existingIndex ? row : item);
+    try { commitNutrition(db.mealPlans, next); }
+    catch { return b2bError(res, 503, 'storage_unavailable', 'meal adherence could not be saved'); }
+    audit(req, 'b2b2c.meal-adherence.update', { user: athlete, target: db.users.find(user => user.id === plan.coachId), msg: row.id });
+    json(res, existingIndex < 0 ? 201 : 200, { adherence: structuredClone(row) });
+  },
+
+  'GET /api/coach/athletes/{athleteId}/meal-adherence': async (req, res) => {
+    const coach = readSession(req);
+    if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+    if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
+    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:read');
+    if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
+    const url = new URL(req.url, 'http://x');
+    const rawLimit = url.searchParams.get('limit');
+    const limit = rawLimit === null ? 50 : Number(rawLimit);
+    const cursor = parseAdherenceCursor(url.searchParams.get('cursor'));
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || cursor === false) {
+      return b2bError(res, 400, 'invalid_pagination', 'limit must be 1-100 and cursor must be valid');
+    }
+    const planIds = new Set(db.mealPlans.filter(plan => plan.coachId === coach.id && plan.athleteId === req.athleteId).map(plan => plan.id));
+    let rows = db.mealAdherence.filter(item => item.athleteId === req.athleteId && planIds.has(item.mealPlanId)).sort(adherenceNewestFirst);
+    if (cursor) rows = rows.filter(item => adherenceNewestFirst(item, cursor) > 0);
+    const hasMore = rows.length > limit;
+    const adherence = rows.slice(0, limit).map(item => structuredClone(item));
+    const nextCursor = hasMore ? adherenceCursor(rows[limit - 1]) : null;
+    audit(req, 'b2b2c.meal-adherence.list', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: String(adherence.length) });
+    json(res, 200, {
+      adherence,
+      page: { limit, hasMore, nextCursor },
+      quota: {
+        used: db.mealAdherence.filter(item => item.athleteId === req.athleteId).length,
+        limit: B2B2C_LIMITS.maxMealAdherencePerAthlete,
+        retentionDays: B2B2C_LIMITS.mealAdherenceRetentionDays,
+      },
+    });
   },
 
   'GET /api/assessments/config': async (req, res) => {
@@ -4019,6 +4322,22 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/coach/athletes/{athleteId}/assessments/{assessmentId}';
     req.athleteId = coachAssessmentItem[1];
     req.assessmentId = coachAssessmentItem[2];
+  }
+  const coachMealPlan = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/meal-plans$/.exec(url.pathname);
+  if (coachMealPlan) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/meal-plans';
+    req.athleteId = coachMealPlan[1];
+  }
+  const coachMealPlanItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/meal-plans\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachMealPlanItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/meal-plans/{planId}';
+    req.athleteId = coachMealPlanItem[1];
+    req.planId = coachMealPlanItem[2];
+  }
+  const coachMealAdherence = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/meal-adherence$/.exec(url.pathname);
+  if (coachMealAdherence) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/meal-adherence';
+    req.athleteId = coachMealAdherence[1];
   }
   const athleteAssessment = /^\/api\/athlete\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (athleteAssessment) {

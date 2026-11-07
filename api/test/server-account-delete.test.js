@@ -31,6 +31,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   pwHash ??= await hashPassword(GOOD);
   const pw = { h: pwHash, set: new Date().toISOString() };
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-selfdel-'));
+  if (env.B2B2C_DB_FAIL_FILE === true) env.B2B2C_DB_FAIL_FILE = path.join(dataDir, 'fail-db-write');
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   const all = {
     admin: { id: ADMIN, name: 'Adminna', created: new Date().toISOString(), admin: true, pw },
@@ -39,11 +40,23 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     // Passkey-only: no password that could prove anything.
     nopw: { id: 'u_nopw', name: 'Keyonly', created: new Date().toISOString() },
   };
+  const chosen = which.map(k => all[k]);
+  const coachId = chosen.find(user => user.id === ADMIN)?.id;
+  const athleteId = chosen.find(user => user.id === USER)?.id;
+  const mealPlans = coachId && athleteId ? [{
+    id: 'mp_delete_fixture', coachId, athleteId, title: 'Deletion fixture', status: 'active', targetCalories: 2000,
+    targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 },
+    meals: [{ id: 'm_delete_fixture', name: 'Full day', time: '08:00', items: [{ id: 'it_delete_fixture', name: 'Menu', portion: 'daily', calories: 2000, protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [] }] }],
+    notes: '', createdAt: 1, updatedAt: 1,
+  }] : [];
+  const mealAdherence = mealPlans.length ? [{ id: 'adh_delete_fixture', athleteId, mealPlanId: mealPlans[0].id, date: '2026-11-06', mealsChecked: ['m_delete_fixture'], waterDrunkMl: 1000, notes: '', updatedAt: 1 }] : [];
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
     users: which.map(k => all[k]),
     creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }],
     subs: [{ endpoint: 'https://push/user', userId: USER }, { endpoint: 'https://push/admin', userId: ADMIN }],
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
+    coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
+    coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence,
   }));
   for (const uid of [USER, ADMIN]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
   const child = spawn(process.execPath, ['server.js'], {
@@ -64,6 +77,29 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   h.audit = () => fs.readFileSync(path.join(h.dataDir, 'audit.log'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
   h.stackFrames = () => h.log.split('\n').filter(l => /^\s+at /.test(l)).length;
   return h;
+}
+
+for (const [label, deleted, survivors] of [
+  ['athlete', USER, ['admin', 'user']],
+  ['coach', ADMIN, ['admin', 'admin2', 'user']],
+]) {
+  test(`failed ${label} account deletion rolls nutrition back in memory and on the next save`, async t => {
+    const h = await startServer(t, { users: survivors, env: { B2B2C_DB_FAIL_FILE: true } });
+    const before = h.db();
+    assert.ok(before.mealPlans.length && before.mealAdherence.length);
+    fs.writeFileSync(path.join(h.dataDir, 'fail-db-write'), 'once');
+    const account = before.users.find(user => user.id === deleted);
+    const failed = await h.del(deleted, { name: account.name, current: GOOD });
+    assert.equal(failed.status, 500);
+    assert.deepEqual(h.db().mealPlans, before.mealPlans, 'disk plans rolled back');
+    assert.deepEqual(h.db().mealAdherence, before.mealAdherence, 'disk adherence rolled back');
+    // A subsequent successful DB mutation persists the in-memory snapshot too. Without the two
+    // collections in removeAccount's snapshot this save would silently commit their deletion.
+    const info = await fetch(`${h.api}/api/logout/all`, { method: 'POST', headers: as(USER) });
+    assert.equal(info.status, 200);
+    assert.deepEqual(h.db().mealPlans, before.mealPlans, 'next save proves in-memory plans survived');
+    assert.deepEqual(h.db().mealAdherence, before.mealAdherence, 'next save proves in-memory adherence survived');
+  });
 }
 
 test('removes the account and everything attached to it, and ends the session', async t => {
