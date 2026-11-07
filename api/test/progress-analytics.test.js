@@ -66,6 +66,27 @@ test('7/30/90 day boundaries use the requested IANA timezone', () => {
     assert.equal(Date.parse(`${seven.to}T00:00:00Z`) - Date.parse(`${seven.from}T00:00:00Z`), 6 * 86400000);
   }
   assert.equal(parseProgressPeriod(new URLSearchParams('from=2025-01-01&to=2026-12-31'), 'UTC', instant), null);
+  assert.equal(parseProgressPeriod(new URLSearchParams('period=7&from=2026-11-01&to=2026-11-07'), 'UTC', instant), null);
+});
+
+test('goal evaluation uses the persisted goal timezone across summary timezones at a date boundary', () => {
+  const now = Date.parse('2026-11-07T10:30:00.000Z');
+  const persistedGoal = goal({
+    startDate: '2026-11-08', targetDate: '2026-12-31', timezone: 'Pacific/Kiritimati',
+  });
+  const data = db({ progressGoals: [persistedGoal] });
+  const state = { unit: 'kg', bodyweight: [{ d: '2026-11-07', w: 85 }] };
+  const period = { from: '2026-11-01', to: '2026-11-08', days: 8, preset: null };
+  const results = ['Pacific/Kiritimati', 'America/Los_Angeles', 'America/Sao_Paulo', 'Asia/Tokyo'].map(timeZone => {
+    const summary = buildProgressSummary({ db: data, link, state, period, timeZone, metrics: ['body_weight'], now });
+    return [timeZone, summary.goals[0].progress.state, summary.goals[0].progress.percent];
+  });
+  assert.deepEqual(results, [
+    ['Pacific/Kiritimati', 'in_progress', 50],
+    ['America/Los_Angeles', 'in_progress', 50],
+    ['America/Sao_Paulo', 'in_progress', 50],
+    ['Asia/Tokyo', 'in_progress', 50],
+  ]);
 });
 
 test('analytics exposes real points, explicit denominators, coverage and freshness', () => {

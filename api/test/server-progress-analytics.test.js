@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
+import { buildProgressSummary, calculateGoalProgress } from '../progress-analytics.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -300,9 +301,55 @@ test('athlete report reads, metadata catalog, timezone errors and detail egress 
   assert.equal(response.status, 200, response.text);
   assert.deepEqual(response.body.metrics.workouts_per_week.volume,
     { unit: 'source_weight_repetitions', labelPtBr: 'Soma de carga da fonte multiplicada por repetições' });
+  assert.equal('reasons' in response.body, false);
+  for (const key of ['unavailableReasons', 'goalProgressReasons', 'trendReasons']) assert.ok(Array.isArray(response.body[key]), key);
+
+  const catalogLink = baseDb().coachAthleteLinks.find(item => item.id === 'cal_new');
+  const period = { from: '2026-11-01', to: '2026-11-07', days: 7, preset: 7 };
+  const empty = baseDb();
+  const summaries = [
+    buildProgressSummary({ db: empty, link: catalogLink, state: null, period, timeZone: 'UTC',
+      metrics: ['body_weight', 'body_fat_percent', 'workouts_per_week', 'nutrition_adherence_percent', 'habit_adherence_percent'], now: Date.parse('2026-11-07T12:00:00Z') }),
+    buildProgressSummary({ db: { ...empty, mealPlans: [{ id: 'mp_catalog', coachId: IDS.coachA, athleteId: IDS.athleteA,
+      createdAt: Date.parse('2026-11-01T12:00:00Z'), meals: [{ id: 'meal_catalog' }] }] }, link: catalogLink, state: {}, period,
+      timeZone: 'UTC', metrics: ['nutrition_adherence_percent'], now: Date.parse('2026-11-07T12:00:00Z') }),
+    buildProgressSummary({ db: { ...empty, coachHabits: [{ id: 'hab_catalog', linkId: catalogLink.id, coachId: IDS.coachA,
+      athleteId: IDS.athleteA, title: 'Catalog', frequency: 'daily', createdAt: Date.parse('2026-11-08T12:00:00Z'), archivedAt: null }] },
+      link: catalogLink, state: {}, period, timeZone: 'UTC', metrics: ['habit_adherence_percent'], now: Date.parse('2026-11-07T12:00:00Z') }),
+    buildProgressSummary({ db: empty, link: { ...catalogLink, acceptedAt: '2026-12-01T00:00:00.000Z' }, state: {}, period,
+      timeZone: 'UTC', metrics: ['body_weight'], now: Date.parse('2026-11-07T12:00:00Z') }),
+    buildProgressSummary({ db: empty, link: catalogLink, state: { unit: 'kg', bodyweight: [{ d: '2026-11-07', w: 85 }] }, period,
+      timeZone: 'UTC', metrics: ['body_weight'], now: Date.parse('2026-11-07T12:00:00Z') }),
+  ];
+  const metricReasons = new Set();
+  const trendReasons = new Set();
+  for (const summary of summaries) for (const metric of Object.values(summary.metrics)) {
+    if (metric.unavailableReason) metricReasons.add(metric.unavailableReason);
+    if (metric.trend?.reason) trendReasons.add(metric.trend.reason);
+  }
+  const goalFixture = { id: 'pgoal_catalog', metric: 'body_weight', status: 'active', direction: 'decrease', baselineValue: 90,
+    targetValue: 80, tolerance: 0, startDate: '2026-11-01', targetDate: '2026-11-07' };
+  const goalReasons = new Set([...metricReasons]);
+  for (const metricResult of [
+    null,
+    { available: true, currentValue: 85, coverage: { observed: 0 }, freshness: { status: 'fresh' }, points: [] },
+    { available: true, currentValue: 85, coverage: { observed: 1 }, freshness: { status: 'stale' }, points: [] },
+    { available: true, currentValue: 85, coverage: { observed: 1 }, freshness: { status: 'fresh' }, points: [{ date: '2026-11-07', value: 85 }] },
+  ]) {
+    const fixtureGoal = metricResult === null ? goalFixture : metricResult.points?.length === 1
+      ? { ...goalFixture, direction: 'maintain', baselineValue: 85, targetValue: 85 }
+      : goalFixture;
+    const reason = calculateGoalProgress(fixtureGoal, metricResult, '2026-11-07').unavailableReason;
+    if (reason) goalReasons.add(reason);
+  }
+  for (const reason of metricReasons) assert.ok(response.body.unavailableReasons.includes(reason), `metric reason ${reason}`);
+  for (const reason of goalReasons) assert.ok(response.body.goalProgressReasons.includes(reason), `goal reason ${reason}`);
+  for (const reason of trendReasons) assert.ok(response.body.trendReasons.includes(reason), `trend reason ${reason}`);
 
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&period=30&timezone=Not/A_Zone&metrics=workouts_per_week`);
   assert.deepEqual([response.status, response.body.code], [400, 'invalid_timezone']);
+  response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&period=7&from=2026-11-01&to=2026-11-07&timezone=UTC&metrics=workouts_per_week`);
+  assert.deepEqual([response.status, response.body.code], [400, 'invalid_period']);
 
   response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-reports?linkId=cal_new`, {
     period: 30, timezone: 'Pacific/Kiritimati', metrics: ['workouts_per_week'],
@@ -358,7 +405,7 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   t.after(async () => stop(server));
 
   let response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new&status=archived&limit=2`);
-  assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 2, true]);
+  assert.deepEqual([response.status, response.body.items.length, response.body.hasMore, response.body.limit], [200, 2, true, 2]);
   assert.equal('goals' in response.body, false);
   const cursor = response.body.nextCursor;
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new&status=archived&limit=2&cursor=${encodeURIComponent(cursor)}`);
@@ -369,7 +416,7 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   assert.deepEqual([response.status, response.body.code], [400, 'invalid_cursor']);
 
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-reports?linkId=cal_new&status=active&from=2026-11-01&to=2026-11-10&limit=1`);
-  assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 1, true]);
+  assert.deepEqual([response.status, response.body.items.length, response.body.hasMore, response.body.limit], [200, 1, true, 1]);
   const reportCursor = response.body.nextCursor;
   response = await request(server, IDS.athleteA, 'GET', `/api/athlete/progress-reports?linkId=cal_new&status=active&from=2026-11-01&to=2026-11-10&limit=1&cursor=${encodeURIComponent(reportCursor)}`);
   assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 1, false]);

@@ -26,6 +26,7 @@ const GOOD = 'correct horse battery staple';
 let pwHash;
 before(async () => { pwHash ??= await hashPassword(GOOD); });
 const ADMIN = 'u_adm_1', ADMIN2 = 'u_adm_2', USER = 'u_usr_1';
+const COACH = 'u_coach_1', ORDINARY = 'u_ordinary_1';
 const as = uid => ({ Cookie: `gymsid=${mintSession(uid)}`, 'Content-Type': 'application/json', Origin: 'http://localhost:8080' });
 async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {}) {
   pwHash ??= await hashPassword(GOOD);
@@ -37,6 +38,8 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     admin: { id: ADMIN, name: 'Adminna', created: new Date().toISOString(), admin: true, pw },
     admin2: { id: ADMIN2, name: 'Second', created: new Date().toISOString(), admin: true, pw },
     user: { id: USER, name: 'Mallory', created: new Date().toISOString(), invitedBy: 'CODE1', pw },
+    coach: { id: COACH, name: 'Coach', created: new Date().toISOString(), profile: { kind: 'coach', coachSpecialties: ['training'] }, pw },
+    ordinary: { id: ORDINARY, name: 'Ordinary', created: new Date().toISOString(), pw },
     // Passkey-only: no password that could prove anything.
     nopw: { id: 'u_nopw', name: 'Keyonly', created: new Date().toISOString() },
   };
@@ -103,6 +106,11 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   h.del = async (uid, body) => {
     const r = await fetch(`${h.api}/api/account/delete`, { method: 'POST', headers: as(uid), body: JSON.stringify(body) });
     return { status: r.status, body: await r.json(), cookie: r.headers.get('set-cookie') || '' };
+  };
+  h.get = async (uid, route) => {
+    const r = await fetch(`${h.api}${route}`, { headers: as(uid) });
+    const text = await r.text();
+    return { status: r.status, headers: r.headers, text, body: text ? JSON.parse(text) : null };
   };
   h.db = () => JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   h.audit = () => fs.readFileSync(path.join(h.dataDir, 'audit.log'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
@@ -211,6 +219,15 @@ test('external cleanup retries during runtime with bounded attempts and no accou
   fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'integrations');
   const res = await h.del(USER, { name: 'Mallory', current: GOOD });
   assert.equal(res.body.status, 'cleanup_pending');
+  const pending = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.equal(pending.status, 200, pending.text);
+  assert.deepEqual([pending.body.id, pending.body.status, pending.body.attempts], [res.body.cleanupJobId, 'pending', 1]);
+  assert.deepEqual(Object.keys(pending.body).sort(), ['attempts', 'createdAt', 'id', 'lastError', 'nextAttemptAt', 'status', 'steps', 'terminalAt', 'updatedAt']);
+  assert.deepEqual(pending.body.steps, { total: 5, pending: 1, complete: 4 });
+  assert.equal(JSON.stringify(pending.body).includes(USER), false);
+  const listed = await h.get(ADMIN, '/api/admin/account-cleanup?status=pending&limit=1');
+  assert.deepEqual([listed.status, listed.body.items.length, listed.body.hasMore, listed.body.nextCursor, listed.body.limit], [200, 1, false, null, 1]);
+  assert.equal(JSON.stringify(listed.body).includes(USER), false);
   await new Promise(resolve => setTimeout(resolve, 30));
   assert.deepEqual([h.db().accountCleanupJobs[0].status, h.db().accountCleanupJobs[0].attempts], ['pending', 1], 'retry honors its persisted backoff');
   for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
@@ -220,10 +237,14 @@ test('external cleanup retries during runtime with bounded attempts and no accou
   assert.equal(stored.users.some(user => user.id === USER), false);
   assert.equal(stored.accountCleanupJobs[0].status, 'complete');
   assert.ok(stored.accountCleanupJobs[0].attempts >= 2);
+  const complete = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.equal(complete.body.status, 'complete');
+  assert.equal(complete.body.steps.pending, 0);
+  assert.ok(complete.body.terminalAt);
 });
 
-test('cleanup retry exhaustion becomes manual review and does not consume pending capacity forever', async t => {
-  const h = await startServer(t, { env: {
+test('cleanup status is admin-only, anti-enumerating and exposes manual review without PII', async t => {
+  const h = await startServer(t, { users: ['admin', 'user', 'coach', 'ordinary'], env: {
     ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '10',
     ACCOUNT_CLEANUP_RETRY_MAX_MS: '20', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '2',
   } });
@@ -237,6 +258,28 @@ test('cleanup retry exhaustion becomes manual review and does not consume pendin
   assert.equal(job.attempts, 2);
   assert.match(job.lastError, /integrations:EIO/);
   assert.equal(JSON.stringify(job).includes(USER), false);
+  const status = await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`);
+  assert.deepEqual([status.status, status.body.status, status.body.lastError], [200, 'manual_review', 'integrations:EIO']);
+  assert.equal(JSON.stringify(status.body).includes(USER), false);
+  assert.equal('subject' in status.body, false);
+  assert.deepEqual([...(await Promise.all([
+    h.get(COACH, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+    h.get(ORDINARY, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+    h.get(USER, `/api/admin/account-cleanup/${res.body.cleanupJobId}`),
+  ]))].map(item => item.status), [403, 403, 401]);
+  const missing = await h.get(ADMIN, '/api/admin/account-cleanup/acj_missing_opaque_id');
+  assert.deepEqual([missing.status, missing.body.error], [404, 'not found']);
+  const forbiddenMissing = await h.get(COACH, '/api/admin/account-cleanup/acj_missing_opaque_id');
+  assert.equal(forbiddenMissing.status, 403);
+});
+
+test('cleanup status and listing share an authenticated read rate limit', async t => {
+  const h = await startServer(t, { env: { ACCOUNT_CLEANUP_READ_ACCOUNT_MAX: '1', ACCOUNT_CLEANUP_READ_IP_MAX: '10' } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal((await h.get(ADMIN, `/api/admin/account-cleanup/${res.body.cleanupJobId}`)).status, 200);
+  const limited = await h.get(ADMIN, '/api/admin/account-cleanup');
+  assert.equal(limited.status, 429);
+  assert.ok(Number(limited.headers.get('retry-after')) >= 1);
 });
 
 test('cleanup subject decryption failure is fail-closed and observable without exposing the account', async t => {
