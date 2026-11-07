@@ -483,8 +483,10 @@ export default function ProfessionalHub() {
       <Icon name={coach ? 'person' : 'shield'} />
     </header>
     <ProfileSetup user={user} />
-    {inbox.error && <div className="card pro-load-error" role="alert"><p>{p('Could not load messaging summaries.')}</p><Button size="sm" onClick={inbox.retry}>{p('Try again')}</Button></div>}
+    {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
+    {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
     {coach ? <><CoachPortfolio user={user} inbox={inbox} /><AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} embedded /></>
       : <AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} />}
+    {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
   </main>
 }

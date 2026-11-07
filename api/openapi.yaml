@@ -6,7 +6,7 @@ openapi: 3.1.0
 
 info:
   title: openGym API
-  version: 1.4.3
+  version: 1.4.4
   summary: Passkey (WebAuthn) auth + per-user state storage for openGym
   description: |
     The backend of [openGym](https://opengym.ch), a free, open-source
@@ -208,75 +208,7 @@ paths:
         the last one, so a poll can be that stale. The route is unauthenticated, and
         one disk write per request is not something to leave open to anyone.
       security: []
-      parameters:
-    AthleteId:
-      in: path
-      name: athleteId
-      required: true
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    CoachId:
-      in: path
-      name: coachId
-      required: true
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    HabitId:
-      in: path
-      name: habitId
-      required: true
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    MessageId:
-      in: path
-      name: messageId
-      required: true
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    LinkIdOptional:
-      in: query
-      name: linkId
-      description: Select a specific historical relationship for the same professional/athlete pair. Omit to select the current preferred relationship.
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    LinkIdRequired:
-      in: query
-      name: linkId
-      required: true
-      description: Stable relationship id. Required because an athlete may have historical and current relationships with the same professional.
-      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-    CursorOptional:
-      in: query
-      name: cursor
-      description: Opaque base64url cursor returned as `page.nextCursor`. Do not construct it client-side.
-      schema: { type: string }
-    PageLimit:
-      in: query
-      name: limit
-      description: Page size for messages and check-ins.
-      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
-    InboxLimit:
-      in: query
-      name: limit
-      description: Inbox page size.
-      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
-    Timezone:
-      in: query
-      name: timezone
-      description: Valid IANA timezone used to determine local dates and streak boundaries. Defaults to UTC.
-      schema: { type: string, maxLength: 100, default: UTC, example: America/Sao_Paulo }
-    HistoryPeriod:
-      in: query
-      name: period
-      description: Preset number of local calendar days. Cannot be combined with `from` or `to`; defaults to 30 when no interval is supplied.
-      schema: { type: integer, enum: [7, 30, 90] }
-    HistoryFrom:
-      in: query
-      name: from
-      description: Inclusive ISO date. Must be supplied with `to`; the interval may be at most 90 days and cannot end in the future.
-      schema: { type: string, format: date }
-    HistoryTo:
-      in: query
-      name: to
-      description: Inclusive ISO date. Must be supplied with `from`.
-      schema: { type: string, format: date }
-
-  responses:
+      responses:
         '200':
           description: The server is up and its data directory is writable.
           content:
@@ -3114,6 +3046,7 @@ paths:
   /api/data/rev:
     get:
       tags: [data]
+      operationId: getDataRevision
       summary: Current revision of the caller's profile state
       description: |
         The `rev` that `GET /api/data` would return, without the document. Signed-in clients poll
@@ -5009,6 +4942,74 @@ components:
         The same signed session token, carried as `Authorization: Bearer <token>` by
         the paired mobile app (obtained from `POST /api/pair/redeem`). Bearer requests
         skip the CSRF origin check; a browser never attaches this header on its own.
+
+  parameters:
+    AthleteId:
+      in: path
+      name: athleteId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    CoachId:
+      in: path
+      name: coachId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    HabitId:
+      in: path
+      name: habitId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    MessageId:
+      in: path
+      name: messageId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    LinkIdOptional:
+      in: query
+      name: linkId
+      description: Select a specific historical relationship for the same professional/athlete pair. Omit to select the current preferred relationship.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    LinkIdRequired:
+      in: query
+      name: linkId
+      required: true
+      description: Stable relationship id. Required because an athlete may have historical and current relationships with the same professional.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    CursorOptional:
+      in: query
+      name: cursor
+      description: Opaque base64url cursor returned as `page.nextCursor`. Do not construct it client-side.
+      schema: { type: string }
+    PageLimit:
+      in: query
+      name: limit
+      description: Page size for messages and check-ins.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    InboxLimit:
+      in: query
+      name: limit
+      description: Inbox page size.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+    Timezone:
+      in: query
+      name: timezone
+      description: Valid IANA timezone used to determine local dates and streak boundaries. Defaults to UTC.
+      schema: { type: string, maxLength: 100, default: UTC, example: America/Sao_Paulo }
+    HistoryPeriod:
+      in: query
+      name: period
+      description: Preset number of local calendar days. Cannot be combined with `from` or `to`; defaults to 30 when no interval is supplied.
+      schema: { type: integer, enum: [7, 30, 90] }
+    HistoryFrom:
+      in: query
+      name: from
+      description: Inclusive ISO date. Must be supplied with `to`; the interval may be at most 90 days and cannot end in the future.
+      schema: { type: string, format: date }
+    HistoryTo:
+      in: query
+      name: to
+      description: Inclusive ISO date. Must be supplied with `from`.
+      schema: { type: string, format: date }
 
   responses:
     CommunicationBadRequest:

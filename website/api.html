@@ -1,6 +1,6 @@
 <!DOCTYPE html>
 <!-- GENERATED FILE - do not edit by hand.
-     Built by scripts/build-api-docs.mjs from api/openapi.yaml (openGym API v1.4.3).
+     Built by scripts/build-api-docs.mjs from api/openapi.yaml (openGym API v1.4.4).
      Regenerate with: node scripts/build-api-docs.mjs -->
 <html lang="en">
 <head>
@@ -247,8 +247,8 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
-    <span>openGym v1.4.3</span>
-    <span>166 endpoints</span>
+    <span>openGym v1.4.4</span>
+    <span>151 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -315,6 +315,14 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
 
     <p class="ep-h">Responses</p>
     <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">The server is up and its data directory is writable.<span class="r-sig">{ ok: always true, users: integer, writable: always true }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">The data directory could not be written — a full disk, or a mount that came back read-only. Nothing that stores anything will work until it is fixed; the reason is in the container log.</span>
+  </div>
     </div>
   </div>
 </details>
@@ -1900,7 +1908,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
 </details>
 
-<details class="ep" id="op-undefined">
+<details class="ep" id="op-getDataRevision">
   <summary>
     <span class="m get">GET</span>
     <span class="ep-path"><code>/api/data/rev</code></span>

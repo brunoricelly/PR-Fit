@@ -8,7 +8,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true
 const mocks = vi.hoisted(() => ({ api: {}, zone: { value: 'America/Sao_Paulo', fallback: false } }))
 vi.mock('../lib/communication-api.js', () => ({ communicationApi: mocks.api, browserTimeZone: () => mocks.zone }))
 
-import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
+import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, formatCivilDay, useCommunicationInbox } from './CommunicationHabits.jsx'
 
 let host, root
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no }); return { promise, resolve, reject } }
@@ -50,8 +50,20 @@ function summary(percent, streak = 2) {
 function InboxHarness() {
   const inbox = useCommunicationInbox('athlete_1')
   return <div><span data-count={inbox.conversations.length}>{inbox.byLink.get('cal_1')?.lastMessage?.content || ''}</span>
-    {inbox.error && <button onClick={inbox.retry}>Retry inbox</button>}</div>
+    <ol>{inbox.conversations.map(item => <li key={item.linkId} data-link={item.linkId}>{item.lastMessage?.content}</li>)}</ol>
+    {inbox.error && <button onClick={inbox.retry}>Retry inbox</button>}
+    {inbox.page?.hasMore && !inbox.error && <button disabled={inbox.loading} onClick={inbox.loadMore}>Load more inbox</button>}</div>
 }
+
+describe('civil dates', () => {
+  it.each(['Pacific/Kiritimati', 'America/Sao_Paulo', 'Asia/Tokyo'])('keeps 2026-11-07 on 07/11 in %s', zone => {
+    const previous = process.env.TZ
+    process.env.TZ = zone
+    expect(formatCivilDay('2026-11-07', 'pt-BR')).toBe('07/11/2026')
+    if (previous === undefined) delete process.env.TZ
+    else process.env.TZ = previous
+  })
+})
 
 describe('communication inbox', () => {
   it('loads the backend summary once and exposes unread, last-message and status data', async () => {
@@ -70,9 +82,53 @@ describe('communication inbox', () => {
     await click(button('Retry inbox'))
     expect(mocks.api.inbox).toHaveBeenCalledTimes(2)
   })
+
+  it('paginates, deduplicates and keeps a stable newest-first order', async () => {
+    mocks.api.inbox
+      .mockResolvedValueOnce({ conversations: [
+        { linkId: 'cal_1', lastMessageAt: 30, lastMessage: { content: 'Primeira' } },
+        { linkId: 'cal_2', lastMessageAt: 20, lastMessage: { content: 'Duplicada' } },
+      ], page: page(true, 'next') })
+      .mockResolvedValueOnce({ conversations: [
+        { linkId: 'cal_2', lastMessageAt: 20, lastMessage: { content: 'Atualizada' } },
+        { linkId: 'cal_3', lastMessageAt: 20, lastMessage: { content: 'Terceira' } },
+      ], page: page() })
+    await render(<InboxHarness />)
+    await click(button('Load more inbox'))
+    expect(mocks.api.inbox).toHaveBeenLastCalledWith({ cursor: 'next' })
+    expect(host.querySelector('[data-count]').dataset.count).toBe('3')
+    expect([...host.querySelectorAll('[data-link]')].map(item => item.dataset.link)).toEqual(['cal_1', 'cal_3', 'cal_2'])
+    expect(host.querySelectorAll('[data-link="cal_2"]')).toHaveLength(1)
+    expect(host.textContent).toContain('Atualizada')
+  })
+
+  it('preserves loaded inbox rows when a later page fails and retries that cursor', async () => {
+    mocks.api.inbox
+      .mockResolvedValueOnce({ conversations: [{ linkId: 'cal_1', lastMessageAt: 30, lastMessage: { content: 'Mantida' } }], page: page(true, 'next') })
+      .mockRejectedValueOnce(new Error('raw page failure'))
+      .mockResolvedValueOnce({ conversations: [{ linkId: 'cal_2', lastMessageAt: 10, lastMessage: { content: 'Depois' } }], page: page() })
+    await render(<InboxHarness />)
+    await click(button('Load more inbox'))
+    expect(host.textContent).toContain('Mantida')
+    expect(host.textContent).not.toContain('raw page failure')
+    await click(button('Retry inbox'))
+    expect(mocks.api.inbox).toHaveBeenLastCalledWith({ cursor: 'next' })
+    expect(host.querySelector('[data-count]').dataset.count).toBe('2')
+  })
 })
 
 describe('CommunicationPanel', () => {
+  it('distinguishes an initial failure from an empty conversation and retries successfully', async () => {
+    mocks.api.conversation.mockRejectedValueOnce(new Error('raw conversation failure')).mockResolvedValueOnce({ messages: [], page: page() })
+    await render(<CommunicationPanel link={activeLink} side="athlete" actorId="athlete_1" />)
+    await click(host.querySelector('.pro-comm-toggle'))
+    expect(host.textContent).toContain('Could not load this conversation.')
+    expect(host.querySelector('.empty-state')).toBeNull()
+    expect(host.textContent).not.toContain('raw conversation failure')
+    await click(button('Try again'))
+    expect(host.querySelector('.empty-state')).not.toBeNull()
+  })
+
   it('loads, paginates, marks unread through, sends scoped text safely, and blocks concurrent sends', async () => {
     const unsafe = '<img src=x onerror=alert(1)>'
     mocks.api.conversation
@@ -110,6 +166,21 @@ describe('CommunicationPanel', () => {
     expect(host.querySelector('[role="status"]').textContent).toContain('Message sent.')
   })
 
+  it('keeps prior messages and offers retry when loading an older page fails', async () => {
+    mocks.api.conversation
+      .mockResolvedValueOnce({ messages: [{ id: 'm2', senderId: 'coach_1', recipientId: 'athlete_1', content: 'Mantida', category: 'general', createdAt: 20, readAt: 1 }], page: page(true, 'older') })
+      .mockRejectedValueOnce(new Error('raw pagination failure'))
+      .mockResolvedValueOnce({ messages: [{ id: 'm1', senderId: 'athlete_1', recipientId: 'coach_1', content: 'Anterior', category: 'general', createdAt: 10, readAt: 1 }], page: page() })
+    await render(<CommunicationPanel link={activeLink} side="athlete" actorId="athlete_1" />)
+    await click(host.querySelector('.pro-comm-toggle'))
+    await click(button('Load earlier messages'))
+    expect(host.textContent).toContain('Mantida')
+    expect(host.textContent).toContain('Could not refresh this conversation.')
+    expect(host.textContent).not.toContain('raw pagination failure')
+    await click(button('Try again'))
+    expect(host.textContent).toContain('Anterior')
+  })
+
   it('preserves the draft on a safe error and keeps ended relationships read-only', async () => {
     mocks.api.conversation.mockResolvedValue({ messages: [], page: page(), relationship: { readOnly: false } })
     mocks.api.sendMessage.mockRejectedValue(Object.assign(new Error('internal database path'), { status: 503, code: 'storage_unavailable' }))
@@ -131,6 +202,24 @@ describe('CommunicationPanel', () => {
 })
 
 describe('CoachHabitsPanel', () => {
+  it('shows independent initial errors without empty states and retries successfully', async () => {
+    mocks.api.coachHabits.mockRejectedValueOnce(new Error('raw habits failure')).mockResolvedValueOnce({ habits: [] })
+    mocks.api.summary.mockRejectedValueOnce(new Error('raw summary failure')).mockResolvedValueOnce({ summary: summary(40) })
+    mocks.api.checkins.mockRejectedValueOnce(new Error('raw history failure')).mockResolvedValueOnce({ checkins: [], page: page() })
+    await render(<CoachHabitsPanel link={activeLink} />)
+    await click(host.querySelector('.pro-comm-toggle'))
+    expect(host.textContent).toContain('Could not load habits.')
+    expect(host.textContent).toContain('Could not load adherence summary.')
+    expect(host.textContent).toContain('Could not load check-in history.')
+    expect(host.textContent).not.toContain('No habits yet')
+    expect(host.textContent).not.toContain('No check-ins in this period.')
+    expect(host.textContent).not.toContain('raw habits failure')
+    await click(button('Try again'))
+    expect(host.textContent).toContain('40%')
+    expect(host.textContent).toContain('No habits yet')
+    expect(host.textContent).toContain('No check-ins in this period.')
+  })
+
   it('creates, edits, archives, reactivates and deletes with labels, history, streaks and focus', async () => {
     let habits = [{ id: 'hab_1', title: 'Água', description: 'Meta diária', targetValue: 2000, unit: 'ml', frequency: 'daily', status: 'active' }]
     mocks.api.coachHabits.mockImplementation(async () => ({ habits }))
@@ -196,17 +285,50 @@ describe('CoachHabitsPanel', () => {
     expect(button('Create habit')).toBeUndefined()
     expect(button('Archive')).toBeUndefined()
   })
+
+  it('keeps previous habits, summary and history when a refresh fails', async () => {
+    mocks.api.coachHabits.mockResolvedValue({ habits: [{ id: 'hab_1', title: 'Água', targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active' }] })
+    mocks.api.summary.mockResolvedValueOnce({ summary: summary(60) }).mockRejectedValueOnce(new Error('raw summary refresh')).mockResolvedValueOnce({ summary: summary(70) })
+    mocks.api.checkins.mockResolvedValueOnce({ checkins: [{ id: 'chk_1', habitId: 'hab_1', date: '2026-11-07', value: 1, completed: true, notes: 'Mantido' }], page: page() })
+      .mockRejectedValueOnce(new Error('raw history refresh')).mockResolvedValueOnce({ checkins: [{ id: 'chk_2', habitId: 'hab_1', date: '2026-11-07', value: 2, completed: true, notes: 'Novo' }], page: page() })
+    await render(<CoachHabitsPanel link={activeLink} />)
+    await click(host.querySelector('.pro-comm-toggle'))
+    await setValue(host.querySelector('.pro-period-row select'), '7')
+    await settle()
+    expect(host.textContent).toContain('Água')
+    expect(host.textContent).toContain('60%')
+    expect(host.textContent).toContain('Mantido')
+    expect(host.textContent).toContain('previous summary is still shown')
+    expect(host.textContent).toContain('previous check-ins are still shown')
+    expect(host.textContent).not.toContain('No check-ins in this period.')
+    await click(button('Try again'))
+    expect(host.textContent).toContain('70%')
+    expect(host.textContent).toContain('Novo')
+  })
 })
 
 describe('AthleteHabitsDashboard', () => {
+  it('does not render an empty habit state on initial failure and retries successfully', async () => {
+    mocks.api.athleteHabits.mockRejectedValueOnce(new Error('raw athlete habits failure')).mockResolvedValueOnce({ date: '2026-11-07', habits: [] })
+    mocks.api.summary.mockResolvedValue({ summary: summary(50) })
+    mocks.api.checkins.mockResolvedValue({ checkins: [], page: page() })
+    await render(<AthleteHabitsDashboard links={[activeLink]} />)
+    expect(host.textContent).toContain('Could not load habits.')
+    expect(host.textContent).not.toContain('No habits for today')
+    expect(host.textContent).not.toContain('raw athlete habits failure')
+    await click(button('Try again'))
+    expect(host.textContent).toContain('No habits for today')
+  })
+
   it('uses an explicit IANA timezone, saves idempotent-shaped check-ins once, and shows own history', async () => {
     const links = [activeLink, { ...activeLink, id: 'cal_old', status: 'ended', coach: { id: 'coach_2', name: 'Bia' } }]
     mocks.api.athleteHabits.mockResolvedValue({ date: '2026-11-07', timezone: 'America/Sao_Paulo', habits: [
       { id: 'hab_1', title: 'Água', description: '', targetValue: 2000, unit: 'ml', frequency: 'daily', checkin: null, relationship: { linkId: 'cal_1', status: 'active', readOnly: false } },
       { id: 'hab_2', title: 'Sono', description: '', targetValue: 8, unit: 'horas', frequency: 'daily', checkin: null, relationship: { linkId: 'cal_old', status: 'ended', readOnly: true } },
     ] })
-    mocks.api.summary.mockResolvedValue({ summary: summary(50, 4) })
-    mocks.api.checkins.mockResolvedValue({ checkins: [{ id: 'chk_1', habitId: 'hab_1', date: '2026-11-06', value: 1800, completed: false, notes: 'Quase' }], page: page() })
+    mocks.api.summary.mockResolvedValueOnce({ summary: summary(50, 4) }).mockResolvedValueOnce({ summary: summary(75, 6) })
+    mocks.api.checkins.mockResolvedValueOnce({ checkins: [{ id: 'chk_1', habitId: 'hab_1', date: '2026-11-06', value: 1800, completed: false, notes: 'Quase' }], page: page() })
+      .mockResolvedValueOnce({ checkins: [{ id: 'chk_new', habitId: 'hab_1', date: '2026-11-07', value: 2000, completed: false, notes: 'Atualizado' }], page: page() })
     const saved = deferred()
     mocks.api.checkin.mockReturnValue(saved.promise)
     await render(<AthleteHabitsDashboard links={links} />)
@@ -226,6 +348,35 @@ describe('AthleteHabitsDashboard', () => {
     saved.resolve({ checkin: { id: 'chk_new', habitId: 'hab_1', date: '2026-11-07', value: 2000, completed: false, notes: '', updatedAt: 1 } })
     await settle()
     expect(host.textContent).toContain('Check-in saved.')
+    expect(host.textContent).toContain('75%')
+    expect(host.textContent).toContain('Current streak: 6')
+    expect(host.textContent).toContain('Atualizado')
     expect(host.querySelectorAll('[role="alert"]').length).toBe(0)
+  })
+
+  it('keeps the saved check-in and previous metrics when projection refresh fails, then retries', async () => {
+    mocks.api.athleteHabits.mockResolvedValue({ date: '2026-11-07', habits: [
+      { id: 'hab_1', title: 'Água', description: '', targetValue: 1, unit: 'vezes', frequency: 'daily', checkin: null, relationship: { linkId: 'cal_1', status: 'active', readOnly: false } },
+    ] })
+    mocks.api.summary.mockResolvedValueOnce({ summary: summary(50, 4) }).mockRejectedValueOnce(new Error('raw summary refresh')).mockResolvedValueOnce({ summary: summary(80, 7) })
+    mocks.api.checkins.mockResolvedValueOnce({ checkins: [{ id: 'chk_old', habitId: 'hab_1', date: '2026-11-06', value: 1, completed: true, notes: 'Anterior' }], page: page() })
+      .mockRejectedValueOnce(new Error('raw history refresh')).mockResolvedValueOnce({ checkins: [{ id: 'chk_new', habitId: 'hab_1', date: '2026-11-07', value: 2, completed: true, notes: 'Confirmado' }], page: page() })
+    mocks.api.checkin.mockResolvedValue({ checkin: { id: 'chk_new', habitId: 'hab_1', date: '2026-11-07', value: 2, completed: true, notes: 'Salvo', updatedAt: 1 } })
+    await render(<AthleteHabitsDashboard links={[activeLink]} />)
+    const habit = host.querySelector('.pro-athlete-habit')
+    await setValue(habit.querySelector('input[type="number"]'), '2')
+    await click(habit.querySelector('input[type="checkbox"]'))
+    await setValue(habit.querySelector('textarea'), 'Salvo')
+    await click(button('Save check-in', habit))
+    expect(host.textContent).toContain('Check-in saved.')
+    expect(host.textContent).toContain('Salvo')
+    expect(host.textContent).toContain('50%')
+    expect(host.textContent).toContain('previous summary is still shown')
+    expect(host.textContent).toContain('previous check-ins are still shown')
+    expect(host.textContent).not.toContain('No check-ins in this period.')
+    await click(button('Try again'))
+    expect(host.textContent).toContain('80%')
+    expect(host.textContent).toContain('Current streak: 7')
+    expect(host.textContent).toContain('Confirmado')
   })
 })
