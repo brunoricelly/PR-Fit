@@ -54,7 +54,7 @@ RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 # Every module server.js imports from the api root has to be named here: the image carries nothing
 # else, and one that is missing only shows at boot, as ERR_MODULE_NOT_FOUND. Keep the professional
 # relationship and assessment calculation modules explicit in the production image.
-COPY server.js b2b2c.js communication-habits.js anthropometrics.js prescription-adoption.js state-write-queue.js push-messages.js nudge.js nudge-copy.js wrapped.js wrapped-copy.js verify-error.js password.js rate-limit.js passkeys-store.js device-link.js watch-relay.js media.js queue.js sync-stamps.js durable.js admin-socket.js recover.js net-guard.js ./
+COPY server.js b2b2c.js communication-habits.js progress-analytics.js anthropometrics.js prescription-adoption.js state-write-queue.js push-messages.js nudge.js nudge-copy.js wrapped.js wrapped-copy.js verify-error.js password.js rate-limit.js passkeys-store.js device-link.js watch-relay.js media.js queue.js sync-stamps.js durable.js admin-socket.js recover.js net-guard.js ./
 COPY coach ./coach
 COPY integrations ./integrations
 ENV NODE_ENV=production

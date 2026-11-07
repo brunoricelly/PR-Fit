@@ -53,12 +53,11 @@ import {
   PARQ_QUESTIONS, PARQ_VERSION,
 } from './b2b2c.js';
 import {
-  pollock3Men, pollock3Women, pollock7Men, pollock7Women, faulkner4,
-  siri, bodyComposition,
-} from './anthropometrics.js';
-import {
   COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes, validateCommunicationHabitsLimits,
 } from './communication-habits.js';
+import {
+  calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS,
+} from './progress-analytics.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -138,6 +137,13 @@ const B2B2C_LIMITS = {
   maxCheckinsPerLink: envInt('B2B2C_CHECKINS_PER_LINK', COMMUNICATION_HABITS_LIMITS.maxCheckinsPerLink, { min: 1, max: 100000 }),
   maxCheckins: envInt('B2B2C_MAX_CHECKINS', COMMUNICATION_HABITS_LIMITS.maxCheckins, { min: 1, max: 1000000 }),
   checkinRetentionDays: envInt('B2B2C_CHECKIN_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.checkinRetentionDays, { min: 1, max: 36500 }),
+  maxGoalsPerLink: envInt('B2B2C_PROGRESS_GOALS_PER_LINK', PROGRESS_LIMITS.maxGoalsPerLink, { min: 1, max: 1000 }),
+  maxGoals: envInt('B2B2C_MAX_PROGRESS_GOALS', PROGRESS_LIMITS.maxGoals, { min: 1, max: 1000000 }),
+  goalRetentionDays: envInt('B2B2C_PROGRESS_GOAL_RETENTION_DAYS', PROGRESS_LIMITS.goalRetentionDays, { min: 1, max: 36500 }),
+  maxReportsPerLink: envInt('B2B2C_PROGRESS_REPORTS_PER_LINK', PROGRESS_LIMITS.maxReportsPerLink, { min: 1, max: 10000 }),
+  maxReports: envInt('B2B2C_MAX_PROGRESS_REPORTS', PROGRESS_LIMITS.maxReports, { min: 1, max: 1000000 }),
+  reportRetentionDays: envInt('B2B2C_PROGRESS_REPORT_RETENTION_DAYS', PROGRESS_LIMITS.reportRetentionDays, { min: 1, max: 36500 }),
+  maxReportBytes: envInt('B2B2C_PROGRESS_REPORT_MAX_BYTES', PROGRESS_LIMITS.maxReportBytes, { min: 16384, max: 5 * 1024 * 1024 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -164,6 +170,10 @@ const B2B2C_RATE = {
   habitIp: envInt('B2B2C_HABIT_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
   readAccount: envInt('B2B2C_MESSAGE_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   readIp: envInt('B2B2C_MESSAGE_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
+  progressMutationAccount: envInt('B2B2C_PROGRESS_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  progressMutationIp: envInt('B2B2C_PROGRESS_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
+  progressExportAccount: envInt('B2B2C_PROGRESS_EXPORT_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  progressExportIp: envInt('B2B2C_PROGRESS_EXPORT_IP_MAX', 600, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -1510,35 +1520,7 @@ function auditB2B2CDenied(req, event, user, reason, target) {
   auditFail(req, event, { ok: false, user, ...(target ? { target } : {}), msg: reason });
 }
 
-function assessmentResults(assessment) {
-  let density;
-  let bodyFatPercent;
-  const skinfolds = assessment.skinfolds;
-  if (skinfolds?.protocol) {
-    const { protocol, sex, age, ...measurements } = skinfolds;
-    if (protocol === 'pollock3') density = sex === 'male'
-      ? pollock3Men(measurements, age)
-      : pollock3Women(measurements, age);
-    if (protocol === 'pollock7') density = sex === 'male'
-      ? pollock7Men(measurements, age)
-      : pollock7Women(measurements, age);
-    if (protocol === 'faulkner4') bodyFatPercent = faulkner4(measurements);
-    else if (density !== undefined) bodyFatPercent = siri(density);
-  } else if (assessment.bioimpedance?.bodyFatPercent !== undefined) {
-    bodyFatPercent = assessment.bioimpedance.bodyFatPercent;
-  }
-  if (bodyFatPercent === undefined) return undefined;
-  if (!Number.isFinite(bodyFatPercent) || bodyFatPercent < 0 || bodyFatPercent > 100
-      || (density !== undefined && (!Number.isFinite(density) || density <= 0))) return null;
-  let composition = {};
-  try { if (assessment.weightKg !== undefined) composition = bodyComposition(assessment.weightKg, bodyFatPercent); }
-  catch { return null; }
-  return {
-    ...(density === undefined ? {} : { density }),
-    bodyFatPercent,
-    ...composition,
-  };
-}
+const assessmentResults = calculateAssessmentResults;
 
 function serializeAssessment(item) {
   const { coachId, athleteId, photoOwnerId, ...assessment } = item;
@@ -2558,9 +2540,23 @@ const communicationHabitsRoutes = createCommunicationHabitsRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb,
 });
+const progressRoutes = createProgressRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  readBody, readSession, readState, isCoach: user => profileOf(user).kind === 'coach',
+  coachScopes: user => profileOf(user).coachSpecialties,
+  commitCandidate: candidate => { saveDb(candidate); publishDb(candidate); },
+  rate: {
+    windowMs: B2B2C_RATE.windowMs,
+    mutationAccount: B2B2C_RATE.progressMutationAccount,
+    mutationIp: B2B2C_RATE.progressMutationIp,
+    exportAccount: B2B2C_RATE.progressExportAccount,
+    exportIp: B2B2C_RATE.progressExportIp,
+  },
+});
 
 const routes = {
   ...communicationHabitsRoutes,
+  ...progressRoutes,
   // 503 rather than a flag in a 200: the container healthcheck is `wget --spider`, which reads
   // the status and nothing else, and an instance that cannot write its data directory is exactly
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
@@ -4396,6 +4392,39 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines/{routineId}';
     req.athleteId = coachRoutineItem[1];
     req.routineId = coachRoutineItem[2];
+  }
+  const coachProgressGoals = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-goals$/.exec(url.pathname);
+  if (coachProgressGoals) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-goals';
+    req.athleteId = coachProgressGoals[1];
+  }
+  const coachProgressGoal = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-goals\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachProgressGoal) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-goals/{goalId}';
+    req.athleteId = coachProgressGoal[1];
+    req.goalId = coachProgressGoal[2];
+  }
+  const coachProgressSummary = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-summary$/.exec(url.pathname);
+  if (coachProgressSummary) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-summary';
+    req.athleteId = coachProgressSummary[1];
+  }
+  const coachProgressReports = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports$/.exec(url.pathname);
+  if (coachProgressReports) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports';
+    req.athleteId = coachProgressReports[1];
+  }
+  const coachProgressReportRevoke = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)\/revoke$/.exec(url.pathname);
+  if (coachProgressReportRevoke) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}/revoke';
+    req.athleteId = coachProgressReportRevoke[1];
+    req.reportId = coachProgressReportRevoke[2];
+  }
+  const coachProgressReport = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/progress-reports\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachProgressReport) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/progress-reports/{reportId}';
+    req.athleteId = coachProgressReport[1];
+    req.reportId = coachProgressReport[2];
   }
   const coachAssessment = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/assessments$/.exec(url.pathname);
   if (coachAssessment) {

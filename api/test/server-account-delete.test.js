@@ -57,6 +57,20 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     description: '', targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active', createdAt: communicationNow, updatedAt: communicationNow, archivedAt: null }] : [];
   const habitCheckins = coachHabits.length ? [{ id: 'hchk_delete_fixture', linkId: 'cal_delete_fixture', athleteId, habitId: coachHabits[0].id,
     date: new Date().toISOString().slice(0, 10), value: 1, completed: true, notes: '', updatedAt: communicationNow }] : [];
+  const progressTimestamp = '2026-11-01T00:00:00.000Z';
+  const progressGoals = coachId && athleteId ? [{
+    id: 'pgoal_delete_fixture', linkId: 'cal_delete_fixture', coachId, athleteId,
+    metric: 'nutrition_adherence_percent', direction: 'increase', baselineValue: 50, targetValue: 80, tolerance: 2,
+    startDate: '2026-11-01', targetDate: '2026-12-01', timezone: 'UTC', status: 'active',
+    createdAt: progressTimestamp, updatedAt: progressTimestamp, achievedAt: null, archivedAt: null,
+  }] : [];
+  const progressReports = coachId && athleteId ? [{
+    id: 'prep_delete_fixture', linkId: 'cal_delete_fixture', coachId, athleteId,
+    interval: { from: '2026-11-01', to: '2026-11-06' }, timezone: 'UTC', metrics: ['nutrition_adherence_percent'],
+    summary: 'nutrition_adherence_percent: unavailable (fixture).',
+    snapshot: { version: 1, generatedAt: progressTimestamp, period: { from: '2026-11-01', to: '2026-11-06' }, metrics: {} },
+    createdAt: progressTimestamp, revokedAt: null,
+  }] : [];
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
     users: which.map(k => all[k]),
     creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }],
@@ -66,6 +80,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
     coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
     coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence, coachMessages, coachHabits, habitCheckins,
+    progressGoals, progressReports,
   }));
   for (const uid of [USER, ADMIN]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
   const processEnv = { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', PASSWORD_LOGIN: '1', AUDIT_LOG: '1', ...env };
@@ -104,6 +119,7 @@ for (const [label, deleted, survivors] of [
     const before = h.db();
     assert.ok(before.mealPlans.length && before.mealAdherence.length);
     assert.ok(before.coachMessages.length && before.coachHabits.length && before.habitCheckins.length);
+    assert.ok(before.progressGoals.length && before.progressReports.length);
     fs.writeFileSync(path.join(h.dataDir, 'fail-db-write'), 'once');
     const account = before.users.find(user => user.id === deleted);
     const failed = await h.del(deleted, { name: account.name, current: GOOD });
@@ -113,6 +129,8 @@ for (const [label, deleted, survivors] of [
     assert.deepEqual(h.db().coachMessages, before.coachMessages, 'disk messages rolled back');
     assert.deepEqual(h.db().coachHabits, before.coachHabits, 'disk habits rolled back');
     assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'disk check-ins rolled back');
+    assert.deepEqual(h.db().progressGoals, before.progressGoals, 'disk progress goals rolled back');
+    assert.deepEqual(h.db().progressReports, before.progressReports, 'disk progress reports rolled back');
     assert.deepEqual(h.db().deviceLinks, before.deviceLinks, 'disk device links rolled back');
     assert.deepEqual(h.db().watchLinks, before.watchLinks, 'disk watch links rolled back');
     await h.restart();
@@ -128,6 +146,8 @@ for (const [label, deleted, survivors] of [
     assert.deepEqual(h.db().coachMessages, before.coachMessages, 'next save proves in-memory messages survived');
     assert.deepEqual(h.db().coachHabits, before.coachHabits, 'next save proves in-memory habits survived');
     assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'next save proves in-memory check-ins survived');
+    assert.deepEqual(h.db().progressGoals, before.progressGoals, 'next save proves in-memory progress goals survived');
+    assert.deepEqual(h.db().progressReports, before.progressReports, 'next save proves in-memory progress reports survived');
   });
 }
 
@@ -143,6 +163,7 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.deepEqual(db.creds.map(c => c.userId), [ADMIN], 'their passkeys are gone');
   assert.deepEqual(db.subs.map(s => s.userId), [ADMIN], 'their push subscriptions are gone');
   assert.deepEqual([db.coachMessages.length, db.coachHabits.length, db.habitCheckins.length], [0, 0, 0], 'communication and habits are gone');
+  assert.deepEqual([db.progressGoals.length, db.progressReports.length], [0, 0], 'progress goals and reports are gone');
   assert.equal(db.deviceLinks.some(link => link.userId === USER), false);
   assert.equal(db.watchLinks.some(link => link.userId === USER), false);
   assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false, 'their history is gone');

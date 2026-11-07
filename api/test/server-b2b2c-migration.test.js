@@ -51,6 +51,8 @@ for (const [name, db] of [
   ['corrupt message record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [{ id: 'cmsg_bad' }], coachHabits: [], habitCheckins: [] }],
   ['corrupt habit record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [{ id: 'hab_bad' }], habitCheckins: [] }],
   ['orphan habit check-in', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [{ id: 'hchk_bad', habitId: 'hab_missing' }] }],
+  ['corrupt progress collection', { schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: {}, progressReports: [] }],
+  ['corrupt progress goal', { schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: [{ id: 'pgoal_bad' }], progressReports: [] }],
   ['duplicate meal plan ids', {
     schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
     mealPlans: [1, 2].map(() => ({ id: 'mp_duplicate', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000,
@@ -91,7 +93,7 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 6);
+  assert.equal(stored.schemaVersion, 7);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
@@ -101,16 +103,18 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   assert.deepEqual(stored.coachMessages, []);
   assert.deepEqual(stored.coachHabits, []);
   assert.deepEqual(stored.habitCheckins, []);
+  assert.deepEqual(stored.progressGoals, []);
+  assert.deepEqual(stored.progressReports, []);
 });
 
-test('known schema versions migrate to version 6', async t => {
-  for (const schemaVersion of [1, 2, 3, 4, 5]) {
+test('known schema versions migrate to version 7', async t => {
+  for (const schemaVersion of [1, 2, 3, 4, 5, 6]) {
     const sample = fixture(t, { schemaVersion, users: [], creds: [], subs: [], invites: [] });
     const server = start(sample.dataDir);
     await boundPort(server.child, server.log);
     await stop(server.child);
     const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-    assert.equal(stored.schemaVersion, 6);
+    assert.equal(stored.schemaVersion, 7);
     assert.deepEqual(stored.coachInvites, []);
     assert.deepEqual(stored.coachAthleteLinks, []);
     assert.deepEqual(stored.coachPrescriptions, []);
@@ -120,6 +124,8 @@ test('known schema versions migrate to version 6', async t => {
     assert.deepEqual(stored.coachMessages, []);
     assert.deepEqual(stored.coachHabits, []);
     assert.deepEqual(stored.habitCheckins, []);
+    assert.deepEqual(stored.progressGoals, []);
+    assert.deepEqual(stored.progressReports, []);
   }
 });
 
