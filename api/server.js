@@ -56,6 +56,9 @@ import {
   pollock3Men, pollock3Women, pollock7Men, pollock7Women, faulkner4,
   siri, bodyComposition,
 } from './anthropometrics.js';
+import {
+  COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes,
+} from './communication-habits.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -125,6 +128,16 @@ const B2B2C_LIMITS = {
   maxMealAdherencePerAthlete: envInt('B2B2C_MEAL_ADHERENCE_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxMealAdherencePerAthlete, { min: 1, max: 10000 }),
   maxMealAdherence: envInt('B2B2C_MAX_MEAL_ADHERENCE', B2B2C_DEFAULT_LIMITS.maxMealAdherence, { min: 1, max: 1000000 }),
   mealAdherenceRetentionDays: envInt('B2B2C_MEAL_ADHERENCE_RETENTION_DAYS', B2B2C_DEFAULT_LIMITS.mealAdherenceRetentionDays, { min: 1, max: 36500 }),
+  maxMessagesPerLink: envInt('B2B2C_MESSAGES_PER_LINK', COMMUNICATION_HABITS_LIMITS.maxMessagesPerLink, { min: 1, max: 10000 }),
+  maxMessages: envInt('B2B2C_MAX_MESSAGES', COMMUNICATION_HABITS_LIMITS.maxMessages, { min: 1, max: 1000000 }),
+  messageRetentionDays: envInt('B2B2C_MESSAGE_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.messageRetentionDays, { min: 1, max: 36500 }),
+  maxHabitsPerLink: envInt('B2B2C_HABITS_PER_LINK', COMMUNICATION_HABITS_LIMITS.maxHabitsPerLink, { min: 1, max: 1000 }),
+  maxHabits: envInt('B2B2C_MAX_HABITS', COMMUNICATION_HABITS_LIMITS.maxHabits, { min: 1, max: 1000000 }),
+  archivedHabitRetentionDays: envInt('B2B2C_ARCHIVED_HABIT_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.archivedHabitRetentionDays, { min: 1, max: 36500 }),
+  maxCheckinsPerHabit: envInt('B2B2C_CHECKINS_PER_HABIT', COMMUNICATION_HABITS_LIMITS.maxCheckinsPerHabit, { min: 1, max: 10000 }),
+  maxCheckinsPerLink: envInt('B2B2C_CHECKINS_PER_LINK', COMMUNICATION_HABITS_LIMITS.maxCheckinsPerLink, { min: 1, max: 100000 }),
+  maxCheckins: envInt('B2B2C_MAX_CHECKINS', COMMUNICATION_HABITS_LIMITS.maxCheckins, { min: 1, max: 1000000 }),
+  checkinRetentionDays: envInt('B2B2C_CHECKIN_RETENTION_DAYS', COMMUNICATION_HABITS_LIMITS.checkinRetentionDays, { min: 1, max: 36500 }),
   terminalInvitesKeep: envInt('B2B2C_TERMINAL_INVITES_KEEP', 1000, { max: 100000 }),
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
@@ -142,6 +155,10 @@ const B2B2C_RATE = {
   mealPlanIp: envInt('B2B2C_MEAL_PLAN_MUTATION_IP_MAX', envInt('B2B2C_MEAL_PLAN_CREATE_IP_MAX', 600, { min: 1, max: 100000 }), { min: 1, max: 100000 }),
   mealAdherenceAccount: envInt('B2B2C_MEAL_ADHERENCE_MUTATION_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   mealAdherenceIp: envInt('B2B2C_MEAL_ADHERENCE_MUTATION_IP_MAX', 3000, { min: 1, max: 100000 }),
+  messageAccount: envInt('B2B2C_MESSAGE_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  messageIp: envInt('B2B2C_MESSAGE_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
+  checkinAccount: envInt('B2B2C_HABIT_CHECKIN_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
+  checkinIp: envInt('B2B2C_HABIT_CHECKIN_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -1725,6 +1742,9 @@ function removeAccount(u) {
     coachAssessments: db.coachAssessments ? [...db.coachAssessments] : [],
     mealPlans: db.mealPlans ? [...db.mealPlans] : [],
     mealAdherence: db.mealAdherence ? [...db.mealAdherence] : [],
+    coachMessages: db.coachMessages ? [...db.coachMessages] : [],
+    coachHabits: db.coachHabits ? [...db.coachHabits] : [],
+    habitCheckins: db.habitCheckins ? [...db.habitCheckins] : [],
   };
   try {
     db.users = db.users.filter(x => x.id !== u.id);
@@ -2491,7 +2511,13 @@ function dataWritable() {
   return ok;
 }
 
+const communicationHabitsRoutes = createCommunicationHabitsRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb,
+});
+
 const routes = {
+  ...communicationHabitsRoutes,
   // 503 rather than a flag in a 200: the container healthcheck is `wget --spider`, which reads
   // the status and nothing else, and an instance that cannot write its data directory is exactly
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
@@ -4338,6 +4364,37 @@ const server = http.createServer(async (req, res) => {
   if (coachMealAdherence) {
     key = req.method + ' /api/coach/athletes/{athleteId}/meal-adherence';
     req.athleteId = coachMealAdherence[1];
+  }
+  const coachMessages = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/messages$/.exec(url.pathname);
+  if (coachMessages) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/messages';
+    req.athleteId = coachMessages[1];
+  }
+  const athleteMessages = /^\/api\/athlete\/messages\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteMessages) {
+    key = req.method + ' /api/athlete/messages/{coachId}';
+    req.coachId = athleteMessages[1];
+  }
+  const messageRead = /^\/api\/messages\/([A-Za-z0-9_-]+)\/read$/.exec(url.pathname);
+  if (messageRead) {
+    key = req.method + ' /api/messages/{messageId}/read';
+    req.messageId = messageRead[1];
+  }
+  const coachHabits = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/habits$/.exec(url.pathname);
+  if (coachHabits) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/habits';
+    req.athleteId = coachHabits[1];
+  }
+  const coachHabitItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/habits\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachHabitItem) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/habits/{habitId}';
+    req.athleteId = coachHabitItem[1];
+    req.habitId = coachHabitItem[2];
+  }
+  const coachHabitSummary = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/habits-summary$/.exec(url.pathname);
+  if (coachHabitSummary) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/habits-summary';
+    req.athleteId = coachHabitSummary[1];
   }
   const athleteAssessment = /^\/api\/athlete\/assessments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (athleteAssessment) {
