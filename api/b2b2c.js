@@ -1,6 +1,9 @@
 import crypto from 'node:crypto';
+import {
+  compactCommunicationHabits, removeCommunicationHabitsUser, validateCommunicationHabitsState,
+} from './communication-habits.js';
 
-export const B2B2C_SCHEMA_VERSION = 5;
+export const B2B2C_SCHEMA_VERSION = 6;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
@@ -25,9 +28,10 @@ export const PARQ_QUESTIONS = Object.freeze([
 ]);
 
 export class B2B2CDataError extends Error {
-  constructor(message) {
+  constructor(message, code = 'invalid_b2b2c_data') {
     super(message);
     this.name = 'B2B2CDataError';
+    this.code = code;
   }
 }
 
@@ -53,7 +57,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, 4, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, 5, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -61,7 +65,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -111,6 +115,8 @@ export function migrateB2B2C(db) {
     }
   }
   validateNutritionState(db.mealPlans, db.mealAdherence);
+  try { validateCommunicationHabitsState(db); }
+  catch (error) { throw new B2B2CDataError(error.message); }
   return changed;
 }
 
@@ -145,6 +151,9 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   // focused legacy fixtures that predate the nutrition collections.
   db.mealPlans ||= [];
   db.mealAdherence ||= [];
+  db.coachMessages ||= [];
+  db.coachHabits ||= [];
+  db.habitCheckins ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
@@ -182,12 +191,51 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     throw new B2B2CDataError(`live coachAthleteLinks exceed configured limit ${limits.maxLinks}`);
   }
 
-  const terminalSlots = Math.max(0, limits.maxLinks - liveLinks.length);
+  const dependentLinkIds = new Set([
+    ...db.coachMessages.map(item => item.linkId),
+    ...db.coachHabits.map(item => item.linkId),
+    ...db.habitCheckins.map(item => item.linkId),
+  ]);
+  const protectedTerminalSource = db.coachAthleteLinks
+    .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id));
+  if (liveLinks.length + protectedTerminalSource.length > limits.maxLinks) {
+    throw new B2B2CDataError(
+      `protected coachAthleteLinks exceed configured limit ${limits.maxLinks}`,
+      'relationship_capacity',
+    );
+  }
+  const protectedTerminalLinks = protectedTerminalSource
+    .map(link => {
+      if (rowTime(link) >= cutoff) return link;
+      const tombstone = {
+        id: link.id,
+        coachId: link.coachId,
+        athleteId: link.athleteId,
+        scopes: [...link.scopes],
+        status: 'ended',
+        createdAt: link.createdAt,
+        updatedAt: link.updatedAt,
+        endedAt: link.endedAt || link.updatedAt,
+        ...(link.suspendedAt ? { suspendedAt: link.suspendedAt } : {}),
+        tombstone: true,
+      };
+      if (Object.keys(link).length !== Object.keys(tombstone).length || !link.tombstone) changed = true;
+      return tombstone;
+    });
+  const protectedIds = new Set(protectedTerminalLinks.map(link => link.id));
+  const terminalSlots = Math.max(0, limits.maxLinks - liveLinks.length - protectedTerminalLinks.length);
   const terminalLinks = db.coachAthleteLinks
     .filter(link => link.status === 'ended' && limits.terminalRetentionDays > 0 && rowTime(link) >= cutoff)
+    .filter(link => !protectedIds.has(link.id))
     .sort(newestFirst)
     .slice(0, Math.min(limits.terminalLinksKeep, terminalSlots));
-  const keptLinks = [...liveLinks, ...terminalLinks];
+  const keptLinks = [...liveLinks, ...protectedTerminalLinks, ...terminalLinks];
+  if (keptLinks.length > limits.maxLinks) {
+    throw new B2B2CDataError(
+      `coachAthleteLinks exceed configured limit ${limits.maxLinks}`,
+      'relationship_capacity',
+    );
+  }
   const keptLinkIds = new Set(keptLinks.map(link => link.id));
   if (keptLinks.length !== db.coachAthleteLinks.length) changed = true;
   db.coachAthleteLinks = keptLinks;
@@ -275,10 +323,16 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     }
     adherenceCounts.set(adherence.athleteId, count);
   }
+  let communication;
+  try { communication = compactCommunicationHabits(db, limits, nowMs); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  changed = changed || communication.changed;
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
-    mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length, expiredAssessments,
+    mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length,
+    messages: db.coachMessages.length, habits: db.coachHabits.length, checkins: db.habitCheckins.length,
+    expiredAssessments,
   };
 }
 
@@ -809,6 +863,7 @@ export function serializeLink(db, link, viewer) {
 }
 
 export function removeB2B2CUser(db, userId) {
+  removeCommunicationHabitsUser(db, userId);
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);

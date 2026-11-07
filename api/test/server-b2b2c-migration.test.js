@@ -47,6 +47,10 @@ for (const [name, db] of [
   ['corrupt assessment record', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'bad' }] }],
   ['corrupt assessment payload', { schemaVersion: 4, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [{ id: 'cas_bad', coachId: 'u_c', athleteId: 'u_a', assessedAt: '2026-01-01T00:00:00.000Z', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', parq: { version: '2024.1', answers: [] } }] }],
   ['corrupt baseline collection', { schemaVersion: 3, users: null, creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [] }],
+  ['corrupt message collection', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: {}, coachHabits: [], habitCheckins: [] }],
+  ['corrupt message record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [{ id: 'cmsg_bad' }], coachHabits: [], habitCheckins: [] }],
+  ['corrupt habit record', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [{ id: 'hab_bad' }], habitCheckins: [] }],
+  ['orphan habit check-in', { schemaVersion: 6, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [], mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [{ id: 'hchk_bad', habitId: 'hab_missing' }] }],
   ['duplicate meal plan ids', {
     schemaVersion: 5, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
     mealPlans: [1, 2].map(() => ({ id: 'mp_duplicate', coachId: 'u_c', athleteId: 'u_a', title: 'P', status: 'draft', targetCalories: 2000,
@@ -87,28 +91,36 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 5);
+  assert.equal(stored.schemaVersion, 6);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
   assert.deepEqual(stored.coachAssessments, []);
   assert.deepEqual(stored.mealPlans, []);
   assert.deepEqual(stored.mealAdherence, []);
+  assert.deepEqual(stored.coachMessages, []);
+  assert.deepEqual(stored.coachHabits, []);
+  assert.deepEqual(stored.habitCheckins, []);
 });
 
-test('known schema versions migrate to version 5', async t => {
-  const sample = fixture(t, { schemaVersion: 1, users: [], creds: [], subs: [], invites: [] });
-  const server = start(sample.dataDir);
-  await boundPort(server.child, server.log);
-  await stop(server.child);
-  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 5);
-  assert.deepEqual(stored.coachInvites, []);
-  assert.deepEqual(stored.coachAthleteLinks, []);
-  assert.deepEqual(stored.coachPrescriptions, []);
-  assert.deepEqual(stored.coachAssessments, []);
-  assert.deepEqual(stored.mealPlans, []);
-  assert.deepEqual(stored.mealAdherence, []);
+test('known schema versions migrate to version 6', async t => {
+  for (const schemaVersion of [1, 2, 3, 4, 5]) {
+    const sample = fixture(t, { schemaVersion, users: [], creds: [], subs: [], invites: [] });
+    const server = start(sample.dataDir);
+    await boundPort(server.child, server.log);
+    await stop(server.child);
+    const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+    assert.equal(stored.schemaVersion, 6);
+    assert.deepEqual(stored.coachInvites, []);
+    assert.deepEqual(stored.coachAthleteLinks, []);
+    assert.deepEqual(stored.coachPrescriptions, []);
+    assert.deepEqual(stored.coachAssessments, []);
+    assert.deepEqual(stored.mealPlans, []);
+    assert.deepEqual(stored.mealAdherence, []);
+    assert.deepEqual(stored.coachMessages, []);
+    assert.deepEqual(stored.coachHabits, []);
+    assert.deepEqual(stored.habitCheckins, []);
+  }
 });
 
 test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {

@@ -174,6 +174,62 @@ test('terminal invitations and links compact to fixed bounds and stay compact af
   assert.ok(compact.coachAthleteLinks.length <= 2);
 });
 
+test('dependent terminal links consume the hard limit and block further invites across restarts', async t => {
+  const dataDir = makeDataDir(t);
+  const retainedStorage = {
+    ...tightStorage,
+    B2B2C_PENDING_INVITES_PER_COACH: '1',
+    B2B2C_MAX_LINKS: '3',
+    B2B2C_TERMINAL_LINKS_KEEP: '0',
+    B2B2C_TERMINAL_RETENTION_DAYS: '0',
+  };
+  let server = await launch(dataDir, retainedStorage);
+  t.after(() => stop(server));
+
+  for (let index = 0; index < 3; index++) {
+    const created = await createInvite(server, USERS.coachA.id, `198.51.100.${index + 30}`);
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const accepted = await acceptInvite(server, created.body.invite.token, `203.0.113.${index + 30}`);
+    assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+    const message = await request(server, USERS.coachA.id, 'POST', `/api/coach/athletes/${USERS.athlete.id}/messages`, {
+      content: `retained ${index}`, category: 'general', refId: null,
+    }, `192.0.2.${index + 30}`);
+    assert.equal(message.status, 201, JSON.stringify(message.body));
+    const ended = await request(server, USERS.athlete.id, 'POST', '/api/coach/links/status', {
+      linkId: accepted.body.link.id, status: 'ended',
+    }, `192.0.2.${index + 40}`);
+    assert.equal(ended.status, 200, JSON.stringify(ended.body));
+  }
+
+  const blocked = await createInvite(server, USERS.coachA.id, '198.51.100.99');
+  assert.deepEqual([blocked.status, blocked.body.code], [409, 'relationship_capacity']);
+  await stop(server);
+  const beforeRestartRaw = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const beforeRestart = JSON.parse(beforeRestartRaw);
+  assert.deepEqual([beforeRestart.coachAthleteLinks.length, beforeRestart.coachMessages.length], [3, 3]);
+  assert.ok(beforeRestart.coachAthleteLinks.every(link => link.tombstone === true));
+  const retainedIds = beforeRestart.coachAthleteLinks.map(link => link.id).sort();
+
+  server = await launch(dataDir, retainedStorage);
+  const afterRestartRaw = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const afterRestart = JSON.parse(afterRestartRaw);
+  assert.equal(afterRestartRaw, beforeRestartRaw);
+  assert.deepEqual(afterRestart.coachAthleteLinks.map(link => link.id).sort(), retainedIds);
+  assert.deepEqual(afterRestart.coachMessages.map(message => message.linkId).sort(), retainedIds);
+  assert.equal(afterRestart.coachAthleteLinks.length, 3);
+  const blockedAgain = await createInvite(server, USERS.coachA.id, '198.51.100.100');
+  assert.deepEqual([blockedAgain.status, blockedAgain.body.code], [409, 'relationship_capacity']);
+});
+
+test('B2B2C_MAX_LINKS is clamped to the one-link operational minimum', async t => {
+  const dataDir = makeDataDir(t);
+  const server = await launch(dataDir, { ...tightStorage, B2B2C_MAX_LINKS: '0', B2B2C_PENDING_INVITES_PER_COACH: '2' });
+  t.after(() => stop(server));
+  assert.equal((await createInvite(server, USERS.coachA.id, '198.51.100.110')).status, 201);
+  const blocked = await createInvite(server, USERS.coachA.id, '198.51.100.111');
+  assert.deepEqual([blocked.status, blocked.body.code], [409, 'relationship_capacity']);
+});
+
 test('boot compacts an inflated legacy set of live pending invitations to global bounds', async t => {
   const expired = [];
   const links = [];
@@ -195,7 +251,7 @@ test('boot compacts an inflated legacy set of live pending invitations to global
   const server = await launch(dataDir, tightStorage);
   t.after(() => stop(server));
   const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.coachInvites.length, 10);
-  assert.equal(stored.coachAthleteLinks.length, 10);
-  assert.deepEqual(stored.coachAthleteLinks.map(link => link.id), links.slice(-10).map(link => link.id));
+  assert.equal(stored.coachInvites.length, 6);
+  assert.equal(stored.coachAthleteLinks.length, 6);
+  assert.deepEqual(stored.coachAthleteLinks.map(link => link.id), links.slice(-6).map(link => link.id));
 });

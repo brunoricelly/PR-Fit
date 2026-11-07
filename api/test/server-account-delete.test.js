@@ -50,25 +50,41 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     notes: '', createdAt: 1, updatedAt: 1,
   }] : [];
   const mealAdherence = mealPlans.length ? [{ id: 'adh_delete_fixture', athleteId, mealPlanId: mealPlans[0].id, date: '2026-11-06', mealsChecked: ['m_delete_fixture'], waterDrunkMl: 1000, notes: '', updatedAt: 1 }] : [];
+  const communicationNow = Date.now();
+  const coachMessages = coachId && athleteId ? [{ id: 'cmsg_delete_fixture', linkId: 'cal_delete_fixture', senderId: coachId, recipientId: athleteId,
+    content: 'deletion fixture', category: 'general', refId: null, createdAt: communicationNow, readAt: null }] : [];
+  const coachHabits = coachId && athleteId ? [{ id: 'hab_delete_fixture', linkId: 'cal_delete_fixture', coachId, athleteId, title: 'Deletion fixture',
+    description: '', targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active', createdAt: communicationNow, updatedAt: communicationNow, archivedAt: null }] : [];
+  const habitCheckins = coachHabits.length ? [{ id: 'hchk_delete_fixture', linkId: 'cal_delete_fixture', athleteId, habitId: coachHabits[0].id,
+    date: new Date().toISOString().slice(0, 10), value: 1, completed: true, notes: '', updatedAt: communicationNow }] : [];
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
     users: which.map(k => all[k]),
     creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }],
     subs: [{ endpoint: 'https://push/user', userId: USER }, { endpoint: 'https://push/admin', userId: ADMIN }],
+    deviceLinks: [{ userId: USER, h: 'device-user', exp: Date.now() + 86400000 }, { userId: ADMIN, h: 'device-admin', exp: Date.now() + 86400000 }],
+    watchLinks: [{ id: 'watch-user', userId: USER, h: 'watch-user', created: Date.now() }, { id: 'watch-admin', userId: ADMIN, h: 'watch-admin', created: Date.now() }],
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
     coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
-    coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence,
+    coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence, coachMessages, coachHabits, habitCheckins,
   }));
   for (const uid of [USER, ADMIN]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
-  const child = spawn(process.execPath, ['server.js'], {
-    cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', PASSWORD_LOGIN: '1', AUDIT_LOG: '1', ...env },
-  });
-  const h = { api: '', log: '', dataDir };
-  child.stdout.on('data', d => h.log += d);
-  child.stderr.on('data', d => h.log += d);
-  t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
-  h.port = await boundPort(child, () => h.log);
+  const processEnv = { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', PASSWORD_LOGIN: '1', AUDIT_LOG: '1', ...env };
+  const spawnServer = () => spawn(process.execPath, ['server.js'], { cwd: API, stdio: ['ignore', 'pipe', 'pipe'], env: processEnv });
+  const h = { api: '', log: '', dataDir, child: spawnServer() };
+  const listen = child => { child.stdout.on('data', d => h.log += d); child.stderr.on('data', d => h.log += d); };
+  listen(h.child);
+  t.after(() => { h.child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
+  h.port = await boundPort(h.child, () => h.log);
   h.api = `http://127.0.0.1:${h.port}`;
+  h.restart = async () => {
+    const old = h.child;
+    old.kill('SIGTERM');
+    await new Promise(resolve => old.once('exit', resolve));
+    h.child = spawnServer();
+    listen(h.child);
+    h.port = await boundPort(h.child, () => h.log);
+    h.api = `http://127.0.0.1:${h.port}`;
+  };
   h.del = async (uid, body) => {
     const r = await fetch(`${h.api}/api/account/delete`, { method: 'POST', headers: as(uid), body: JSON.stringify(body) });
     return { status: r.status, body: await r.json(), cookie: r.headers.get('set-cookie') || '' };
@@ -87,18 +103,31 @@ for (const [label, deleted, survivors] of [
     const h = await startServer(t, { users: survivors, env: { B2B2C_DB_FAIL_FILE: true } });
     const before = h.db();
     assert.ok(before.mealPlans.length && before.mealAdherence.length);
+    assert.ok(before.coachMessages.length && before.coachHabits.length && before.habitCheckins.length);
     fs.writeFileSync(path.join(h.dataDir, 'fail-db-write'), 'once');
     const account = before.users.find(user => user.id === deleted);
     const failed = await h.del(deleted, { name: account.name, current: GOOD });
     assert.equal(failed.status, 500);
     assert.deepEqual(h.db().mealPlans, before.mealPlans, 'disk plans rolled back');
     assert.deepEqual(h.db().mealAdherence, before.mealAdherence, 'disk adherence rolled back');
+    assert.deepEqual(h.db().coachMessages, before.coachMessages, 'disk messages rolled back');
+    assert.deepEqual(h.db().coachHabits, before.coachHabits, 'disk habits rolled back');
+    assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'disk check-ins rolled back');
+    assert.deepEqual(h.db().deviceLinks, before.deviceLinks, 'disk device links rolled back');
+    assert.deepEqual(h.db().watchLinks, before.watchLinks, 'disk watch links rolled back');
+    await h.restart();
+    assert.deepEqual(h.db().users, before.users, 'restart keeps the account');
+    assert.deepEqual(h.db().deviceLinks, before.deviceLinks, 'restart keeps device links');
+    assert.deepEqual(h.db().watchLinks, before.watchLinks, 'restart keeps watch links');
     // A subsequent successful DB mutation persists the in-memory snapshot too. Without the two
     // collections in removeAccount's snapshot this save would silently commit their deletion.
     const info = await fetch(`${h.api}/api/logout/all`, { method: 'POST', headers: as(USER) });
     assert.equal(info.status, 200);
     assert.deepEqual(h.db().mealPlans, before.mealPlans, 'next save proves in-memory plans survived');
     assert.deepEqual(h.db().mealAdherence, before.mealAdherence, 'next save proves in-memory adherence survived');
+    assert.deepEqual(h.db().coachMessages, before.coachMessages, 'next save proves in-memory messages survived');
+    assert.deepEqual(h.db().coachHabits, before.coachHabits, 'next save proves in-memory habits survived');
+    assert.deepEqual(h.db().habitCheckins, before.habitCheckins, 'next save proves in-memory check-ins survived');
   });
 }
 
@@ -113,6 +142,9 @@ test('removes the account and everything attached to it, and ends the session', 
   assert.deepEqual(db.users.map(u => u.id), [ADMIN], 'the user is gone');
   assert.deepEqual(db.creds.map(c => c.userId), [ADMIN], 'their passkeys are gone');
   assert.deepEqual(db.subs.map(s => s.userId), [ADMIN], 'their push subscriptions are gone');
+  assert.deepEqual([db.coachMessages.length, db.coachHabits.length, db.habitCheckins.length], [0, 0, 0], 'communication and habits are gone');
+  assert.equal(db.deviceLinks.some(link => link.userId === USER), false);
+  assert.equal(db.watchLinks.some(link => link.userId === USER), false);
   assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false, 'their history is gone');
   assert.equal(fs.existsSync(path.join(h.dataDir, `state-${ADMIN}.json`)), true, 'nobody else’s is touched');
   assert.equal(db.invites[0].usedBy, USER, 'the code they joined with stays burned');

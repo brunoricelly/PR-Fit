@@ -12,6 +12,7 @@ import EmptyState from '../components/EmptyState.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
 import AssessmentPanel from './AssessmentPanel.jsx'
 import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
+import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
 import './ProfessionalHub.css'
 
 const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === 'assessments' ? p('Physical assessments') : p('Training')
@@ -252,7 +253,7 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }
   </article>
 }
 
-function CoachPortfolio({ user }) {
+function CoachPortfolio({ user, inbox }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -333,6 +334,8 @@ function CoachPortfolio({ user }) {
             {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
             {link.status === 'active' && link.scopes.includes('nutrition') && link.athlete && <NutritionPanel athleteId={link.athlete.id} />}
             {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
+            <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
+            {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
           </RelationshipCard>)}</div>}
     </section>
   </>
@@ -374,7 +377,7 @@ function AthletePrescriptions({ userId }) {
   </section>
 }
 
-function AthleteProfessionals({ initialToken, userId, embedded = false }) {
+function AthleteProfessionals({ initialToken, userId, inbox, embedded = false }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -442,6 +445,7 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
     <AthletePrescriptions userId={userId} />
     <section aria-labelledby="athlete-nutrition-section"><h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2><AthleteNutritionView /></section>
     <section aria-labelledby="athlete-assessments-title"><h2 className="pro-section-title" id="athlete-assessments-title">{p('My physical assessments')}</h2><AssessmentPanel athlete /></section>
+    {links && <AthleteHabitsDashboard links={links} />}
     <section aria-labelledby="pro-athlete-list-title">
       <h2 className="pro-section-title" id="pro-athlete-list-title">{p('Linked professionals')}</h2>
       {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>
@@ -454,6 +458,7 @@ function AthleteProfessionals({ initialToken, userId, embedded = false }) {
                 {link.scopes.includes('assessments') ? p('Revoke assessment consent') : p('Grant assessment consent')}
               </Button>
             </div>}
+            <CommunicationPanel link={link} side="athlete" actorId={userId} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
           </RelationshipCard>)}</div>}
     </section>
   </>
@@ -463,6 +468,7 @@ export default function ProfessionalHub() {
   const user = useStore(state => state.user)
   const location = useLocation()
   const navigate = useNavigate()
+  const inbox = useCommunicationInbox(user?.id)
   const initialToken = useMemo(() => new URLSearchParams(location.search).get('invite') || '', [])
   useEffect(() => {
     if (initialToken && location.search) navigate('/professionals', { replace: true })
@@ -477,7 +483,10 @@ export default function ProfessionalHub() {
       <Icon name={coach ? 'person' : 'shield'} />
     </header>
     <ProfileSetup user={user} />
-    {coach ? <><CoachPortfolio user={user} /><AthleteProfessionals initialToken={initialToken} userId={user.id} embedded /></>
-      : <AthleteProfessionals initialToken={initialToken} userId={user.id} />}
+    {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
+    {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
+    {coach ? <><CoachPortfolio user={user} inbox={inbox} /><AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} embedded /></>
+      : <AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} />}
+    {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
   </main>
 }
