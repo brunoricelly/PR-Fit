@@ -58,6 +58,9 @@ import {
 import {
   calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
 } from './progress-analytics.js';
+import {
+  cancelFutureAppointmentsForLink, createSchedulingRoutes, SCHEDULING_LIMITS,
+} from './scheduling.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -181,6 +184,10 @@ const B2B2C_RATE = {
   progressMutationIp: envInt('B2B2C_PROGRESS_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
   progressExportAccount: envInt('B2B2C_PROGRESS_EXPORT_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
   progressExportIp: envInt('B2B2C_PROGRESS_EXPORT_IP_MAX', 600, { min: 1, max: 100000 }),
+  schedulingMutationAccount: envInt('B2B2C_SCHEDULING_MUTATION_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
+  schedulingMutationIp: envInt('B2B2C_SCHEDULING_MUTATION_IP_MAX', 300, { min: 1, max: 100000 }),
+  schedulingStatusAccount: envInt('B2B2C_SCHEDULING_STATUS_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  schedulingStatusIp: envInt('B2B2C_SCHEDULING_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -2730,11 +2737,17 @@ const progressRoutes = createProgressRoutes({
     exportIp: B2B2C_RATE.progressExportIp,
   },
 });
+const schedulingRoutes = createSchedulingRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb,
+});
+
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const routes = {
   ...communicationHabitsRoutes,
   ...progressRoutes,
+  ...schedulingRoutes,
   // 503 rather than a flag in a 200: the container healthcheck is `wget --spider`, which reads
   // the status and nothing else, and an instance that cannot write its data directory is exactly
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
@@ -3623,6 +3636,9 @@ const routes = {
     candidateLink.updatedAt = now;
     if (body.status === 'suspended') { candidateLink.suspendedAt = now; candidateLink.suspendedBy = actor.id; }
     if (body.status === 'ended') { candidateLink.endedAt = now; candidateLink.endedBy = actor.id; }
+    if (['suspended', 'ended'].includes(body.status)) {
+      cancelFutureAppointmentsForLink(candidate, link.id, 'relationship_' + body.status, actor.id);
+    }
     const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
     try { saveDb(candidate); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'relationship transition could not be saved'); }
@@ -4752,6 +4768,39 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/athlete/prescriptions/{routineId}/adopt';
     req.routineId = athletePrescription[1];
   }
+  if (url.pathname === '/api/coach/availability') key = req.method + ' /api/coach/availability';
+  const coachAppointments = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/appointments$/.exec(url.pathname);
+  if (coachAppointments) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/appointments';
+    req.athleteId = coachAppointments[1];
+  }
+  const coachAppointmentAttendance = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/attendance$/.exec(url.pathname);
+  if (coachAppointmentAttendance) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/attendance';
+    req.appointmentId = coachAppointmentAttendance[1];
+  }
+  const coachAppointmentItem = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachAppointmentItem) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}';
+    req.appointmentId = coachAppointmentItem[1];
+  }
+  const athleteAvailabilitySlots = /^\/api\/athlete\/coaches\/([A-Za-z0-9_-]+)\/availability-slots$/.exec(url.pathname);
+  if (athleteAvailabilitySlots) {
+    key = req.method + ' /api/athlete/coaches/{coachId}/availability-slots';
+    req.coachId = athleteAvailabilitySlots[1];
+  }
+  if (url.pathname === '/api/athlete/appointments') key = req.method + ' /api/athlete/appointments';
+  const athleteCoachAppointments = /^\/api\/athlete\/coaches\/([A-Za-z0-9_-]+)\/appointments$/.exec(url.pathname);
+  if (athleteCoachAppointments) {
+    key = req.method + ' /api/athlete/coaches/{coachId}/appointments';
+    req.coachId = athleteCoachAppointments[1];
+  }
+  const athleteAppointmentCancel = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)\/cancel$/.exec(url.pathname);
+  if (athleteAppointmentCancel) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}/cancel';
+    req.appointmentId = athleteAppointmentCancel[1];
+  }
+
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
   if (!csrfOk(req, key)) {

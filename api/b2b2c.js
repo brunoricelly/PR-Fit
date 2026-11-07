@@ -5,8 +5,11 @@ import {
 import {
   compactProgressState, migrateProgressState, progressDependentLinkIds, removeProgressUser,
 } from './progress-analytics.js';
+import {
+  compactSchedulingState, migrateSchedulingState, removeSchedulingUser, validateSchedulingState,
+} from './scheduling.js';
 
-export const B2B2C_SCHEMA_VERSION = 7;
+export const B2B2C_SCHEMA_VERSION = 8;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
@@ -74,7 +77,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, 4, 5, 6, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, 5, 6, 7, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -82,7 +85,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs', 'coachAvailability', 'coachAppointments']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -150,6 +153,8 @@ export function migrateB2B2C(db) {
   catch (error) { throw new B2B2CDataError(error.message); }
   try { changed = migrateProgressState(db) || changed; }
   catch (error) { throw new B2B2CDataError(error.message); }
+  try { changed = migrateSchedulingState(db) || changed; }
+  catch (error) { throw new B2B2CDataError(error.message); }
   return changed;
 }
 
@@ -190,6 +195,8 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   db.progressGoals ||= [];
   db.progressReports ||= [];
   db.accountCleanupJobs ||= [];
+  db.coachAvailability ||= [];
+  db.coachAppointments ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
@@ -384,12 +391,17 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   try { communication = compactCommunicationHabits(db, limits, nowMs); }
   catch (error) { throw new B2B2CDataError(error.message); }
   changed = changed || communication.changed;
+  let scheduling;
+  try { scheduling = compactSchedulingState(db, limits, nowMs); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  changed = changed || scheduling.changed;
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
     mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length,
     messages: db.coachMessages.length, habits: db.coachHabits.length, checkins: db.habitCheckins.length,
     goals: db.progressGoals.length, reports: db.progressReports.length,
+    availability: db.coachAvailability.length, appointments: db.coachAppointments.length,
     expiredAssessments,
   };
 }
@@ -923,6 +935,7 @@ export function serializeLink(db, link, viewer) {
 export function removeB2B2CUser(db, userId) {
   removeCommunicationHabitsUser(db, userId);
   removeProgressUser(db, userId);
+  removeSchedulingUser(db, userId);
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
