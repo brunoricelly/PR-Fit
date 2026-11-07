@@ -86,9 +86,10 @@ test('analytics exposes real points, explicit denominators, coverage and freshne
     coachHabits: [{ id: 'hab_1', linkId: link.id, title: 'Water', frequency: 'daily', createdAt: Date.parse('2026-10-01T00:00:00Z'), archivedAt: null }],
     habitCheckins: [{ id: 'hchk_1', linkId: link.id, habitId: 'hab_1', date: '2026-11-06', completed: true }],
   });
+  const metrics = ['body_weight', 'body_fat_percent', 'workouts_per_week', 'nutrition_adherence_percent', 'habit_adherence_percent'];
   const summary = buildProgressSummary({
     db: data, link, state, period: { from: '2026-11-01', to: '2026-11-07', days: 7, preset: 7 },
-    timeZone: 'UTC', metrics: ['body_weight', 'body_fat_percent', 'workouts_per_week', 'nutrition_adherence_percent', 'habit_adherence_percent'], now,
+    timeZone: 'UTC', metrics, now,
   });
   assert.deepEqual(summary.metrics.body_weight.points.map(point => point.value), [90, 88.5, 88]);
   assert.equal(summary.metrics.body_weight.trend.change, -2);
@@ -100,9 +101,20 @@ test('analytics exposes real points, explicit denominators, coverage and freshne
   for (const metric of Object.values(summary.metrics)) {
     assert.ok(Array.isArray(metric.points));
     for (const point of metric.points) {
-      assert.ok(point.date || point.from && point.to);
+      assert.ok(['instant', 'interval'].includes(point.kind));
+      assert.equal(point.kind === 'instant', typeof point.date === 'string');
+      assert.equal(point.kind === 'interval', typeof point.from === 'string' && typeof point.to === 'string');
       assert.equal(typeof point.value, 'number');
       assert.ok(point.coverage && point.freshness && point.unit);
+    }
+  }
+  for (const timeZone of ['America/Sao_Paulo', 'Asia/Tokyo', 'Pacific/Kiritimati']) {
+    const zoned = buildProgressSummary({
+      db: data, link, state, period: { from: '2026-11-01', to: '2026-11-07', days: 7, preset: 7 },
+      timeZone, metrics, now,
+    });
+    for (const result of Object.values(zoned.metrics)) {
+      for (const point of result.points) assert.ok(['instant', 'interval'].includes(point.kind));
     }
   }
 });
@@ -139,6 +151,32 @@ test('progress migration, retention and CSV escaping are fail-closed', () => {
   });
   assert.match(csv, /'=HYPERLINK/);
   assert.match(csv, /""bad""/);
+});
+
+test('terminal progress records use separate bounded capacity from active records', () => {
+  const archived = index => goal({
+    id: `pgoal_archived_${index}`, status: 'archived', archivedAt: '2026-11-06T00:00:00.000Z',
+    updatedAt: '2026-11-06T00:00:00.000Z', archiveReason: 'manual',
+  });
+  const revoked = index => ({
+    id: `prep_revoked_${index}`, linkId: link.id, coachId: link.coachId, athleteId: link.athleteId,
+    interval: { from: '2026-11-01', to: '2026-11-06' }, timezone: 'UTC', metrics: ['workouts_per_week'],
+    summary: 'workouts_per_week: fixture.', snapshot: { version: 1, metrics: {} },
+    createdAt: '2026-11-06T00:00:00.000Z', revokedAt: '2026-11-06T12:00:00.000Z',
+    revocation: { reason: 'scope_revoked', scope: 'training', actorId: link.athleteId, at: '2026-11-06T12:00:00.000Z' },
+  });
+  const data = db({
+    progressGoals: [goal(), archived(1), archived(2)],
+    progressReports: [revoked(1), revoked(2)],
+  });
+  const limits = {
+    maxGoalsPerLink: 1, maxGoals: 1, maxTerminalGoals: 2, goalRetentionDays: 730,
+    maxReportsPerLink: 1, maxReports: 1, maxTerminalReports: 2, reportRetentionDays: 1095,
+    maxReportBytes: 1024 * 1024,
+  };
+  assert.doesNotThrow(() => compactProgressState(data, limits, Date.parse('2026-11-07T00:00:00Z')));
+  data.progressGoals.push(archived(3));
+  assert.throws(() => compactProgressState(data, limits, Date.parse('2026-11-07T00:00:00Z')), /terminal progressGoals/);
 });
 
 test('progress dependencies preserve terminal link tombstones and global limits fail closed', () => {

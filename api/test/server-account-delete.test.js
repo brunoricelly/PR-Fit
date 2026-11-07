@@ -203,6 +203,40 @@ test('external cleanup failure is observable and boot retry never resurrects the
   assert.equal(fs.existsSync(path.join(h.dataDir, `state-${USER}.json`)), false);
 });
 
+test('external cleanup retries during runtime with bounded attempts and no account resurrection', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_FILE: 'cleanup-fail', ACCOUNT_CLEANUP_RETRY_BASE_MS: '20',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '40', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '3',
+  } });
+  fs.writeFileSync(path.join(h.dataDir, 'cleanup-fail'), 'integrations');
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status !== 'complete'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const stored = h.db();
+  assert.equal(stored.users.some(user => user.id === USER), false);
+  assert.equal(stored.accountCleanupJobs[0].status, 'complete');
+  assert.ok(stored.accountCleanupJobs[0].attempts >= 2);
+});
+
+test('cleanup retry exhaustion becomes manual review and does not consume pending capacity forever', async t => {
+  const h = await startServer(t, { env: {
+    ACCOUNT_CLEANUP_FAIL_STEP: 'integrations', ACCOUNT_CLEANUP_RETRY_BASE_MS: '10',
+    ACCOUNT_CLEANUP_RETRY_MAX_MS: '20', ACCOUNT_CLEANUP_MAX_ATTEMPTS: '2',
+  } });
+  const res = await h.del(USER, { name: 'Mallory', current: GOOD });
+  assert.equal(res.body.status, 'cleanup_pending');
+  for (let attempt = 0; attempt < 50 && h.db().accountCleanupJobs[0].status === 'pending'; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  const job = h.db().accountCleanupJobs[0];
+  assert.equal(job.status, 'manual_review');
+  assert.equal(job.attempts, 2);
+  assert.match(job.lastError, /integrations:EIO/);
+  assert.equal(JSON.stringify(job).includes(USER), false);
+});
+
 test('missing external files are successful idempotent cleanup, not pending work', async t => {
   const h = await startServer(t);
   fs.unlinkSync(path.join(h.dataDir, `state-${USER}.json`));

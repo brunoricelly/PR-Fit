@@ -125,6 +125,16 @@ test('assessment consent revocation archives dependent goals, revokes reports, r
     assert.equal(response.text.includes('snapshot'), false);
   }
 
+  response = await request(server, COACH_ID, 'POST', `/api/coach/athletes/${ATHLETE_ID}/progress-reports/${reportId}/revoke?linkId=${LINK_ID}`);
+  assert.deepEqual([response.status, response.body.code], [410, 'report_revoked']);
+  assert.equal(response.text.includes('snapshot'), false);
+
+  response = await request(server, COACH_ID, 'GET', `/api/coach/athletes/${ATHLETE_ID}/progress-reports?linkId=${LINK_ID}&status=revoked`);
+  assert.equal(response.status, 200, response.text);
+  assert.equal(response.body.items.length, 1);
+  assert.equal(JSON.stringify(response.body).includes('snapshot'), false);
+  assert.equal('reports' in response.body, false);
+
   await stop(server);
   server = await launch(dataDir);
   response = await fetch(server.api + '/api/health');

@@ -129,6 +129,40 @@ test('known schema versions migrate to version 7', async t => {
   }
 });
 
+test('historical archived goals and revoked reports migrate once without changing historical payloads', async t => {
+  const timestamp = '2026-06-01T12:00:00.000Z';
+  const snapshot = { version: 1, generatedAt: timestamp, period: { from: '2026-05-01', to: '2026-05-31' }, metrics: { body_weight: { available: false } } };
+  const sample = fixture(t, {
+    schemaVersion: 7, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], accountCleanupJobs: [],
+    coachAthleteLinks: [{ id: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', scopes: ['assessments'], status: 'ended', createdAt: timestamp, updatedAt: timestamp, endedAt: timestamp }],
+    progressGoals: [{
+      id: 'pgoal_history', linkId: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', metric: 'body_weight',
+      direction: 'decrease', baselineValue: 90, targetValue: 85, tolerance: 0.5, startDate: '2026-05-01', targetDate: '2026-05-31',
+      timezone: 'UTC', status: 'archived', createdAt: timestamp, updatedAt: timestamp, achievedAt: null, archivedAt: timestamp,
+    }],
+    progressReports: [{
+      id: 'prep_history', linkId: 'cal_history', coachId: 'u_coach', athleteId: 'u_athlete', interval: { from: '2026-05-01', to: '2026-05-31' },
+      timezone: 'UTC', metrics: ['body_weight'], summary: 'body_weight: historical.', snapshot, createdAt: timestamp, revokedAt: timestamp,
+    }],
+  });
+  let server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  const firstText = fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8');
+  const first = JSON.parse(firstText);
+  assert.deepEqual({ unit: first.progressGoals[0].unit, rev: first.progressGoals[0]._rev, reason: first.progressGoals[0].archiveReason }, { unit: 'kg', rev: 1, reason: 'manual' });
+  assert.equal(first.progressReports[0].revocation, null);
+  assert.deepEqual(first.progressReports[0].snapshot, snapshot);
+  assert.equal(first.progressReports[0].createdAt, timestamp);
+  assert.equal(first.progressReports[0].revokedAt, timestamp);
+
+  server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), firstText);
+});
+
 test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {
   const sample = fixture(t, {
     schemaVersion: 3,

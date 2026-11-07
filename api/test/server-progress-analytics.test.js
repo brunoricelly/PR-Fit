@@ -115,7 +115,15 @@ test('progress goals and summaries are scoped to the exact relationship and life
   assert.deepEqual([response.status, response.body.code], [400, 'link_id_required']);
   response = await request(server, IDS.athleteA, 'GET', '/api/athlete/progress-goals?linkId=cal_new');
   assert.equal(response.status, 200, response.text);
-  assert.deepEqual(response.body.goals.map(item => item.id), [goalId]);
+  assert.deepEqual(response.body.items.map(item => item.id), [goalId]);
+  assert.equal('goals' in response.body, false);
+
+  response = await request(server, IDS.coachA, 'GET', '/api/progress/metrics');
+  assert.equal(response.status, 200, response.text);
+  assert.deepEqual(Object.fromEntries(Object.entries(response.body.metrics).map(([metric, definition]) => [metric, definition.pointKind])), {
+    body_weight: 'instant', body_fat_percent: 'instant', workouts_per_week: 'interval',
+    nutrition_adherence_percent: 'instant', habit_adherence_percent: 'instant',
+  });
 
   for (const [period, zone] of [[7, 'America/Sao_Paulo'], [30, 'Asia/Tokyo'], [90, 'Pacific/Kiritimati']]) {
     response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&period=${period}&timezone=${zone}&metrics=workouts_per_week`);
@@ -133,7 +141,7 @@ test('progress goals and summaries are scoped to the exact relationship and life
 
   response = await request(server, IDS.coachA, 'PATCH', `/api/coach/athletes/${IDS.athleteA}/progress-goals/${goalId}?linkId=cal_new`, { _rev: goalRev, targetValue: 2, status: 'achieved' });
   assert.deepEqual([response.status, response.body.goal.status, typeof response.body.goal.achievedAt], [200, 'achieved', 'string']);
-  response = await request(server, IDS.coachA, 'DELETE', `/api/coach/athletes/${IDS.athleteA}/progress-goals/${goalId}?linkId=cal_new`);
+  response = await request(server, IDS.coachA, 'DELETE', `/api/coach/athletes/${IDS.athleteA}/progress-goals/${goalId}?linkId=cal_new`, { _rev: response.body.goal._rev });
   assert.deepEqual([response.status, response.body.goal.status, typeof response.body.goal.archivedAt], [200, 'archived', 'string']);
 });
 
@@ -176,6 +184,71 @@ test('reports are immutable, export safely, revoke, and exclude private messages
   assert.equal(audit.includes('PRIVATE_MESSAGE_MUST_NOT_LEAK'), false);
 });
 
+test('goal mutations use atomic revision preconditions for PATCH and DELETE', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-progress-cas-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  let response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`, workoutGoal);
+  assert.equal(response.status, 201, response.text);
+  const goal = response.body.goal;
+  const route = `/api/coach/athletes/${IDS.athleteA}/progress-goals/${goal.id}?linkId=cal_new`;
+
+  let results = await Promise.all([
+    request(server, IDS.coachA, 'PATCH', route, { _rev: goal._rev, targetValue: 4 }),
+    request(server, IDS.coachA, 'PATCH', route, { _rev: goal._rev, targetValue: 5 }),
+  ]);
+  assert.deepEqual(results.map(item => item.status).sort(), [200, 409]);
+  assert.equal(results.find(item => item.status === 409).body.code, 'stale_version');
+  response = await request(server, IDS.coachA, 'GET', route);
+  assert.equal(response.body.goal._rev, 2);
+  assert.equal(response.body.goal.targetValue, results.find(item => item.status === 200).body.goal.targetValue);
+
+  const rev = response.body.goal._rev;
+  results = await Promise.all([
+    request(server, IDS.coachA, 'PATCH', route, { _rev: rev, targetValue: 6 }),
+    request(server, IDS.coachA, 'DELETE', route, { _rev: rev }),
+  ]);
+  assert.deepEqual(results.map(item => item.status).sort(), [200, 409]);
+  assert.equal(results.find(item => item.status === 409).body.code, 'stale_version');
+  response = await request(server, IDS.coachA, 'GET', route);
+  assert.equal(response.body.goal._rev, 3);
+  const winner = results.find(item => item.status === 200).body.goal;
+  assert.deepEqual([response.body.goal.status, response.body.goal.targetValue], [winner.status, winner.targetValue]);
+
+  response = await request(server, IDS.coachA, 'DELETE', route);
+  assert.deepEqual([response.status, response.body.code], [400, 'precondition_required']);
+});
+
+test('goal detail reapplies current coach specialty on historical links without cross-tenant enumeration', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-progress-detail-capability-'));
+  seed(dataDir);
+  const file = path.join(dataDir, 'db.json');
+  const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+  data.users.find(user => user.id === IDS.coachA).profile.coachSpecialties = ['training'];
+  data.progressGoals.push({
+    id: 'pgoal_historical_assessment', linkId: 'cal_old', coachId: IDS.coachA, athleteId: IDS.athleteA,
+    metric: 'body_weight', direction: 'decrease', baselineValue: 90, targetValue: 85, tolerance: 0.5,
+    unit: 'kg', startDate: '2026-08-01', targetDate: '2026-09-30', timezone: 'UTC', status: 'archived', _rev: 2,
+    createdAt: '2026-08-01T00:00:00.000Z', updatedAt: '2026-09-30T23:00:00.000Z', achievedAt: null,
+    archivedAt: '2026-09-30T23:00:00.000Z', archiveReason: 'manual',
+  });
+  fs.writeFileSync(file, JSON.stringify(data, null, 2));
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  const route = `/api/coach/athletes/${IDS.athleteA}/progress-goals/pgoal_historical_assessment?linkId=cal_old`;
+
+  let response = await request(server, IDS.coachA, 'GET', route);
+  assert.deepEqual([response.status, response.body.code], [403, 'scope_forbidden']);
+  response = await request(server, IDS.athleteA, 'GET', '/api/athlete/progress-goals?linkId=cal_old&status=archived');
+  assert.deepEqual(response.body.items.map(item => item.id), ['pgoal_historical_assessment']);
+  response = await request(server, IDS.coachB, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals/pgoal_historical_assessment?linkId=cal_ba`);
+  assert.deepEqual([response.status, response.body.code], [404, 'goal_not_found']);
+});
+
 test('progress mutations enforce quotas, rate limits and durable rollback', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-progress-resilience-'));
   seed(dataDir);
@@ -190,7 +263,7 @@ test('progress mutations enforce quotas, rate limits and durable rollback', asyn
   let response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`, workoutGoal);
   assert.deepEqual([response.status, response.body.code], [503, 'storage_unavailable']);
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8')).progressGoals, []);
-  assert.deepEqual((await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`)).body.goals, []);
+  assert.deepEqual((await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`)).body.items, []);
 
   response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`, workoutGoal);
   assert.equal(response.status, 201, response.text);
@@ -212,7 +285,7 @@ test('progress mutations enforce quotas, rate limits and durable rollback', asyn
   assert.equal(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'), storedBefore);
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`);
   assert.equal(response.status, 200, response.text);
-  assert.equal(response.body.goals.length, 1);
+  assert.equal(response.body.items.length, 1);
 });
 
 test('athlete report reads, metadata catalog, timezone errors and detail egress are fail-closed', async t => {
@@ -277,11 +350,12 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   }
   fs.writeFileSync(file, JSON.stringify(data, null, 2));
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir, { B2B2C_PROGRESS_GOALS_PER_LINK: '1' });
+  const server = await launch(dataDir, { B2B2C_PROGRESS_GOALS_PER_LINK: '1', B2B2C_MAX_PROGRESS_GOALS: '1' });
   t.after(async () => stop(server));
 
   let response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new&status=archived&limit=2`);
   assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 2, true]);
+  assert.equal('goals' in response.body, false);
   const cursor = response.body.nextCursor;
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new&status=archived&limit=2&cursor=${encodeURIComponent(cursor)}`);
   assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 2, false]);
@@ -297,13 +371,14 @@ test('goal and report listings use bound opaque cursors and terminal records do 
   assert.deepEqual([response.status, response.body.items.length, response.body.hasMore], [200, 1, false]);
   response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-reports?linkId=cal_new&status=revoked&from=2026-11-01&to=2026-11-10`);
   assert.deepEqual(response.body.items.map(item => item.id), ['prep_page_0']);
+  assert.equal('reports' in response.body, false);
 
-  response = await request(server, IDS.coachA, 'DELETE', `/api/coach/athletes/${IDS.athleteA}/progress-goals/pgoal_page_4?linkId=cal_new`);
+  response = await request(server, IDS.coachA, 'DELETE', `/api/coach/athletes/${IDS.athleteA}/progress-goals/pgoal_page_4?linkId=cal_new`, { _rev: 1 });
   assert.equal(response.body.archived, true);
-  response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/progress-goals?linkId=cal_new`, workoutGoal);
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteB}/progress-goals?linkId=cal_ab`, workoutGoal);
   assert.equal(response.status, 201, response.text);
-  response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-goals/${response.body.goal.id}?linkId=cal_new`);
+  response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteB}/progress-goals/${response.body.goal.id}?linkId=cal_ab`);
   assert.equal(response.status, 200, response.text);
-  response = await request(server, IDS.coachA, 'PATCH', `/api/coach/athletes/${IDS.athleteA}/progress-goals/${response.body.goal.id}?linkId=cal_new`, { _rev: 999, targetValue: 4 });
+  response = await request(server, IDS.coachA, 'PATCH', `/api/coach/athletes/${IDS.athleteB}/progress-goals/${response.body.goal.id}?linkId=cal_ab`, { _rev: 999, targetValue: 4 });
   assert.deepEqual([response.status, response.body.code], [409, 'stale_version']);
 });
