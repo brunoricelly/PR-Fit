@@ -237,3 +237,38 @@ test('overlapping scheduled appointments refuse boot without rewriting primary o
     validAppointment({ id: 'capp_2', startAt: '2026-06-01T10:30:00.000Z', endAt: '2026-06-01T11:30:00.000Z' }),
   ]));
 });
+
+function reminderFixture() {
+  const db = schedulingFixture([
+    validAppointment(),
+    validAppointment({ id: 'capp_2', startAt: '2026-06-02T10:00:00.000Z', endAt: '2026-06-02T11:00:00.000Z', localDate: '2026-06-02' }),
+  ]);
+  db.schedulingReminderPreferences = [{
+    userId: 'u_coach', enabled: true, offsetsMinutes: [60], timeZone: 'UTC', updatedAt: '2026-01-01T00:00:00.000Z',
+  }];
+  db.appointmentReminderStates = [{
+    id: 'srem_boot', appointmentId: 'capp_1', userId: 'u_coach', offsetMinutes: 60,
+    scheduledFor: '2026-06-01T09:00:00.000Z', status: 'pending', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }];
+  db.schedulingReminderOutbox = [{
+    id: 'sout_boot', reminderStateId: 'srem_boot', appointmentId: 'capp_1', userId: 'u_coach', offsetMinutes: 60,
+    scheduledFor: '2026-06-01T09:00:00.000Z', status: 'pending', attempts: 0, nextAttemptAt: '2026-06-01T09:00:00.000Z',
+    leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveredAt: null, failedAt: null, canceledAt: null,
+    idempotencyKey: 'appointment-reminder:srem_boot', payload: { type: 'appointment_reminder', appointmentId: 'capp_1' },
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  }];
+  return db;
+}
+
+test('cross-user reminder outbox refuses boot without rewriting primary or backup', async t => {
+  const db = reminderFixture();
+  db.schedulingReminderOutbox[0].userId = 'u_athlete';
+  await assertSchedulingBootRefused(t, db);
+});
+
+test('cross-appointment reminder outbox refuses boot without rewriting primary or backup', async t => {
+  const db = reminderFixture();
+  db.schedulingReminderOutbox[0].appointmentId = 'capp_2';
+  db.schedulingReminderOutbox[0].payload.appointmentId = 'capp_2';
+  await assertSchedulingBootRefused(t, db);
+});

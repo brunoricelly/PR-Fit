@@ -843,3 +843,89 @@ test('15. Coach e atleta obedecem minNotice, maxAdvance, passado e duração con
     assert.equal(res.body.code, 'invalid_appointment');
   }
 });
+
+test('16. PUT idêntico preserva pending e atualização de um participante não toca o outro', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-reminder-idempotent-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir, { B2B2C_SCHEDULING_REMINDER_TICK_MS: '600000' });
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+  for (const uid of [IDS.coachA, IDS.athleteA]) {
+    assert.equal((await request(server, uid, 'PUT', '/api/scheduling/reminder-preferences', {
+      enabled: true, offsetsMinutes: [60], timeZone: 'UTC',
+    })).status, 200);
+  }
+  const created = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    startAt: '2027-02-10T10:00:00Z',
+  });
+  assert.equal(created.status, 201);
+  const appointmentId = created.body.appointment.id;
+  let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  const coachBefore = structuredClone(stored.appointmentReminderStates.find(item => item.appointmentId === appointmentId && item.userId === IDS.coachA));
+  const athleteBefore = structuredClone(stored.appointmentReminderStates.find(item => item.appointmentId === appointmentId && item.userId === IDS.athleteA));
+
+  assert.equal((await request(server, IDS.coachA, 'PUT', '/api/scheduling/reminder-preferences', {
+    enabled: true, offsetsMinutes: [60], timeZone: 'UTC',
+  })).status, 200);
+  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.deepEqual(stored.appointmentReminderStates.find(item => item.id === coachBefore.id), coachBefore);
+  assert.deepEqual(stored.appointmentReminderStates.find(item => item.id === athleteBefore.id), athleteBefore);
+
+  assert.equal((await request(server, IDS.coachA, 'PUT', '/api/scheduling/reminder-preferences', {
+    enabled: true, offsetsMinutes: [15, 60], timeZone: 'UTC',
+  })).status, 200);
+  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.deepEqual(stored.appointmentReminderStates.find(item => item.id === athleteBefore.id), athleteBefore);
+  assert.deepEqual(
+    stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.userId === IDS.coachA && item.status === 'pending')
+      .map(item => item.offsetMinutes).sort((a, b) => a - b),
+    [15, 60],
+  );
+});
+
+test('17. Profissional dual-role completa ações de atleta sem ampliar IDOR', async t => {
+  const dualRole = baseDb();
+  dualRole.users.find(user => user.id === IDS.athleteA).profile = { kind: 'coach', coachSpecialties: ['training'] };
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-dual-role-'));
+  seed(dataDir, dualRole);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  let server = await launch(dataDir);
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+
+  let response = await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2027-02-11`);
+  assert.equal(response.status, 200);
+  response = await request(server, IDS.athleteA, 'POST', `/api/athlete/coaches/${IDS.coachA}/appointments`, {
+    startAt: '2027-02-11T10:00:00Z',
+  });
+  assert.equal(response.status, 201);
+  const appointmentId = response.body.appointment.id;
+  assert.equal((await request(server, IDS.athleteA, 'GET', '/api/athlete/appointments')).status, 200);
+  assert.equal((await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/appointments`)).status, 200);
+  assert.equal((await request(server, IDS.athleteA, 'GET', `/api/athlete/appointments/${appointmentId}`)).status, 200);
+  assert.equal((await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${appointmentId}/reschedule`, {
+    startAt: '2027-02-11T11:00:00Z',
+  })).status, 200);
+  assert.equal((await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${appointmentId}/cancel`, {
+    reason: 'mudança de agenda',
+  })).status, 200);
+
+  const foreign = dualRole.coachAppointments.find(item => item.id === 'capp_past_session');
+  foreign.athleteId = IDS.athleteB;
+  foreign.linkId = 'cal_bb';
+  foreign.coachId = IDS.coachB;
+  await stop(server);
+  const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  stored.coachAppointments.push({ ...foreign, id: 'capp_foreign', timeZone: 'UTC', localDate: '2026-01-01', durationMinutes: 60, cancellation: null });
+  fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify(stored, null, 2));
+  server = await launch(dataDir);
+  assert.equal((await request(server, IDS.athleteA, 'GET', '/api/athlete/appointments/capp_foreign')).status, 404);
+  assert.equal((await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachB}/appointments?linkId=cal_bb`)).status, 404);
+});

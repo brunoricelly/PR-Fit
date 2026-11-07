@@ -204,3 +204,94 @@ test('account removal deletes scheduling preferences, reminder state, outbox, an
   assert.deepEqual(db.appointmentReminderStates, []);
   assert.deepEqual(db.schedulingReminderOutbox, []);
 });
+
+function enableReminders(db, userId, offsetsMinutes) {
+  db.schedulingReminderPreferences.push({
+    userId, enabled: true, offsetsMinutes, timeZone: 'UTC', updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+}
+
+test('reminder reconciliation is idempotent and preserves pending identity and timestamps', () => {
+  const db = schedulingDb([appointment()]);
+  enableReminders(db, 'coach_1', [60]);
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:00.000Z'));
+  const firstState = structuredClone(db.appointmentReminderStates[0]);
+  const firstOutbox = structuredClone(db.schedulingReminderOutbox[0]);
+
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-02T00:00:00.000Z'));
+
+  assert.deepEqual(db.appointmentReminderStates, [firstState]);
+  assert.deepEqual(db.schedulingReminderOutbox, [firstOutbox]);
+  assert.equal(firstState.status, 'pending');
+  assert.equal(firstOutbox.status, 'pending');
+});
+
+test('participant-scoped reminder reconciliation applies exact add and remove deltas', () => {
+  const db = schedulingDb([appointment()]);
+  enableReminders(db, 'coach_1', [60]);
+  enableReminders(db, 'athlete_1', [30]);
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:00.000Z'));
+  const athleteBefore = structuredClone(db.appointmentReminderStates.find(item => item.userId === 'athlete_1'));
+
+  const coachPreference = db.schedulingReminderPreferences.find(item => item.userId === 'coach_1');
+  coachPreference.offsetsMinutes = [15, 60];
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-02T00:00:00.000Z'), { userId: 'coach_1' });
+  assert.deepEqual(db.appointmentReminderStates.find(item => item.userId === 'athlete_1'), athleteBefore);
+  assert.deepEqual(
+    db.appointmentReminderStates.filter(item => item.userId === 'coach_1' && item.status === 'pending').map(item => item.offsetMinutes).sort((a, b) => a - b),
+    [15, 60],
+  );
+
+  coachPreference.offsetsMinutes = [15];
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-03T00:00:00.000Z'), { userId: 'coach_1' });
+  assert.equal(db.appointmentReminderStates.find(item => item.userId === 'coach_1' && item.offsetMinutes === 60).status, 'canceled');
+  assert.equal(db.schedulingReminderOutbox.find(item => item.userId === 'coach_1' && item.offsetMinutes === 60).status, 'canceled');
+  assert.equal(db.appointmentReminderStates.find(item => item.userId === 'coach_1' && item.offsetMinutes === 15).status, 'pending');
+});
+
+test('rescheduling keeps reminder identity, updates schedule, and never revives delivered records', () => {
+  const db = schedulingDb([appointment()]);
+  enableReminders(db, 'coach_1', [60, 120]);
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:00.000Z'));
+  const delivered = db.appointmentReminderStates.find(item => item.offsetMinutes === 120);
+  const deliveredOutbox = db.schedulingReminderOutbox.find(item => item.reminderStateId === delivered.id);
+  delivered.status = 'delivered';
+  deliveredOutbox.status = 'delivered';
+  const pending = db.appointmentReminderStates.find(item => item.offsetMinutes === 60);
+  const pendingId = pending.id;
+  const pendingCreatedAt = pending.createdAt;
+
+  db.coachAppointments[0].startAt = '2026-06-01T12:00:00.000Z';
+  db.coachAppointments[0].endAt = '2026-06-01T13:00:00.000Z';
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-02T00:00:00.000Z'));
+
+  assert.equal(pending.id, pendingId);
+  assert.equal(pending.createdAt, pendingCreatedAt);
+  assert.equal(pending.scheduledFor, '2026-06-01T11:00:00.000Z');
+  assert.equal(db.schedulingReminderOutbox.find(item => item.reminderStateId === pending.id).scheduledFor, pending.scheduledFor);
+  assert.equal(delivered.status, 'delivered');
+  assert.equal(deliveredOutbox.status, 'delivered');
+});
+
+test('dual-role users remain valid as the athlete side of an exact scheduling link', () => {
+  const db = schedulingDb([appointment()]);
+  db.users.find(user => user.id === 'athlete_1').profile = { kind: 'coach', coachSpecialties: ['training'] };
+  assert.doesNotThrow(() => scheduling.validateSchedulingState(db));
+});
+
+test('reminder outbox validation rejects cross-user and cross-appointment references', () => {
+  const second = appointment({
+    id: 'appointment_2', startAt: '2026-06-02T10:00:00.000Z', endAt: '2026-06-02T11:00:00.000Z', localDate: '2026-06-02',
+  });
+  const db = schedulingDb([appointment(), second]);
+  enableReminders(db, 'coach_1', [60]);
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:00.000Z'));
+  const valid = structuredClone(db);
+
+  db.schedulingReminderOutbox[0].userId = 'athlete_1';
+  assert.throws(() => scheduling.validateSchedulingState(db), /outbox|reminder/i);
+
+  valid.schedulingReminderOutbox[0].appointmentId = 'appointment_2';
+  valid.schedulingReminderOutbox[0].payload.appointmentId = 'appointment_2';
+  assert.throws(() => scheduling.validateSchedulingState(valid), /outbox|reminder/i);
+});
