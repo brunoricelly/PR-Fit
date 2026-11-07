@@ -179,7 +179,7 @@ test('1. Configuração de disponibilidade e validação de regras de janelas e 
     sessionDurationMinutes: 60,
     bufferMinutes: 15,
     minNoticeHours: 2,
-    maxAdvanceDays: 30,
+    maxAdvanceDays: 365,
     windows: [
       { dayOfWeek: 1, start: '08:00', end: '12:00' },
       { dayOfWeek: 3, start: '14:00', end: '18:00' },
@@ -189,7 +189,7 @@ test('1. Configuração de disponibilidade e validação de regras de janelas e 
   res = await request(server, IDS.coachA, 'PUT', '/api/coach/availability', validConfig);
   assert.equal(res.status, 200);
   assert.equal(res.body.availability.coachId, IDS.coachA);
-  assert.equal(res.body.availability.timezone, 'America/Sao_Paulo');
+  assert.equal(res.body.availability.timeZone, 'America/Sao_Paulo');
   assert.equal(res.body.availability.sessionDurationMinutes, 60);
   assert.equal(res.body.availability.bufferMinutes, 15);
   assert.equal(res.body.availability.windows.length, 3);
@@ -197,7 +197,7 @@ test('1. Configuração de disponibilidade e validação de regras de janelas e 
   // GET returns saved availability
   res = await request(server, IDS.coachA, 'GET', '/api/coach/availability');
   assert.equal(res.status, 200);
-  assert.equal(res.body.availability.timezone, 'America/Sao_Paulo');
+  assert.equal(res.body.availability.timeZone, 'America/Sao_Paulo');
   assert.equal(res.body.availability.sessionDurationMinutes, 60);
 });
 
@@ -214,20 +214,20 @@ test('2. Cálculo de slots disponíveis e bloqueio de horários já reservados',
     sessionDurationMinutes: 60,
     bufferMinutes: 0,
     minNoticeHours: 0,
-    maxAdvanceDays: 30,
+    maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '11:00' })),
   });
 
   // Query slots for a future day (e.g. 2026-12-01)
   let res = await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2026-12-01`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.timezone, 'UTC');
+  assert.equal(res.body.timeZone, 'UTC');
   // 08:00-09:00, 09:00-10:00, 10:00-11:00 => 3 slots
-  assert.equal(res.body.slots.length, 3);
-  assert.equal(res.body.slots[0].startAt, '2026-12-01T08:00:00.000Z');
-  assert.equal(res.body.slots[0].endAt, '2026-12-01T09:00:00.000Z');
-  assert.equal(res.body.slots[1].startAt, '2026-12-01T09:00:00.000Z');
-  assert.equal(res.body.slots[2].startAt, '2026-12-01T10:00:00.000Z');
+  assert.equal(res.body.items.length, 3);
+  assert.equal(res.body.items[0].startAt, '2026-12-01T08:00:00.000Z');
+  assert.equal(res.body.items[0].endAt, '2026-12-01T09:00:00.000Z');
+  assert.equal(res.body.items[1].startAt, '2026-12-01T09:00:00.000Z');
+  assert.equal(res.body.items[2].startAt, '2026-12-01T10:00:00.000Z');
 
   // Book middle slot (09:00 to 10:00)
   const bookRes = await request(server, IDS.athleteA, 'POST', `/api/athlete/coaches/${IDS.coachA}/appointments`, {
@@ -241,9 +241,9 @@ test('2. Cálculo de slots disponíveis e bloqueio de horários já reservados',
   // Re-check available slots: 09:00 slot is now blocked!
   res = await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2026-12-01`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.slots.length, 2);
-  assert.equal(res.body.slots[0].startAt, '2026-12-01T08:00:00.000Z');
-  assert.equal(res.body.slots[1].startAt, '2026-12-01T10:00:00.000Z');
+  assert.equal(res.body.items.length, 2);
+  assert.equal(res.body.items[0].startAt, '2026-12-01T08:00:00.000Z');
+  assert.equal(res.body.items[1].startAt, '2026-12-01T10:00:00.000Z');
 });
 
 test('3. Prevenção de conflito (double-booking) simultâneo', async t => {
@@ -254,23 +254,23 @@ test('3. Prevenção de conflito (double-booking) simultâneo', async t => {
   t.after(async () => stop(server));
 
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 15, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 15, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
   await request(server, IDS.coachB, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
-  // Coach A schedules appointment with Athlete A for 2026-12-02 10:00 - 11:00
+  // Coach A schedules an aligned appointment with Athlete A.
   const app = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
-    startAt: '2026-12-02T10:00:00.000Z',
-    endAt: '2026-12-02T11:00:00.000Z',
+    startAt: '2026-12-02T10:30:00.000Z',
+    endAt: '2026-12-02T11:30:00.000Z',
     title: 'Treino A',
   });
   assert.equal(app.status, 201);
 
-  // Double-booking check: Coach A cannot schedule another session overlapping 10:00 - 11:00
+  // Double-booking check: the same aligned slot cannot be booked twice.
   let conflictRes = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
     startAt: '2026-12-02T10:30:00.000Z',
     endAt: '2026-12-02T11:30:00.000Z',
@@ -284,10 +284,10 @@ test('3. Prevenção de conflito (double-booking) simultâneo', async t => {
     startAt: '2026-12-02T11:05:00.000Z',
     endAt: '2026-12-02T12:05:00.000Z',
   });
-  assert.equal(conflictRes.status, 409);
+  assert.equal(conflictRes.status, 400);
+  assert.equal(conflictRes.body.code, 'invalid_slot');
 
-  // Athlete double-booking: Athlete A already has session 10:00 - 11:00 with Coach A.
-  // Athlete A tries to book with Coach B at the same time (10:00 - 11:00): blocked!
+  // Athlete double-booking across coaches is blocked.
   conflictRes = await request(server, IDS.athleteA, 'POST', `/api/athlete/coaches/${IDS.coachB}/appointments`, {
     startAt: '2026-12-02T10:00:00.000Z',
     endAt: '2026-12-02T11:00:00.000Z',
@@ -304,7 +304,7 @@ test('4. Criação de agendamentos por coach e por atleta respeitando autorizaç
   t.after(async () => stop(server));
 
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -342,7 +342,7 @@ test('5. Bloqueio anti-IDOR: coach A não acessa nem altera agendamentos do coac
   t.after(async () => stop(server));
 
   await request(server, IDS.coachB, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -369,14 +369,14 @@ test('5. Bloqueio anti-IDOR: coach A não acessa nem altera agendamentos do coac
 
   // Athlete A tries to cancel Athlete B's appointment => 404
   res = await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${appBId}/cancel`, {
-    cancelReason: 'Hacked by Athlete A',
+    reason: 'Hacked by Athlete A',
   });
   assert.equal(res.status, 404);
 
   // Athlete A listing their own appointments does NOT see Athlete B's appointment
   res = await request(server, IDS.athleteA, 'GET', '/api/athlete/appointments');
   assert.equal(res.status, 200);
-  assert.equal(res.body.appointments.some(a => a.id === appBId), false);
+  assert.equal(res.body.items.some(a => a.id === appBId), false);
 });
 
 test('6. Cancelamento por ambas as partes e atualização de status de presença', async t => {
@@ -387,7 +387,7 @@ test('6. Cancelamento por ambas as partes e atualização de status de presença
   t.after(async () => stop(server));
 
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -398,16 +398,16 @@ test('6. Cancelamento por ambas as partes e atualização de status de presença
   });
   const app1 = res.body.appointment.id;
   res = await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${app1}/cancel`, {
-    cancelReason: 'Gripe forte',
+    reason: 'Gripe forte',
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.appointment.status, 'canceled');
-  assert.equal(res.body.appointment.canceledBy, 'athlete');
-  assert.equal(res.body.appointment.cancelReason, 'Gripe forte');
+  assert.equal(res.body.appointment.cancellation.actor, 'athlete');
+  assert.equal(res.body.appointment.cancellation.reason, 'Gripe forte');
 
   // Idempotent cancel: second cancel returns 200
   res = await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${app1}/cancel`, {
-    cancelReason: 'Outro motivo',
+    reason: 'Outro motivo',
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.appointment.status, 'canceled');
@@ -418,13 +418,12 @@ test('6. Cancelamento por ambas as partes e atualização de status de presença
     endAt: '2026-12-05T15:00:00.000Z',
   });
   const app2 = res.body.appointment.id;
-  res = await request(server, IDS.coachA, 'PATCH', `/api/coach/appointments/${app2}`, {
-    status: 'canceled',
-    cancelReason: 'Imprevisto pessoal',
+  res = await request(server, IDS.coachA, 'POST', `/api/coach/appointments/${app2}/cancel`, {
+    reason: 'Imprevisto pessoal',
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.appointment.status, 'canceled');
-  assert.equal(res.body.appointment.canceledBy, 'coach');
+  assert.equal(res.body.appointment.cancellation.actor, 'coach');
 
   // Future session attendance fails with session_not_ended
   const futureApp = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
@@ -443,7 +442,7 @@ test('6. Cancelamento por ambas as partes e atualização de status de presença
   });
   assert.equal(res.status, 200);
   assert.equal(res.body.appointment.status, 'completed');
-  assert.equal(res.body.appointment.attendance, 'attended');
+  assert.equal(res.body.appointment.attendance.state, 'attended');
 });
 
 test('7. Comportamento fail-closed quando vínculo é cancelado/encerrado', async t => {
@@ -454,7 +453,7 @@ test('7. Comportamento fail-closed quando vínculo é cancelado/encerrado', asyn
   t.after(async () => stop(server));
 
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -476,10 +475,19 @@ test('7. Comportamento fail-closed quando vínculo é cancelado/encerrado', asyn
   // Future scheduled appointment is automatically canceled
   const checkRes = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments`);
   assert.equal(checkRes.status, 200);
-  const found = checkRes.body.appointments.find(a => a.id === appId);
+  const found = checkRes.body.items.find(a => a.id === appId);
   assert.equal(found.status, 'canceled');
-  assert.equal(found.canceledBy, 'system');
-  assert.equal(found.cancelReason, 'relationship_ended');
+  assert.equal(found.cancellation.actor, 'system');
+  assert.equal(found.cancellation.reason, 'relationship_ended');
+  const historical = checkRes.body.items.find(a => a.id === 'capp_past_session');
+  assert.equal(historical.status, 'scheduled');
+  assert.equal(historical.lifecycle.historical, true);
+  assert.equal(historical.lifecycle.readOnly, true);
+  assert.deepEqual(historical.lifecycle.allowedActions, []);
+
+  const attendanceAfterEnd = await request(server, IDS.coachA, 'POST', '/api/coach/appointments/capp_past_session/attendance', { status: 'completed' });
+  assert.equal(attendanceAfterEnd.status, 403);
+  assert.equal(attendanceAfterEnd.body.code, 'relationship_inactive');
 
   // New bookings are blocked
   const newBook = await request(server, IDS.athleteA, 'POST', `/api/athlete/coaches/${IDS.coachA}/appointments`, {
@@ -499,7 +507,7 @@ test('8. Rollback transacional de saveDb() e integridade do removeAccount()', as
 
   // Set availability covering all days
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -517,7 +525,7 @@ test('8. Rollback transacional de saveDb() e integridade do removeAccount()', as
   // In-memory state was rolled back: no appointment was added
   res = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments`);
   // capp_past_session is the only appointment present
-  assert.equal(res.body.appointments.filter(a => a.id !== 'capp_past_session').length, 0);
+  assert.equal(res.body.items.filter(a => a.id !== 'capp_past_session').length, 0);
 
   // Successfully create appointment without failure
   res = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
@@ -548,7 +556,7 @@ test('9. Paginação e filtros por data/status', async t => {
   t.after(async () => stop(server));
 
   await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
-    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 30,
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
     windows: [0, 1, 2, 3, 4, 5, 6].map(d => ({ dayOfWeek: d, start: '08:00', end: '18:00' })),
   });
 
@@ -564,25 +572,274 @@ test('9. Paginação e filtros por data/status', async t => {
   // Page 1: limit 2
   let res = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments?limit=2`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.appointments.length, 2);
-  assert.equal(res.body.page.hasMore, true);
-  assert.ok(res.body.page.nextCursor);
+  assert.equal(res.body.items.length, 2);
+  assert.equal(res.body.hasMore, true);
+  assert.ok(res.body.nextCursor);
 
   // Page 2: with cursor
-  const cursor = encodeURIComponent(res.body.page.nextCursor);
+  const cursor = encodeURIComponent(res.body.nextCursor);
   res = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments?limit=2&cursor=${cursor}`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.appointments.length, 2);
-  assert.equal(res.body.page.hasMore, false);
+  assert.equal(res.body.items.length, 2);
+  assert.equal(res.body.hasMore, false);
 
   // Filter by date range (only 2026-12-11)
   res = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments?from=2026-12-11T00:00:00.000Z&to=2026-12-11T23:59:59.000Z`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.appointments.length, 1);
-  assert.equal(res.body.appointments[0].startAt, '2026-12-11T09:00:00.000Z');
+  assert.equal(res.body.items.length, 1);
+  assert.equal(res.body.items[0].startAt, '2026-12-11T09:00:00.000Z');
 
   // Filter by status (completed) => 0
   res = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/appointments?status=completed`);
   assert.equal(res.status, 200);
-  assert.equal(res.body.appointments.length, 0);
+  assert.equal(res.body.items.length, 0);
+});
+
+test('10. Superfície agregada, detalhe, remarcação explícita e contrato canônico', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-contract-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+  const created = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    startAt: '2027-01-10T10:00:00Z', title: 'Contrato congelado',
+  });
+  assert.equal(created.status, 201);
+  const appointmentId = created.body.appointment.id;
+  assert.equal(created.body.appointment.durationMinutes, 60);
+  assert.equal(created.body.appointment.timeZone, 'UTC');
+  assert.equal(created.body.appointment.localDate, '2027-01-10');
+  assert.deepEqual(created.body.appointment.lifecycle.allowedActions, ['reschedule', 'cancel']);
+
+  let res = await request(server, IDS.coachA, 'GET', '/api/coach/appointments?limit=10');
+  assert.equal(res.status, 200);
+  assert.ok(res.body.items.some(item => item.id === appointmentId));
+  assert.equal('appointments' in res.body, false);
+  assert.equal('page' in res.body, false);
+  assert.equal(res.body.limit, 10);
+
+  const firstPage = await request(server, IDS.coachA, 'GET', '/api/coach/appointments?limit=1');
+  assert.equal(firstPage.status, 200);
+  assert.equal(firstPage.body.hasMore, true);
+  const reboundCursor = encodeURIComponent(firstPage.body.nextCursor);
+  const rebound = await request(server, IDS.coachA, 'GET', `/api/coach/appointments?limit=1&status=scheduled&cursor=${reboundCursor}`);
+  assert.equal(rebound.status, 400);
+  assert.equal(rebound.body.code, 'invalid_cursor');
+
+  res = await request(server, IDS.coachA, 'GET', `/api/coach/appointments/${appointmentId}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.appointment.athlete.id, IDS.athleteA);
+  res = await request(server, IDS.athleteA, 'GET', `/api/athlete/appointments/${appointmentId}`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.appointment.coach.id, IDS.coachA);
+
+  res = await request(server, IDS.athleteA, 'POST', `/api/athlete/appointments/${appointmentId}/reschedule`, {
+    startAt: '2027-01-10T11:00:00Z',
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.appointment.endAt, '2027-01-10T12:00:00.000Z');
+  assert.equal(res.body.appointment.durationMinutes, 60);
+
+  res = await request(server, IDS.coachA, 'PATCH', `/api/coach/appointments/${appointmentId}`, { title: 'partial mutation' });
+  assert.equal(res.status, 405);
+  assert.equal(res.body.code, 'action_required');
+  res = await request(server, IDS.coachA, 'POST', `/api/coach/appointments/${appointmentId}/reschedule`, { startAt: '2027-01-10T12:00:00Z', extra: true });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'invalid_reschedule');
+});
+
+test('11. Escopo training e linkId explícito isolam recontratação', async t => {
+  const multiple = baseDb();
+  multiple.coachAthleteLinks.push({
+    id: 'cal_aa_old', coachId: IDS.coachA, athleteId: IDS.athleteA, scopes: ['training'], status: 'ended',
+    createdAt: '2025-01-01T00:00:00.000Z', updatedAt: '2025-12-01T00:00:00.000Z', endedAt: '2025-12-01T00:00:00.000Z',
+  });
+  multiple.coachAppointments.push({
+    id: 'capp_old_link', linkId: 'cal_aa_old', coachId: IDS.coachA, athleteId: IDS.athleteA,
+    type: 'in_person', title: 'Historical relationship', notes: '',
+    startAt: '2025-11-01T10:00:00.000Z', endAt: '2025-11-01T11:00:00.000Z',
+    timeZone: 'UTC', localDate: '2025-11-01', durationMinutes: 60, status: 'completed', cancellation: null,
+    location: null, meetingUrl: null,
+    attendance: { state: 'attended', recordedBy: IDS.coachA, recordedAt: '2025-11-01T11:01:00.000Z' },
+    createdAt: '2025-10-01T00:00:00.000Z', updatedAt: '2025-11-01T11:01:00.000Z',
+  });
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-links-'));
+  seed(dataDir, multiple);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+
+  let res = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    startAt: '2027-01-11T10:00:00Z',
+  });
+  assert.equal(res.status, 400);
+  assert.equal(res.body.code, 'link_id_required');
+  res = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    linkId: 'cal_aa', startAt: '2027-01-11T10:00:00Z',
+  });
+  assert.equal(res.status, 201);
+  assert.equal(res.body.appointment.linkId, 'cal_aa');
+
+  const nutrition = baseDb();
+  nutrition.coachAppointments = [];
+  nutrition.coachAthleteLinks.find(link => link.id === 'cal_aa').scopes = ['nutrition'];
+  const nutritionDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-nutrition-'));
+  seed(nutritionDir, nutrition);
+  t.after(() => fs.rmSync(nutritionDir, { recursive: true, force: true }));
+  const nutritionServer = await launch(nutritionDir);
+  t.after(async () => stop(nutritionServer));
+  res = await request(nutritionServer, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2027-01-11`);
+  assert.equal(res.status, 403);
+  assert.equal(res.body.code, 'scope_forbidden');
+});
+
+test('12. Lembretes persistem, reconciliam e disponibilidade usa CAS', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-reminders-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  let server = await launch(dataDir);
+  t.after(async () => stop(server));
+
+  let availability = await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+  assert.equal(availability.status, 200);
+  assert.equal(availability.body.availability._rev, 1);
+
+  const casPayload = {
+    _rev: 1, timeZone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '17:00' })), exceptions: [],
+  };
+  const cas = await Promise.all([
+    request(server, IDS.coachA, 'PUT', '/api/coach/availability', casPayload),
+    request(server, IDS.coachA, 'PUT', '/api/coach/availability', casPayload),
+  ]);
+  assert.deepEqual(cas.map(result => result.status).sort(), [200, 409]);
+
+  for (const uid of [IDS.coachA, IDS.athleteA]) {
+    const pref = await request(server, uid, 'PUT', '/api/scheduling/reminder-preferences', {
+      enabled: true, offsetsMinutes: [60], timeZone: 'UTC',
+    });
+    assert.equal(pref.status, 200);
+  }
+  const created = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    startAt: '2027-01-12T10:00:00Z',
+  });
+  assert.equal(created.status, 201);
+  const appointmentId = created.body.appointment.id;
+  let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 2);
+  assert.equal(stored.schedulingReminderOutbox.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 2);
+
+  let res = await request(server, IDS.coachA, 'POST', `/api/coach/appointments/${appointmentId}/reschedule`, {
+    startAt: '2027-01-12T11:00:00Z',
+  });
+  assert.equal(res.status, 200);
+  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 2);
+  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'canceled').length, 2);
+
+  res = await request(server, IDS.coachA, 'POST', `/api/coach/appointments/${appointmentId}/cancel`, { reason: 'agenda alterada' });
+  assert.equal(res.status, 200);
+  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 0);
+  assert.equal(stored.schedulingReminderOutbox.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 0);
+
+  await stop(server);
+  server = await launch(dataDir);
+  res = await request(server, IDS.coachA, 'GET', '/api/scheduling/reminder-preferences');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.preferences.enabled, true);
+  assert.ok(res.body.appointmentReminderStates.some(item => item.appointmentId === appointmentId));
+
+  const afterRestart = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, {
+    startAt: '2027-01-13T10:00:00Z',
+  });
+  assert.equal(afterRestart.status, 201);
+  const relationshipAppointmentId = afterRestart.body.appointment.id;
+  const ended = await request(server, IDS.coachA, 'POST', '/api/coach/links/status', { linkId: 'cal_aa', status: 'ended' });
+  assert.equal(ended.status, 200);
+  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.schedulingReminderOutbox.filter(item => item.appointmentId === relationshipAppointmentId && item.status === 'pending').length, 0);
+});
+
+test('13. Vinte reservas concorrentes produzem uma criação e dezenove conflitos', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-race-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '18:00' })),
+  });
+  const results = await Promise.all(Array.from({ length: 20 }, () => request(
+    server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/appointments`, { startAt: '2027-01-13T10:00:00Z' },
+  )));
+  assert.equal(results.filter(result => result.status === 201).length, 1);
+  assert.equal(results.filter(result => result.status === 409 && result.body.code === 'double_booking').length, 19);
+});
+
+test('14. Exceções removem blackouts e o horizonte de 365 dias é consultável', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-exceptions-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'Pacific/Kiritimati', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 0, maxAdvanceDays: 365,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '08:00', end: '10:00' })),
+    exceptions: [
+      { date: '2027-08-01', unavailable: true },
+      { date: '2027-08-02', windows: [{ start: '14:00', end: '16:00' }] },
+    ],
+  });
+  let res = await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2027-08-01`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.items.length, 0);
+  res = await request(server, IDS.athleteA, 'GET', `/api/athlete/coaches/${IDS.coachA}/availability-slots?date=2027-08-02`);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.items.length, 2);
+  assert.equal(res.body.items[0].localDate, '2027-08-02');
+});
+
+test('15. Coach e atleta obedecem minNotice, maxAdvance, passado e duração configurada', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-sched-policy-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  await request(server, IDS.coachA, 'PUT', '/api/coach/availability', {
+    timezone: 'UTC', sessionDurationMinutes: 60, bufferMinutes: 0, minNoticeHours: 48, maxAdvanceDays: 10,
+    windows: [0, 1, 2, 3, 4, 5, 6].map(dayOfWeek => ({ dayOfWeek, start: '00:00', end: '23:00' })),
+  });
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10) + 'T12:00:00Z';
+  const far = new Date(Date.now() + 20 * 86400000).toISOString().slice(0, 10) + 'T12:00:00Z';
+  for (const [uid, route] of [
+    [IDS.coachA, `/api/coach/athletes/${IDS.athleteA}/appointments`],
+    [IDS.athleteA, `/api/athlete/coaches/${IDS.coachA}/appointments`],
+  ]) {
+    let res = await request(server, uid, 'POST', route, { startAt: tomorrow });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'min_notice_violated');
+    res = await request(server, uid, 'POST', route, { startAt: far });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'max_advance_exceeded');
+    res = await request(server, uid, 'POST', route, { startAt: '2026-01-01T12:00:00Z' });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'past_appointment');
+    res = await request(server, uid, 'POST', route, { startAt: far, endAt: new Date(Date.parse(far) + 2 * 3600000).toISOString() });
+    assert.equal(res.status, 400);
+    assert.equal(res.body.code, 'invalid_appointment');
+  }
 });

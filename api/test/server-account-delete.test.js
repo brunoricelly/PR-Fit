@@ -35,8 +35,8 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   if (env.B2B2C_DB_FAIL_FILE === true) env.B2B2C_DB_FAIL_FILE = path.join(dataDir, 'fail-db-write');
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   const all = {
-    admin: { id: ADMIN, name: 'Adminna', created: new Date().toISOString(), admin: true, pw },
-    admin2: { id: ADMIN2, name: 'Second', created: new Date().toISOString(), admin: true, pw },
+    admin: { id: ADMIN, name: 'Adminna', created: new Date().toISOString(), admin: true, profile: { kind: 'coach', coachSpecialties: ['training', 'nutrition'] }, pw },
+    admin2: { id: ADMIN2, name: 'Second', created: new Date().toISOString(), admin: true, profile: { kind: 'coach', coachSpecialties: ['training'] }, pw },
     user: { id: USER, name: 'Mallory', created: new Date().toISOString(), invitedBy: 'CODE1', pw },
     coach: { id: COACH, name: 'Coach', created: new Date().toISOString(), profile: { kind: 'coach', coachSpecialties: ['training'] }, pw },
     ordinary: { id: ORDINARY, name: 'Ordinary', created: new Date().toISOString(), pw },
@@ -95,7 +95,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     deviceLinks: [{ userId: USER, h: 'device-user', exp: Date.now() + 86400000 }, { userId: ADMIN, h: 'device-admin', exp: Date.now() + 86400000 }],
     watchLinks: [{ id: 'watch-user', userId: USER, h: 'watch-user', created: Date.now() }, { id: 'watch-admin', userId: ADMIN, h: 'watch-admin', created: Date.now() }],
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
-    coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
+    coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['training', 'nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
     coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence, coachMessages, coachHabits, habitCheckins,
     progressGoals, progressReports, coachAvailability, coachAppointments,
   }));

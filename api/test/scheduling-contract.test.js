@@ -145,15 +145,29 @@ test('schema v8 scheduling validation is fail-closed for orphan, mismatched link
     appointment({ id: 'appointment_2', athleteId: 'athlete_1', startAt: '2026-06-01T10:30:00.000Z', endAt: '2026-06-01T11:30:00.000Z' }),
   ]);
   assert.throws(() => scheduling.validateSchedulingState(overlap), /overlap/i);
+
+  const invalidStatus = schedulingDb([appointment({ status: 'unknown' })]);
+  assert.throws(() => scheduling.validateSchedulingState(invalidStatus), /invalid record/i);
+});
+
+test('schema quotas reject a 50k+ terminal appointment fixture', () => {
+  const template = appointment({
+    status: 'canceled',
+    cancellation: { actor: 'system', actorId: null, reason: 'fixture', canceledAt: '2026-01-01T00:00:00.000Z' },
+  });
+  const appointments = Array.from({ length: 50_001 }, (_, index) => ({ ...template, id: `appointment_${index}` }));
+  assert.throws(() => scheduling.validateSchedulingState(schedulingDb(appointments)), /limit/i);
 });
 
 test('relationship transition cancellation preserves ended history at the cutoff', () => {
   const db = schedulingDb([
     appointment({ id: 'past', startAt: '2026-05-01T10:00:00.000Z', endAt: '2026-05-01T11:00:00.000Z' }),
+    appointment({ id: 'ongoing', startAt: '2026-05-31T23:30:00.000Z', endAt: '2026-06-01T00:30:00.000Z' }),
     appointment({ id: 'future', startAt: '2026-07-01T10:00:00.000Z', endAt: '2026-07-01T11:00:00.000Z' }),
   ]);
   scheduling.cancelFutureAppointmentsForLink(db, 'link_1', 'relationship_ended', 'coach_1', Date.parse('2026-06-01T00:00:00.000Z'));
   assert.equal(db.coachAppointments.find(item => item.id === 'past').status, 'scheduled');
+  assert.equal(db.coachAppointments.find(item => item.id === 'ongoing').status, 'canceled');
   const future = db.coachAppointments.find(item => item.id === 'future');
   assert.equal(future.status, 'canceled');
   assert.deepEqual(future.cancellation, {
@@ -167,6 +181,25 @@ test('scheduling migration initializes reminder collections without accepting fu
   delete db.appointmentReminderStates;
   delete db.schedulingReminderOutbox;
   assert.equal(scheduling.migrateSchedulingState(db), true);
+  assert.deepEqual(db.schedulingReminderPreferences, []);
+  assert.deepEqual(db.appointmentReminderStates, []);
+  assert.deepEqual(db.schedulingReminderOutbox, []);
+});
+
+test('account removal deletes scheduling preferences, reminder state, outbox, and appointments', () => {
+  const db = schedulingDb([appointment()]);
+  db.schedulingReminderPreferences.push({ userId: 'coach_1', enabled: true, offsetsMinutes: [60], timeZone: 'UTC', updatedAt: '2026-01-01T00:00:00.000Z' });
+  db.appointmentReminderStates.push({
+    id: 'srem_1', appointmentId: 'appointment_1', userId: 'coach_1', offsetMinutes: 60,
+    scheduledFor: '2026-06-01T09:00:00.000Z', status: 'pending', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+  db.schedulingReminderOutbox.push({
+    id: 'sout_1', reminderStateId: 'srem_1', appointmentId: 'appointment_1', userId: 'coach_1', deliverAt: '2026-06-01T09:00:00.000Z',
+    status: 'pending', payload: { type: 'appointment_reminder', appointmentId: 'appointment_1' },
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+  });
+  scheduling.removeSchedulingUser(db, 'coach_1');
+  assert.deepEqual(db.coachAppointments, []);
   assert.deepEqual(db.schedulingReminderPreferences, []);
   assert.deepEqual(db.appointmentReminderStates, []);
   assert.deepEqual(db.schedulingReminderOutbox, []);

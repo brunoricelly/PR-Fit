@@ -257,6 +257,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     ...db.coachMessages.map(item => item.linkId),
     ...db.coachHabits.map(item => item.linkId),
     ...db.habitCheckins.map(item => item.linkId),
+    ...db.coachAppointments.map(item => item.linkId),
     ...progressDependentLinkIds(db),
   ]);
   const protectedTerminalSource = db.coachAthleteLinks

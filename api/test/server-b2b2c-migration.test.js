@@ -39,6 +39,39 @@ async function stop(child) {
   await new Promise(resolve => child.once('exit', resolve));
 }
 
+function schedulingFixture(appointments) {
+  const timestamp = '2026-01-01T00:00:00.000Z';
+  return {
+    schemaVersion: 8,
+    users: [
+      { id: 'u_coach', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['training'] } },
+      { id: 'u_athlete', name: 'Athlete', profile: { kind: 'athlete' } },
+    ],
+    creds: [], subs: [], invites: [], deviceLinks: [], coachInvites: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: [], progressReports: [], accountCleanupJobs: [],
+    coachAthleteLinks: [{ id: 'cal_sched', coachId: 'u_coach', athleteId: 'u_athlete', scopes: ['training'], status: 'active', createdAt: timestamp, updatedAt: timestamp }],
+    coachAvailability: [], coachAppointments: appointments, schedulingReminderPreferences: [], appointmentReminderStates: [], schedulingReminderOutbox: [],
+  };
+}
+
+function validAppointment(overrides = {}) {
+  return {
+    id: 'capp_1', linkId: 'cal_sched', coachId: 'u_coach', athleteId: 'u_athlete', type: 'in_person', title: 'Session', notes: '',
+    startAt: '2026-06-01T10:00:00.000Z', endAt: '2026-06-01T11:00:00.000Z', timeZone: 'UTC', localDate: '2026-06-01', durationMinutes: 60,
+    status: 'scheduled', cancellation: null, location: null, meetingUrl: null, attendance: null,
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...overrides,
+  };
+}
+
+async function assertSchedulingBootRefused(t, db) {
+  const sample = fixture(t, db);
+  const server = start(sample.dataDir);
+  assert.equal(await server.exit, 1);
+  assert.match(server.log(), /B2B2C data is invalid/);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), sample.raw);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json.bak'), 'utf8'), sample.backup);
+}
+
 for (const [name, db] of [
   ['future schema', { schemaVersion: 999, users: [], creds: [], subs: [], invites: [], coachInvites: [], coachAthleteLinks: [] }],
   ['corrupt B2B2C collection', { schemaVersion: 3, users: [], creds: [], subs: [], invites: [], coachInvites: {}, coachAthleteLinks: [], coachPrescriptions: [] }],
@@ -188,4 +221,19 @@ test('version 3 assessment PAR-Q answers migrate to stable question ids without 
   assert.equal(stored.coachAssessments[0].parq.version, '2024.1');
   assert.equal(stored.coachAssessments[0].parq.answers[6].questionId, 'other_reason');
   assert.equal(stored.coachAssessments[0].requiresMedicalClearance, true);
+});
+
+test('orphan scheduling participant refuses boot without rewriting primary or backup', async t => {
+  await assertSchedulingBootRefused(t, schedulingFixture([validAppointment({ coachId: 'u_missing' })]));
+});
+
+test('mismatched scheduling link refuses boot without rewriting primary or backup', async t => {
+  await assertSchedulingBootRefused(t, schedulingFixture([validAppointment({ athleteId: 'u_coach' })]));
+});
+
+test('overlapping scheduled appointments refuse boot without rewriting primary or backup', async t => {
+  await assertSchedulingBootRefused(t, schedulingFixture([
+    validAppointment(),
+    validAppointment({ id: 'capp_2', startAt: '2026-06-01T10:30:00.000Z', endAt: '2026-06-01T11:30:00.000Z' }),
+  ]));
 });

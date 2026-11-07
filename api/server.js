@@ -158,6 +158,14 @@ const B2B2C_LIMITS = {
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
   terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
+  maxActiveAppointmentsPerLink: envInt('B2B2C_ACTIVE_APPOINTMENTS_PER_LINK', SCHEDULING_LIMITS.maxActiveAppointmentsPerLink, { min: 1, max: 100000 }),
+  maxActiveAppointments: envInt('B2B2C_MAX_ACTIVE_APPOINTMENTS', SCHEDULING_LIMITS.maxActiveAppointments, { min: 1, max: 1000000 }),
+  maxTerminalAppointmentsPerLink: envInt('B2B2C_TERMINAL_APPOINTMENTS_PER_LINK', SCHEDULING_LIMITS.maxTerminalAppointmentsPerLink, { min: 1, max: 1000000 }),
+  maxTerminalAppointments: envInt('B2B2C_MAX_TERMINAL_APPOINTMENTS', SCHEDULING_LIMITS.maxTerminalAppointments, { min: 1, max: 5000000 }),
+  appointmentRetentionDays: envInt('B2B2C_APPOINTMENT_RETENTION_DAYS', SCHEDULING_LIMITS.appointmentRetentionDays, { min: 1, max: 36500 }),
+  reminderRetentionDays: envInt('B2B2C_SCHEDULING_REMINDER_RETENTION_DAYS', SCHEDULING_LIMITS.reminderRetentionDays, { min: 1, max: 3650 }),
+  maxReminderStates: envInt('B2B2C_MAX_APPOINTMENT_REMINDER_STATES', SCHEDULING_LIMITS.maxReminderStates, { min: 1, max: 5000000 }),
+  maxReminderOutbox: envInt('B2B2C_MAX_SCHEDULING_REMINDER_OUTBOX', SCHEDULING_LIMITS.maxReminderOutbox, { min: 1, max: 5000000 }),
 };
 validateCommunicationHabitsLimits(B2B2C_LIMITS);
 const B2B2C_RATE = {
@@ -188,6 +196,8 @@ const B2B2C_RATE = {
   schedulingMutationIp: envInt('B2B2C_SCHEDULING_MUTATION_IP_MAX', 300, { min: 1, max: 100000 }),
   schedulingStatusAccount: envInt('B2B2C_SCHEDULING_STATUS_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
   schedulingStatusIp: envInt('B2B2C_SCHEDULING_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
+  schedulingReadAccount: envInt('B2B2C_SCHEDULING_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
+  schedulingReadIp: envInt('B2B2C_SCHEDULING_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
@@ -2739,7 +2749,7 @@ const progressRoutes = createProgressRoutes({
 });
 const schedulingRoutes = createSchedulingRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
-  makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb,
+  makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb, cursorSecret: SECRET,
 });
 
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
@@ -3637,7 +3647,7 @@ const routes = {
     if (body.status === 'suspended') { candidateLink.suspendedAt = now; candidateLink.suspendedBy = actor.id; }
     if (body.status === 'ended') { candidateLink.endedAt = now; candidateLink.endedBy = actor.id; }
     if (['suspended', 'ended'].includes(body.status)) {
-      cancelFutureAppointmentsForLink(candidate, link.id, 'relationship_' + body.status, actor.id);
+      cancelFutureAppointmentsForLink(candidate, link.id, 'relationship_' + body.status, actor.id, Date.parse(now));
     }
     const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
     try { saveDb(candidate); }
@@ -4769,15 +4779,31 @@ const server = http.createServer(async (req, res) => {
     req.routineId = athletePrescription[1];
   }
   if (url.pathname === '/api/coach/availability') key = req.method + ' /api/coach/availability';
+  if (url.pathname === '/api/coach/appointments') key = req.method + ' /api/coach/appointments';
   const coachAppointments = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/appointments$/.exec(url.pathname);
   if (coachAppointments) {
     key = req.method + ' /api/coach/athletes/{athleteId}/appointments';
     req.athleteId = coachAppointments[1];
   }
+  const coachAvailabilitySlots = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/availability-slots$/.exec(url.pathname);
+  if (coachAvailabilitySlots) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/availability-slots';
+    req.athleteId = coachAvailabilitySlots[1];
+  }
   const coachAppointmentAttendance = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/attendance$/.exec(url.pathname);
   if (coachAppointmentAttendance) {
     key = req.method + ' /api/coach/appointments/{appointmentId}/attendance';
     req.appointmentId = coachAppointmentAttendance[1];
+  }
+  const coachAppointmentReschedule = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/reschedule$/.exec(url.pathname);
+  if (coachAppointmentReschedule) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/reschedule';
+    req.appointmentId = coachAppointmentReschedule[1];
+  }
+  const coachAppointmentCancel = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/cancel$/.exec(url.pathname);
+  if (coachAppointmentCancel) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/cancel';
+    req.appointmentId = coachAppointmentCancel[1];
   }
   const coachAppointmentItem = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (coachAppointmentItem) {
@@ -4799,6 +4825,19 @@ const server = http.createServer(async (req, res) => {
   if (athleteAppointmentCancel) {
     key = req.method + ' /api/athlete/appointments/{appointmentId}/cancel';
     req.appointmentId = athleteAppointmentCancel[1];
+  }
+  const athleteAppointmentReschedule = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)\/reschedule$/.exec(url.pathname);
+  if (athleteAppointmentReschedule) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}/reschedule';
+    req.appointmentId = athleteAppointmentReschedule[1];
+  }
+  const athleteAppointmentItem = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteAppointmentItem) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}';
+    req.appointmentId = athleteAppointmentItem[1];
+  }
+  if (url.pathname === '/api/scheduling/reminder-preferences') {
+    key = req.method + ' /api/scheduling/reminder-preferences';
   }
 
   const handler = routes[key];
