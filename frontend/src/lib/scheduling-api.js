@@ -75,8 +75,8 @@ export async function updateCoachAvailability(payload, rev) {
   })
 }
 
-export async function getCoachAppointments(params) {
-  return request(`/api/coach/appointments${queryString(params)}`)
+export async function getCoachAppointments(params, opts) {
+  return request(`/api/coach/appointments${queryString(params)}`, opts)
 }
 
 export async function getCoachAthleteAppointments(athleteId, params) {
@@ -127,8 +127,8 @@ export async function getAthleteSlots(coachId, params) {
   return request(`/api/athlete/coaches/${encodeURIComponent(coachId)}/availability-slots${queryString(params)}`)
 }
 
-export async function getAthleteAppointments(params) {
-  return request(`/api/athlete/appointments${queryString(params)}`)
+export async function getAthleteAppointments(params, opts) {
+  return request(`/api/athlete/appointments${queryString(params)}`, opts)
 }
 
 export async function getAthleteCoachAppointments(coachId, params) {

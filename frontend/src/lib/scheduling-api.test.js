@@ -92,6 +92,15 @@ describe('scheduling-api coach operations', () => {
     )
   })
 
+  it('getCoachAppointments forwards cancellation options', async () => {
+    const controller = new AbortController()
+    mocks.api.mockResolvedValueOnce({ items: [] })
+
+    await getCoachAppointments({ status: 'scheduled' }, { signal: controller.signal })
+
+    expect(mocks.api).toHaveBeenCalledWith('/api/coach/appointments?status=scheduled', { signal: controller.signal })
+  })
+
   it('getCoachAthleteAppointments queries appointments scoped to an athlete', async () => {
     mocks.api.mockResolvedValueOnce({ items: [] })
     await getCoachAthleteAppointments('ath_test/1', { status: 'scheduled' })
@@ -181,6 +190,15 @@ describe('scheduling-api coach operations', () => {
 })
 
 describe('scheduling-api athlete operations', () => {
+  it('getAthleteAppointments forwards cancellation options', async () => {
+    const controller = new AbortController()
+    mocks.api.mockResolvedValueOnce({ items: [] })
+
+    await getAthleteAppointments({ status: 'scheduled' }, { signal: controller.signal })
+
+    expect(mocks.api).toHaveBeenCalledWith('/api/athlete/appointments?status=scheduled', { signal: controller.signal })
+  })
+
   it('getAthleteSlots calls availability-slots with coachId and query', async () => {
     mocks.api.mockResolvedValueOnce({ items: [] })
     await getAthleteSlots('coach_1', { from: '2026-12-01', to: '2026-12-07' })

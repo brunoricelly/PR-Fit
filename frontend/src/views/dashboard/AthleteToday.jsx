@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { communicationApi, browserTimeZone } from '../../lib/communication-api.js'
@@ -21,9 +21,22 @@ import {
   Surface,
 } from '../../components/design-system.jsx'
 import Icon from '../../components/Icon.jsx'
+import {
+  loadingSource,
+  normalizeAppointments,
+  normalizeConversations,
+  normalizeHabits,
+  normalizeMealAdherence,
+  normalizeMealPlan,
+  settledSource,
+  sourceSucceeded,
+  unavailableSource,
+} from './dashboard-data.js'
 import './DashboardHome.css'
 
 const localToday = () => todayISO()
+const sourceEmpty = data => !data || data.length === 0
+const planEmpty = plan => plan === null
 
 function AthleteLoading() {
   return <main className="ds-scope dashboard-page dashboard-page-athlete" aria-busy="true" aria-label="Carregando Hoje">
@@ -36,43 +49,87 @@ function AthleteLoading() {
   </main>
 }
 
+function UnavailableSummary({ title, text }) {
+  return <Surface className="dashboard-pulse-empty" role="status">
+    <Icon name="cloudSlash" aria-hidden="true" /><span><strong>{title}</strong><br />{text}</span>
+  </Surface>
+}
+
 export default function AthleteToday() {
   const navigate = useNavigate()
   const S = useStore(state => state.S)
   const user = useStore(state => state.user)
   const ready = useStore(state => state.ready)
   const online = useOnline()
-  const [remote, setRemote] = useState(null)
+  const [remoteState, setRemoteState] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [failed, setFailed] = useState(false)
+  const generationRef = useRef(0)
+  const controllerRef = useRef(null)
+  const mountedRef = useRef(false)
+  const userIdRef = useRef(user?.id)
+  userIdRef.current = user?.id
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      generationRef.current += 1
+      controllerRef.current?.abort()
+    }
+  }, [])
 
   const load = useCallback(async () => {
-    if (!user?.id) return
+    const userId = user?.id
+    if (!userId) return
+    const dualRole = user.profile?.kind === 'coach'
+    const generation = generationRef.current + 1
+    generationRef.current = generation
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const current = () => mountedRef.current && generationRef.current === generation
+      && userIdRef.current === userId && !controller.signal.aborted
+    const pendingSources = {
+      inbox: dualRole
+        ? unavailableSource('O inbox não separa os papéis desta conta.')
+        : loadingSource(),
+      appointments: loadingSource(),
+      nutritionPlan: loadingSource(),
+      nutritionAdherence: loadingSource(),
+      habits: dualRole
+        ? unavailableSource('Hábitos exigem uma identidade contratualmente autorizada como atleta.')
+        : loadingSource(),
+    }
+    setRemoteState({ userId, sources: pendingSources })
     setLoading(true)
-    setFailed(false)
+
     const date = localToday()
     const now = new Date()
     const until = new Date(now)
     until.setDate(until.getDate() + 30)
+    const requestOptions = { signal: controller.signal }
     const requests = [
-      communicationApi.inbox({ limit: 100 }),
-      getAthleteAppointments({ status: 'scheduled', from: now.toISOString(), to: until.toISOString(), limit: 20 }),
-      Promise.all([api('/api/athlete/meal-plan'), api(`/api/athlete/meal-adherence?date=${date}`)]),
+      dualRole ? Promise.resolve(null) : communicationApi.inbox({ limit: 100 }, requestOptions),
+      getAthleteAppointments({ status: 'scheduled', from: now.toISOString(), to: until.toISOString(), limit: 20 }, requestOptions),
+      api('/api/athlete/meal-plan', requestOptions),
+      api(`/api/athlete/meal-adherence?date=${date}`, requestOptions),
+      dualRole ? Promise.resolve(null) : communicationApi.athleteHabits(browserTimeZone().value, requestOptions),
     ]
-    if (user.profile?.kind !== 'coach') requests.push(communicationApi.athleteHabits(browserTimeZone().value))
-    const [inboxResult, appointmentsResult, nutritionResult, habitsResult] = await Promise.allSettled(requests)
-    const planPayload = nutritionResult.status === 'fulfilled' ? nutritionResult.value[0] : null
-    const adherencePayload = nutritionResult.status === 'fulfilled' ? nutritionResult.value[1] : null
-    const plan = planPayload?.mealPlan || null
-    const adherence = (adherencePayload?.adherenceRecords || [adherencePayload?.adherence])
-      .find(item => item?.mealPlanId === plan?.id) || null
-    setRemote({
-      conversations: inboxResult.status === 'fulfilled' ? inboxResult.value.conversations || [] : [],
-      appointments: appointmentsResult.status === 'fulfilled' ? appointmentsResult.value.items || [] : [],
-      nutrition: plan ? { plan, adherence } : null,
-      habits: habitsResult?.status === 'fulfilled' ? habitsResult.value.habits || [] : [],
-    })
-    setFailed([inboxResult, appointmentsResult, nutritionResult, habitsResult].filter(Boolean).some(result => result.status === 'rejected'))
+    const [inboxResult, appointmentsResult, planResult, adherenceResult, habitsResult] = await Promise.allSettled(requests)
+    if (!current()) return
+
+    const sources = {
+      inbox: dualRole
+        ? pendingSources.inbox
+        : settledSource(inboxResult, normalizeConversations, sourceEmpty),
+      appointments: settledSource(appointmentsResult, normalizeAppointments, sourceEmpty),
+      nutritionPlan: settledSource(planResult, normalizeMealPlan, planEmpty),
+      nutritionAdherence: settledSource(adherenceResult, normalizeMealAdherence, sourceEmpty),
+      habits: dualRole
+        ? pendingSources.habits
+        : settledSource(habitsResult, normalizeHabits, sourceEmpty),
+    }
+    setRemoteState({ userId, sources })
     setLoading(false)
   }, [user?.id, user?.profile?.kind])
 
@@ -96,6 +153,7 @@ export default function AthleteToday() {
 
   if (!ready) return <AthleteLoading />
 
+  const remote = remoteState && remoteState.userId === user?.id ? remoteState.sources : null
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'Atleta'
   const activeSession = !!S.active
   const editingWorkout = !!S.active?.editingWorkoutId
@@ -107,14 +165,27 @@ export default function AthleteToday() {
         ? { label: 'Ver treino concluído', detail: local.routines.map(routine => routine.name).join(' + '), run: () => navigate('/history'), icon: 'checkCircle' }
         : { label: 'Montar meu plano', detail: 'Nenhum treino programado para hoje', run: () => navigate('/plan'), icon: 'calendar' }
 
-  const nextAppointment = remote?.appointments.slice().sort((left, right) => new Date(left.startAt) - new Date(right.startAt))[0]
-  const unread = remote?.conversations.reduce((sum, item) => sum + (item.unreadCount || 0), 0) || 0
-  const checkedMeals = new Set(remote?.nutrition?.adherence?.mealsChecked || []).size
-  const mealCount = remote?.nutrition?.plan?.meals?.length || 0
-  const water = remote?.nutrition?.adherence?.waterDrunkMl || 0
-  const waterGoal = remote?.nutrition?.plan?.targetMacros?.waterMl || 0
-  const completedHabits = remote?.habits.filter(habit => habit.checkin?.completed).length || 0
-  const hasRemoteContent = !!(nextAppointment || unread || remote?.nutrition || remote?.habits.length)
+  const appointments = remote?.appointments?.data || []
+  const nextAppointment = appointments.slice().sort((left, right) => new Date(left.startAt) - new Date(right.startAt))[0]
+  const conversations = remote?.inbox?.data || []
+  const unread = sourceSucceeded(remote?.inbox)
+    ? conversations.reduce((sum, item) => sum + item.unreadCount, 0)
+    : 0
+  const plan = remote?.nutritionPlan?.data || null
+  const adherenceRecords = remote?.nutritionAdherence?.data || []
+  const adherence = plan && sourceSucceeded(remote?.nutritionAdherence)
+    ? adherenceRecords.find(item => item.mealPlanId === plan.id) || null
+    : null
+  const checkedMeals = new Set(adherence?.mealsChecked || []).size
+  const mealCount = plan?.meals.length || 0
+  const water = adherence?.waterDrunkMl || 0
+  const waterGoal = plan?.targetMacros?.waterMl || 0
+  const habits = remote?.habits?.data || []
+  const completedHabits = habits.filter(habit => habit.checkin?.completed).length
+  const remoteErrors = remote ? Object.values(remote).filter(source => source.status === 'error') : []
+  const remoteContent = !!(nextAppointment || unread || plan || habits.length)
+  const sourcesKnownEmpty = remote && ['inbox', 'appointments', 'nutritionPlan', 'nutritionAdherence', 'habits']
+    .every(key => remote[key].status === 'empty')
 
   return <main className="ds-scope dashboard-page dashboard-page-athlete">
     <div className="dashboard-shell">
@@ -138,8 +209,8 @@ export default function AthleteToday() {
       {!online && <Alert tone="warning" title="Você está offline">
         O treino continua disponível neste dispositivo. Agenda, mensagens e acompanhamentos serão atualizados quando a conexão voltar.
       </Alert>}
-      {online && failed && <Alert tone="warning" title="Alguns resumos não carregaram" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
-        Seu treino continua disponível. Tente atualizar agenda, mensagens e acompanhamentos.
+      {online && remoteErrors.length > 0 && <Alert tone="warning" title="Alguns resumos não carregaram" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
+        Seu treino continua disponível. As seções sem dados confiáveis estão marcadas como indisponíveis.
       </Alert>}
 
       <section className="athlete-today-grid" aria-labelledby="today-summary-title">
@@ -149,16 +220,18 @@ export default function AthleteToday() {
         </div>
 
         {loading && !remote ? <div className="dashboard-loading-grid athlete-remote-loading" aria-label="Carregando resumos"><Skeleton height="8rem" /><Skeleton height="8rem" /></div> : <>
-          {remote?.nutrition && <Card className="athlete-summary-card">
-            <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Alimentação</span><h3>{remote.nutrition.plan.title}</h3></div><Icon name="scale" aria-hidden="true" /></div>
-            <p>{checkedMeals} de {mealCount} refeições marcadas</p>
-            {waterGoal > 0 && <div className="athlete-meter"><span>Água</span><strong>{water} / {waterGoal} ml</strong><progress max={waterGoal} value={Math.min(water, waterGoal)} /></div>}
+          {plan && <Card className="athlete-summary-card">
+            <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Alimentação</span><h3>{plan.title}</h3></div><Icon name="scale" aria-hidden="true" /></div>
+            {sourceSucceeded(remote?.nutritionAdherence)
+              ? <p>{checkedMeals} de {mealCount} refeições marcadas</p>
+              : <p>Adesão indisponível agora.</p>}
+            {sourceSucceeded(remote?.nutritionAdherence) && waterGoal > 0 && <div className="athlete-meter"><span>Água</span><strong>{water} / {waterGoal} ml</strong><progress aria-label="Progresso da meta de água" max={waterGoal} value={Math.min(water, waterGoal)} /></div>}
             <Button variant="ghost" onClick={() => navigate('/professionals')}>Abrir alimentação</Button>
           </Card>}
 
-          {remote?.habits.length > 0 && <Card className="athlete-summary-card">
-            <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Hábitos</span><h3>{completedHabits} de {remote.habits.length} concluídos</h3></div><Icon name="checkCircle" aria-hidden="true" /></div>
-            <ul className="athlete-mini-list">{remote.habits.slice(0, 3).map(habit => <li key={habit.id}><span>{habit.title}</span><Badge tone={habit.checkin?.completed ? 'success' : 'neutral'}>{habit.checkin?.completed ? 'Feito' : 'Pendente'}</Badge></li>)}</ul>
+          {habits.length > 0 && <Card className="athlete-summary-card">
+            <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Hábitos</span><h3>{completedHabits} de {habits.length} concluídos</h3></div><Icon name="checkCircle" aria-hidden="true" /></div>
+            <ul className="athlete-mini-list">{habits.slice(0, 3).map(habit => <li key={habit.id}><span>{habit.title}</span><Badge tone={habit.checkin?.completed ? 'success' : 'neutral'}>{habit.checkin?.completed ? 'Feito' : 'Pendente'}</Badge></li>)}</ul>
             <Button variant="ghost" onClick={() => navigate('/professionals')}>Abrir hábitos</Button>
           </Card>}
 
@@ -175,13 +248,19 @@ export default function AthleteToday() {
             <Button variant="ghost" onClick={() => navigate('/professionals')}>Ler mensagens</Button>
           </Card>}
 
+          {remote?.appointments?.status === 'error' && <UnavailableSummary title="Agenda indisponível" text="Não foi possível confirmar seus próximos compromissos." />}
+          {['error', 'unavailable'].includes(remote?.inbox?.status) && <UnavailableSummary title="Mensagens indisponíveis" text={remote.inbox.reason || 'Não foi possível confirmar mensagens pendentes.'} />}
+          {remote?.nutritionPlan?.status === 'error' && <UnavailableSummary title="Alimentação indisponível" text="Não foi possível confirmar seu plano alimentar." />}
+          {remote?.nutritionAdherence?.status === 'error' && !plan && <UnavailableSummary title="Adesão alimentar indisponível" text="Não foi possível confirmar sua adesão de hoje." />}
+          {['error', 'unavailable'].includes(remote?.habits?.status) && <UnavailableSummary title="Hábitos indisponíveis" text={remote.habits.reason || 'Não foi possível confirmar seus hábitos de hoje.'} />}
+
           {local.weekly?.planned > 0 && <Surface className="athlete-week-progress">
             <div><span className="dashboard-kicker">Progresso semanal</span><strong>{local.weekly.done} de {local.weekly.planned} treinos concluídos</strong></div>
-            <progress max={local.weekly.planned} value={Math.min(local.weekly.done, local.weekly.planned)} />
+            <progress aria-label="Progresso semanal de treinos" max={local.weekly.planned} value={Math.min(local.weekly.done, local.weekly.planned)} />
             <Button variant="ghost" onClick={() => navigate('/stats')}>Ver evolução</Button>
           </Surface>}
 
-          {!hasRemoteContent && !local.weekly?.planned && !local.routines.length && !S.active && <EmptyState
+          {sourcesKnownEmpty && !remoteContent && !local.weekly?.planned && !local.routines.length && !S.active && <EmptyState
             title="Seu dia está livre"
             text="Crie um plano para deixar o próximo treino pronto e acompanhar sua semana."
             action={<Button onClick={() => navigate('/plan')}>Criar plano</Button>}

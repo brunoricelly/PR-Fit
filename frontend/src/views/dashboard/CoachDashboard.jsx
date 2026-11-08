@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { communicationApi, browserTimeZone } from '../../lib/communication-api.js'
@@ -17,7 +17,20 @@ import {
   Surface,
 } from '../../components/design-system.jsx'
 import Icon from '../../components/Icon.jsx'
+import {
+  loadingSource,
+  mapSettledWithConcurrency,
+  normalizeAppointments,
+  normalizeConversations,
+  normalizeLinks,
+  normalizeSummary,
+  settledSource,
+  sourceSucceeded,
+} from './dashboard-data.js'
 import './DashboardHome.css'
+
+const SUMMARY_CONCURRENCY = 3
+const sourceEmpty = data => !data || data.length === 0
 
 const dayBounds = date => {
   const start = new Date(date)
@@ -45,55 +58,116 @@ function CoachLoading() {
   </main>
 }
 
+function UnavailableState({ text }) {
+  return <Surface className="dashboard-pulse-empty" role="status">
+    <Icon name="cloudSlash" aria-hidden="true" /><span>{text}</span>
+  </Surface>
+}
+
 export default function CoachDashboard() {
   const navigate = useNavigate()
   const user = useStore(state => state.user)
   const ready = useStore(state => state.ready)
   const online = useOnline()
-  const [data, setData] = useState(null)
+  const [dashboardState, setDashboardState] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [errors, setErrors] = useState([])
+  const generationRef = useRef(0)
+  const controllerRef = useRef(null)
+  const mountedRef = useRef(false)
+  const userIdRef = useRef(user?.id)
+  userIdRef.current = user?.id
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      generationRef.current += 1
+      controllerRef.current?.abort()
+    }
+  }, [])
 
   const load = useCallback(async () => {
-    if (!user?.id) return
+    const userId = user?.id
+    if (!userId) return
+    const generation = generationRef.current + 1
+    generationRef.current = generation
+    controllerRef.current?.abort()
+    const controller = new AbortController()
+    controllerRef.current = controller
+    const current = () => mountedRef.current && generationRef.current === generation
+      && userIdRef.current === userId && !controller.signal.aborted
+    const requestOptions = { signal: controller.signal }
+    setDashboardState({
+      userId,
+      sources: {
+        links: loadingSource(),
+        inbox: loadingSource(),
+        appointments: loadingSource(),
+        summaries: loadingSource(),
+      },
+    })
     setLoading(true)
-    setErrors([])
+
     const bounds = dayBounds(new Date())
     const [linksResult, inboxResult, appointmentsResult] = await Promise.allSettled([
-      api('/api/coach/athletes'),
-      communicationApi.inbox({ limit: 100 }),
-      getCoachAppointments({ status: 'scheduled', ...bounds, limit: 100 }),
+      api('/api/coach/athletes', requestOptions),
+      communicationApi.inbox({ limit: 100 }, requestOptions),
+      getCoachAppointments({ status: 'scheduled', ...bounds, limit: 100 }, requestOptions),
     ])
+    if (!current()) return
 
-    const links = linksResult.status === 'fulfilled' ? linksResult.value.links || [] : []
-    const conversations = inboxResult.status === 'fulfilled' ? inboxResult.value.conversations || [] : []
-    const appointments = appointmentsResult.status === 'fulfilled' ? appointmentsResult.value.items || [] : []
-    const nextErrors = []
-    if (linksResult.status === 'rejected') nextErrors.push('alunos')
-    if (inboxResult.status === 'rejected') nextErrors.push('mensagens')
-    if (appointmentsResult.status === 'rejected') nextErrors.push('agenda')
-    if (nextErrors.length === 3) {
-      setErrors(nextErrors)
-      setLoading(false)
+    const linksSource = settledSource(linksResult, normalizeLinks, sourceEmpty)
+    const inboxSource = settledSource(inboxResult, normalizeConversations, sourceEmpty)
+    const appointmentsSource = settledSource(appointmentsResult, normalizeAppointments, sourceEmpty)
+    const unavailableSummaries = { status: 'error', data: [], error: new Error('Vínculos indisponíveis'), requested: 0, failed: 0 }
+    setDashboardState({
+      userId,
+      sources: {
+        links: linksSource,
+        inbox: inboxSource,
+        appointments: appointmentsSource,
+        summaries: sourceSucceeded(linksSource) ? loadingSource([]) : unavailableSummaries,
+      },
+    })
+    setLoading(false)
+
+    if (!sourceSucceeded(linksSource)) {
       return
     }
 
-    const trainingLinks = links.filter(link => link.status === 'active' && link.scopes?.includes('training'))
-    const summaries = await Promise.allSettled(trainingLinks.map(link => communicationApi.summary({
+    const trainingLinks = linksSource.data.filter(link => link.status === 'active'
+      && link.scopes.includes('training') && typeof link.athlete?.id === 'string')
+    const results = await mapSettledWithConcurrency(trainingLinks, SUMMARY_CONCURRENCY, link => communicationApi.summary({
       side: 'coach',
-      athleteId: link.athlete?.id,
+      athleteId: link.athlete.id,
       linkId: link.id,
       period: 7,
       timeZone: browserTimeZone().value,
-    })))
-    const adherence = summaries.flatMap((result, index) => result.status === 'fulfilled'
-      ? [{ link: trainingLinks[index], summary: result.value.summary }]
-      : [])
-    if (summaries.some(result => result.status === 'rejected')) nextErrors.push('adesão')
+    }, requestOptions), () => !controller.signal.aborted)
+    if (!current()) return
+    const items = []
+    let failed = 0
+    results.forEach((result, index) => {
+      const source = settledSource(result, normalizeSummary, summary => summary === null)
+      if (source.status === 'error') failed += 1
+      else if (source.data) items.push({ link: trainingLinks[index], summary: source.data })
+    })
+    const summariesSource = {
+      status: failed > 0 ? 'error' : items.length > 0 ? 'ok' : 'empty',
+      data: items,
+      requested: trainingLinks.length,
+      failed,
+    }
 
-    setData({ links, conversations, appointments, adherence })
-    setErrors([...new Set(nextErrors)])
-    setLoading(false)
+    setDashboardState({
+      userId,
+      sources: {
+        links: linksSource,
+        inbox: inboxSource,
+        appointments: appointmentsSource,
+        summaries: summariesSource,
+      },
+    })
   }, [user?.id])
 
   useEffect(() => { if (ready) load() }, [load, ready])
@@ -103,42 +177,60 @@ export default function CoachDashboard() {
     return () => window.removeEventListener('online', retry)
   }, [load])
 
+  const sources = dashboardState && dashboardState.userId === user?.id ? dashboardState.sources : null
   const view = useMemo(() => {
-    if (!data) return null
-    const conversationByLink = new Map(data.conversations.map(item => [item.linkId, item]))
-    const summaryByLink = new Map(data.adherence.map(item => [item.link.id, item.summary]))
-    const attention = data.links.flatMap(link => {
+    if (!sources) return null
+    const links = sources.links.data || []
+    const coachLinkIds = new Set(sourceSucceeded(sources.links) ? links.map(link => link.id) : [])
+    const roleInboxKnown = sourceSucceeded(sources.links) && sourceSucceeded(sources.inbox)
+    const conversations = roleInboxKnown
+      ? (sources.inbox.data || []).filter(item => coachLinkIds.has(item.linkId))
+      : []
+    const conversationByLink = new Map(conversations.map(item => [item.linkId, item]))
+    const adherence = sources.summaries.data || []
+    const summaryByLink = new Map(adherence.map(item => [item.link.id, item.summary]))
+    const attention = sourceSucceeded(sources.links) ? links.flatMap(link => {
       const reasons = []
-      const unread = conversationByLink.get(link.id)?.unreadCount || 0
+      const unread = roleInboxKnown ? conversationByLink.get(link.id)?.unreadCount || 0 : 0
       const summary = summaryByLink.get(link.id)
       if (unread > 0) reasons.push(`${unread} ${unread === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`)
       if (summary?.scheduledDays > 0 && summary.completedDays === 0) reasons.push('nenhum check-in concluído nesta semana')
       if (link.status === 'pending') reasons.push('convite ainda pendente')
       if (link.status === 'suspended') reasons.push('acesso suspenso')
       return reasons.length ? [{ link, reasons }] : []
-    })
-    const unreadTotal = data.conversations.reduce((sum, item) => sum + (item.unreadCount || 0), 0)
-    const appointments = [...data.appointments].sort((left, right) => new Date(left.startAt) - new Date(right.startAt))
-    const adherence = data.adherence.filter(item => item.summary?.scheduledDays > 0)
+    }) : []
+    const unreadTotal = conversations.reduce((sum, item) => sum + item.unreadCount, 0)
+    const appointments = sourceSucceeded(sources.appointments)
+      ? [...sources.appointments.data].sort((left, right) => new Date(left.startAt) - new Date(right.startAt))
+      : []
+    const sortedAdherence = adherence.filter(item => item.summary.scheduledDays > 0)
       .sort((left, right) => left.summary.adherencePercent - right.summary.adherencePercent)
-    return { attention, unreadTotal, appointments, adherence }
-  }, [data])
+    const priorityComplete = sourceSucceeded(sources.links) && roleInboxKnown && sourceSucceeded(sources.summaries)
+    const pulseComplete = roleInboxKnown && sourceSucceeded(sources.summaries)
+    const overviewComplete = priorityComplete && sourceSucceeded(sources.appointments)
+    return { attention, unreadTotal, appointments, adherence: sortedAdherence, roleInboxKnown, priorityComplete, pulseComplete, overviewComplete }
+  }, [sources])
 
   if (!ready) return <CoachLoading />
+  if (loading && (!sources || Object.values(sources).every(source => source.status === 'loading'))) return <CoachLoading />
 
-  if (!data && !online) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+  const allCoreFailed = sources && ['links', 'inbox', 'appointments'].every(key => sources[key].status === 'error')
+  if (allCoreFailed && !online) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
     <ErrorState title="Você está offline" text="A visão do coach precisa da conexão para buscar alunos, agenda e mensagens." action={<Button onClick={load}>Tentar novamente</Button>} icon="cloudSlash" />
   </div></main>
-
-  if (loading && !data) return <CoachLoading />
-
-  if (!data) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+  if (allCoreFailed) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
     <ErrorState title="Não foi possível abrir sua visão geral" text="Tente carregar novamente. Seus dados e permissões não foram alterados." action={<Button onClick={load}>Tentar novamente</Button>} />
   </div></main>
+  if (!sources || !view) return <CoachLoading />
 
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'Treinador'
   const today = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
-  const primaryTarget = view.attention.length ? '/professionals' : '/plan'
+  const errors = [
+    sources.links.status === 'error' && 'alunos',
+    sources.inbox.status === 'error' && 'mensagens',
+    sources.appointments.status === 'error' && 'agenda',
+    sources.summaries.status === 'error' && 'adesão',
+  ].filter(Boolean)
   const primaryLabel = view.attention.length ? 'Revisar alunos' : 'Organizar treinos'
 
   return <main className="ds-scope dashboard-page dashboard-page-coach">
@@ -146,16 +238,18 @@ export default function CoachDashboard() {
       <PageHeader
         eyebrow={`Hoje, ${today}`}
         title={`Olá, ${firstName}.`}
-        description={view.attention.length
+        description={view.priorityComplete && view.attention.length
           ? `${view.attention.length} ${view.attention.length === 1 ? 'aluno precisa' : 'alunos precisam'} da sua atenção.`
-          : 'Sua agenda e seus alunos estão organizados para hoje.'}
-        actions={<Button variant="primary" onClick={() => navigate(primaryTarget)}>{primaryLabel}</Button>}
+          : view.overviewComplete
+            ? 'Sua agenda e seus alunos estão organizados para hoje.'
+          : 'Confira os dados disponíveis; algumas fontes ainda não puderam ser confirmadas.'}
+        actions={<Button variant="primary" onClick={() => navigate('/professionals')}>{primaryLabel}</Button>}
       />
 
       {!online && <Alert tone="warning" title="Sem conexão">
         Você está vendo os últimos dados carregados. Reconecte para atualizar a visão geral.
       </Alert>}
-      {!!errors.length && <Alert tone="warning" title="Parte da visão geral não atualizou" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
+      {errors.length > 0 && <Alert tone="warning" title="Parte da visão geral não atualizou" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
         Não foi possível atualizar {errors.join(', ')}. O restante continua disponível.
       </Alert>}
 
@@ -177,7 +271,9 @@ export default function CoachDashboard() {
             {view.attention.length > 3 && <details className="dashboard-details"><summary>Ver mais {view.attention.length - 3}</summary>
               <ul className="dashboard-list compact">{view.attention.slice(3).map(({ link, reasons }) => <li key={link.id}><span><strong>{athleteName(link)}</strong><small>{reasons.join(' · ')}</small></span></li>)}</ul>
             </details>}
-          </> : <EmptyState title="Nenhuma pendência agora" text="Mensagens, vínculos e check-ins da semana estão em dia." action={<Button onClick={() => navigate('/professionals')}>Ver alunos</Button>} />}
+          </> : view.priorityComplete
+            ? <EmptyState title="Nenhuma pendência agora" text="Mensagens, vínculos e check-ins da semana estão em dia." action={<Button onClick={() => navigate('/professionals')}>Ver alunos</Button>} />
+            : <UnavailableState text="As pendências conhecidas aparecem aqui, mas ainda faltam dados para afirmar que está tudo em dia." />}
         </Card>
 
         <Card className="dashboard-priority-card">
@@ -190,7 +286,9 @@ export default function CoachDashboard() {
               <span className="dashboard-time">{new Date(item.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
               <span><strong>{item.title || 'Sessão'}</strong><small>{item.athlete?.name || 'Aluno'}</small></span>
             </li>)}
-          </ul> : <EmptyState title="Agenda livre hoje" text="Use este espaço para acompanhar alunos ou preparar os próximos treinos." action={<Button onClick={() => navigate('/scheduling')}>Abrir agenda</Button>} />}
+          </ul> : sources.appointments.status === 'empty'
+            ? <EmptyState title="Agenda livre hoje" text="Use este espaço para acompanhar alunos ou preparar os próximos treinos." action={<Button onClick={() => navigate('/scheduling')}>Abrir agenda</Button>} />
+            : <UnavailableState text="Agenda indisponível. Tente novamente para confirmar os compromissos de hoje." />}
         </Card>
       </section>
 
@@ -208,7 +306,10 @@ export default function CoachDashboard() {
             <strong>{athleteName(link)}</strong>
             <span>{summary.completedDays} de {summary.scheduledDays} check-ins concluídos</span>
           </Surface>)}
-          {!view.unreadTotal && !view.adherence.length && <Surface className="dashboard-pulse-empty">
+          {!view.roleInboxKnown && <UnavailableState text="Mensagens do papel Coach indisponíveis; o inbox geral não será contado como se pertencesse a este papel." />}
+          {sources.summaries.status === 'loading' && <Surface className="dashboard-pulse-empty" role="status"><span>Carregando resumos de adesão…</span></Surface>}
+          {sources.summaries.status === 'error' && <UnavailableState text={`${sources.summaries.failed || 0} de ${sources.summaries.requested || 0} resumos de adesão ficaram indisponíveis.`} />}
+          {!view.unreadTotal && !view.adherence.length && view.pulseComplete && <Surface className="dashboard-pulse-empty">
             <Icon name="checkCircle" aria-hidden="true" /><span>Sem mensagens pendentes ou dados de adesão para mostrar.</span>
           </Surface>}
         </div>
@@ -218,7 +319,7 @@ export default function CoachDashboard() {
         <h2>Ações rápidas</h2>
         <div>
           <Button onClick={() => navigate('/professionals')}><Icon name="person" />Alunos</Button>
-          <Button onClick={() => navigate('/plan')}><Icon name="dumbbell" />Treinos</Button>
+          <Button onClick={() => navigate('/professionals')}><Icon name="dumbbell" />Treinos</Button>
           <Button onClick={() => navigate('/scheduling')}><Icon name="calendar" />Agenda</Button>
           <Button onClick={() => navigate('/community')}><Icon name="trophy" />Comunidade</Button>
         </div>

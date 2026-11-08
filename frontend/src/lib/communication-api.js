@@ -12,7 +12,7 @@ const query = values => {
 const json = (method, body) => ({ method, body: JSON.stringify(body) })
 
 export const communicationApi = {
-  inbox: ({ cursor, limit = 100 } = {}) => api(`/api/messages/inbox${query({ cursor, limit })}`),
+  inbox: ({ cursor, limit = 100 } = {}, opts) => api(`/api/messages/inbox${query({ cursor, limit })}`, opts),
   conversation: ({ side, counterpartId, linkId, cursor, limit = 50 }) => api(
     `${side === 'coach' ? `/api/coach/athletes/${counterpartId}/messages` : `/api/athlete/messages/${counterpartId}`}${query({ linkId, cursor, limit })}`,
   ),
@@ -26,13 +26,14 @@ export const communicationApi = {
   createHabit: (athleteId, habit) => api(`/api/coach/athletes/${athleteId}/habits`, json('POST', habit)),
   updateHabit: (athleteId, habitId, patch) => api(`/api/coach/athletes/${athleteId}/habits/${habitId}`, json('PATCH', patch)),
   deleteHabit: (athleteId, habitId) => api(`/api/coach/athletes/${athleteId}/habits/${habitId}`, { method: 'DELETE' }),
-  athleteHabits: timeZone => api(`/api/athlete/habits${query({ timezone: timeZone })}`),
+  athleteHabits: (timeZone, opts) => api(`/api/athlete/habits${query({ timezone: timeZone })}`, opts),
   checkin: (timeZone, input) => api(`/api/athlete/habits/checkin${query({ timezone: timeZone })}`, json('POST', input)),
   checkins: ({ side, athleteId, linkId, period, timeZone, cursor, limit = 50 }) => api(
     `${side === 'coach' ? `/api/coach/athletes/${athleteId}/checkins` : '/api/athlete/checkins'}${query({ linkId, period, timezone: timeZone, cursor, limit })}`,
   ),
-  summary: ({ side, athleteId, linkId, period, timeZone }) => api(
+  summary: ({ side, athleteId, linkId, period, timeZone }, opts) => api(
     `${side === 'coach' ? `/api/coach/athletes/${athleteId}/habits-summary` : '/api/athlete/habits-summary'}${query({ linkId, period, timezone: timeZone })}`,
+    opts,
   ),
 }
 

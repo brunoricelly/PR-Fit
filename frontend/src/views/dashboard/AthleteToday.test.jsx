@@ -27,6 +27,12 @@ let root
 
 const user = { id: 'athlete_1', name: 'Alice Souza', profile: { kind: 'athlete' } }
 const today = new Date().toISOString().slice(0, 10)
+const deferred = () => {
+  let resolve
+  let reject
+  const promise = new Promise((onResolve, onReject) => { resolve = onResolve; reject = onReject })
+  return { promise, resolve, reject }
+}
 
 const state = extra => useStore.setState(current => ({
   user,
@@ -91,6 +97,7 @@ describe('AthleteToday', () => {
     expect(host.textContent).toContain('Consulta')
     expect(host.textContent).toContain('1 aviso não lido')
     expect(host.textContent).not.toContain('Check-in')
+    expect(host.querySelector('progress[aria-label="Progresso da meta de água"]')).toBeTruthy()
   })
 
   it('oferece continuar o treino como única ação primária', async () => {
@@ -144,5 +151,78 @@ describe('AthleteToday', () => {
 
     expect(host.textContent).toContain('Ver treino concluído')
     expect(host.textContent).toContain('Progresso semanal')
+    expect(host.querySelector('progress[aria-label="Progresso semanal de treinos"]')).toBeTruthy()
+  })
+
+  it('mantém o plano conhecido quando a adesão falha sem inventar zero', async () => {
+    mocks.api.mockImplementation(path => path === '/api/athlete/meal-plan'
+      ? Promise.resolve({ mealPlan: { id: 'meal_1', title: 'Plano preservado', meals: [{ id: 'm1' }], targetMacros: { waterMl: 2000 } } })
+      : Promise.reject(new Error('adesão indisponível')))
+
+    await renderToday()
+
+    expect(host.textContent).toContain('Plano preservado')
+    expect(host.textContent).toContain('Adesão indisponível agora')
+    expect(host.textContent).not.toContain('0 de 1 refeições marcadas')
+  })
+
+  it('trata payload 2xx malformado como erro da fonte, sem crash ou falso vazio', async () => {
+    state({ routines: [], week: {}, workouts: [], active: null })
+    mocks.appointments.mockResolvedValue({ items: { id: 'não-array' } })
+
+    await renderToday()
+
+    expect(host.textContent).toContain('Agenda indisponível')
+    expect(host.textContent).not.toContain('Seu dia está livre')
+  })
+
+  it('isola troca de conta e ignora a resposta antiga resolvida depois da nova', async () => {
+    const oldInbox = deferred()
+    mocks.inbox.mockImplementationOnce(() => oldInbox.promise)
+      .mockResolvedValueOnce({ conversations: [{ linkId: 'new_link', unreadCount: 2 }] })
+
+    await act(async () => { root.render(<MemoryRouter><AthleteToday /></MemoryRouter>) })
+    await act(async () => {
+      useStore.setState({ user: { id: 'athlete_2', name: 'Beatriz Nova', profile: { kind: 'athlete' } } })
+    })
+    await settle()
+
+    expect(host.textContent).toContain('Olá, Beatriz.')
+    expect(host.textContent).toContain('2 avisos não lidos')
+
+    await act(async () => { oldInbox.resolve({ conversations: [{ linkId: 'old_link', unreadCount: 9 }] }) })
+    await settle()
+
+    expect(host.textContent).toContain('2 avisos não lidos')
+    expect(host.textContent).not.toContain('9 avisos não lidos')
+  })
+
+  it('invalida a geração no unmount e aborta as requisições em voo', async () => {
+    const pendingInbox = deferred()
+    mocks.inbox.mockImplementation((_params, options) => {
+      expect(options.signal.aborted).toBe(false)
+      return pendingInbox.promise
+    })
+
+    await act(async () => { root.render(<MemoryRouter><AthleteToday /></MemoryRouter>) })
+    const signal = mocks.inbox.mock.calls[0][1].signal
+    act(() => root.unmount())
+    expect(signal.aborted).toBe(true)
+
+    await act(async () => { pendingInbox.resolve({ conversations: [{ linkId: 'late', unreadCount: 7 }] }) })
+  })
+
+  it('não chama hábitos nem atribui inbox ao papel Atleta em conta dual-role', async () => {
+    useStore.setState({ user: { id: 'dual_1', name: 'Dani Dual', profile: { kind: 'coach', coachSpecialties: ['training'] } } })
+    mocks.appointments.mockResolvedValue({ items: [{ id: 'app_dual', title: 'Consulta dual', startAt: '2026-11-10T14:00:00.000Z' }] })
+
+    await renderToday()
+
+    expect(mocks.habits).not.toHaveBeenCalled()
+    expect(mocks.inbox).not.toHaveBeenCalled()
+    expect(host.textContent).toContain('Consulta dual')
+    expect(host.textContent).toContain('Hábitos indisponíveis')
+    expect(host.textContent).toContain('Mensagens indisponíveis')
+    expect(host.textContent).not.toContain('Seu dia está livre')
   })
 })

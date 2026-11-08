@@ -50,7 +50,7 @@
 .dashboard-quick-actions > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
 .dashboard-quick-actions .ds-button { justify-content: flex-start; min-width: 0; }
 
-.athlete-primary-card { display: grid; gap: var(--ds-space-3); overflow: hidden; background: linear-gradient(145deg, color-mix(in srgb, var(--ds-color-brand) 18%, var(--ds-surface-base)), var(--ds-surface-base) 64%); }
+.athlete-primary-card { display: grid; gap: var(--ds-space-3); overflow: hidden; background: linear-gradient(145deg, var(--ds-surface-subtle), var(--ds-surface-base) 64%); background: linear-gradient(145deg, color-mix(in srgb, var(--ds-color-brand) 18%, var(--ds-surface-base)), var(--ds-surface-base) 64%); }
 .athlete-primary-copy { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
 .athlete-primary-copy h2 { margin: var(--ds-space-1) 0 0; font-size: var(--ds-font-size-xl); line-height: var(--ds-line-height-tight); }
 .athlete-primary-copy p { margin: var(--ds-space-2) 0 0; color: var(--ds-text-secondary); }
