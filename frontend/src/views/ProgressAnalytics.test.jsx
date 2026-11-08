@@ -53,6 +53,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  vi.restoreAllMocks()
 })
 
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 10)) })
@@ -277,7 +278,8 @@ describe('CoachProgressPanel flows', () => {
     expect(host.textContent).toContain('Longitudinal factual summary only')
   })
 
-  it('handles goal creation, editing with _rev, and archiving with _rev', async () => {
+  it('handles goal creation, editing, and archiving without duplicate-key warnings', async () => {
+    const consoleError = vi.spyOn(console, 'error')
     await act(async () => {
       root.render(<CoachProgressPanel link={link} athleteId={athleteId} />)
     })
@@ -322,6 +324,7 @@ describe('CoachProgressPanel flows', () => {
       expect.stringContaining('/progress-goals/'),
       expect.objectContaining({ method: 'PATCH' })
     )
+    expect(host.querySelectorAll('.pro-goal-card')).toHaveLength(2)
 
     // Archive Goal
     await act(async () => { button('Archive goal').click() })
@@ -331,6 +334,8 @@ describe('CoachProgressPanel flows', () => {
       expect.stringContaining('/progress-goals/'),
       expect.objectContaining({ method: 'DELETE' })
     )
+    expect(host.querySelectorAll('.pro-goal-card')).toHaveLength(2)
+    expect(consoleError).not.toHaveBeenCalled()
   })
 
   it('handles 409 conflict on goal edit gracefully', async () => {

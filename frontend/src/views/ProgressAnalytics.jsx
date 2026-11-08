@@ -1364,7 +1364,13 @@ export function CoachProgressPanel({ link, athleteId }) {
   useEffect(() => { loadReports() }, [loadReports])
 
   const handleGoalSaved = (saved, previous) => {
-    setGoals(curr => (previous ? curr.map(g => (g.id === saved.id ? saved : g)) : [saved, ...curr]))
+    setGoals(curr => {
+      if (previous) {
+        const updated = { ...saved, id: previous.id }
+        return curr.map(goal => (goal.id === previous.id ? updated : goal))
+      }
+      return [saved, ...curr.filter(goal => goal.id !== saved.id)]
+    })
     loadSummary()
   }
 
@@ -1377,7 +1383,8 @@ export function CoachProgressPanel({ link, athleteId }) {
       onConfirm: async () => {
         try {
           const res = await archiveCoachGoal(athleteId, goal.id, { _rev: goal._rev, linkId: link?.id })
-          setGoals(curr => curr.map(g => (g.id === goal.id ? res.goal : g)))
+          const archived = { ...res.goal, id: goal.id }
+          setGoals(curr => curr.map(g => (g.id === goal.id ? archived : g)))
           loadSummary()
         } catch (err) {
           // Toast or error handling

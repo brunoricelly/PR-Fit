@@ -29,7 +29,6 @@
 | Em `/coach/groups` 375×812, “Início” e “Começar” aparecem simultaneamente verdes, deixando ambíguo qual item representa o destino ativo. | `/coach/groups`, `frontend/src/components/TabBar.jsx` | Apenas o destino atual possui estado ativo inequívoco; a CTA de começar treino permanece distinguível sem competir semanticamente com a seleção da tab. | 2 |
 | Em “Comunidade > Grupos”, o retorno “Meus alunos” aponta para outra tarefa e torna a hierarquia de navegação pouco clara. | `/coach/groups`, `frontend/src/views/coach/CoachGroupsView.jsx:261` | Retorno/breadcrumb nomeia o nível pai real, preserva histórico/deep link e é validado na matriz por papel. | 2 |
 | Suíte frontend emite warning real de `<button>` dentro de `<button>` em Settings/Equipment. | `frontend/src/views/settings-pages.test.jsx`, componentes de Row/equipment | DOM sem controles interativos aninhados; teste não emite hydration warning. | 1 |
-| Teste de progresso emite chave React duplicada `g_1`. | `frontend/src/views/ProgressAnalytics.test.jsx` | Lista usa chaves únicas em criação/edição e console fica limpo. | 3 ou 4 |
 
 ## P2
 

@@ -3645,4 +3645,13 @@ export default {
   "Your webhooks stop sending while Integrations is off. They stay set up.": "「整合」關閉期間，你的 Webhook 不會傳送。設定仍會保留。",
   "{0} of {1} modules on.": "已開啟 {0}/{1} 個模組。",
   "{0} stops syncing while Health is off. Nothing is disconnected, and it catches up once Health is back.": "「健康」關閉期間，{0} 會停止同步。不會中斷任何連線，「健康」重新開啟後會自動補上。",
+  "My plan": "我的計畫",
+  "Evolution": "進度",
+  "Community": "社群",
+  "Profile": "個人檔案",
+  "Athletes": "運動員",
+  "Nutrition": "營養",
+  "Role switch": "切換角色",
+  "Coach view": "教練視角",
+  "Athlete view": "運動員視角",
 }

@@ -675,12 +675,14 @@ h4.sec{
    is missing; a browser that has it keeps the bars see-through even with Reduce Transparency on.
    Same opaque fills, on every translucent surface. */
 @media (prefers-reduced-transparency: reduce){
-  #tabbar,#timer,#toast,.conn-bar,.whdr.stick,.stats-index{-webkit-backdrop-filter:none;backdrop-filter:none}
+  #tabbar,#timer,#toast,.conn-bar,.whdr.stick,.stats-index,.shell-dual-role-bar{-webkit-backdrop-filter:none;backdrop-filter:none}
   #tabbar{background:var(--bg-el)}
   :root[data-theme="light"] #tabbar{background:#f9f9fb}
   #timer{background:var(--surface-raised)}
   #toast{background:var(--surface-2)}
   .conn-bar,.whdr.stick,.stats-index{background:var(--bg)}
+  .shell-dual-role-bar{background:var(--bg-el, var(--ds-surface-base, #121814))}
+  :root[data-theme="light"] .shell-dual-role-bar{background:#f9f9fb}
   /* The badges over an animation and the dim behind a sheet: no frost, and the badge gets a
      darker pill so its white text no longer depends on what the picture shows behind it. */
   .exmedia .gifhint,.exmedia .giftoggle,.mback{-webkit-backdrop-filter:none;backdrop-filter:none}
