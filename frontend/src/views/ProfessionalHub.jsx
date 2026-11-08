@@ -1,3 +1,4 @@
+import CommunityHub from './CommunityHub.jsx'
 import SchedulingView from './SchedulingView.jsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -519,9 +520,20 @@ export default function ProfessionalHub() {
         <Icon name="calendar" />
         <span>{p('Appointments')}</span>
       </button>
+      <button
+        role="tab"
+        aria-selected={tab === 'community'}
+        className={"pro-sched-tab " + (tab === 'community' ? 'active' : '')}
+        onClick={() => setTab('community')}
+      >
+        <Icon name="trophy" />
+        <span>{p('Community')}</span>
+      </button>
     </nav>
     {tab === 'scheduling' ? (
       <SchedulingView embedded />
+    ) : tab === 'community' ? (
+      <CommunityHub embedded defaultRole={coach ? 'coach' : 'athlete'} />
     ) : (
       <>
         {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}

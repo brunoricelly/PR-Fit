@@ -1,6 +1,90 @@
 import { getLang } from './i18n-core.js'
 
 export const PROFESSIONAL_PT_BR = {
+  'Manage groups, athlete roster and invites': 'Gerencie grupos, lista de atletas e convites',
+  'Leaderboards, custom scoring and milestones': 'Classificação, pontuação personalizada e marcos',
+  'Publish group routine versions': 'Publique versões de rotinas do grupo',
+  'Join community groups and connect with teammates': 'Entre em grupos da comunidade e conecte-se com colegas',
+  'Climb the community leaderboards': 'Suba nas classificações da comunidade',
+  'Adopt group workout programs': 'Adote programas de treino do grupo',
+  // Community, Groups & Challenges (Phase 8)
+  'Community': 'Comunidade',
+  'Groups': 'Grupos',
+  'Community & Groups': 'Comunidade e Grupos',
+  'My groups': 'Meus grupos',
+  'My groups and challenges': 'Meus grupos e desafios',
+  'Group challenges': 'Desafios coletivos',
+  'Collective programs': 'Programas coletivos',
+  'New group': 'Novo grupo',
+  'Create group': 'Criar grupo',
+  'Edit group': 'Editar grupo',
+  'Group details': 'Detalhes do grupo',
+  'Group name': 'Nome do grupo',
+  'Description': 'Descrição',
+  'Category': 'Categoria',
+  'Max members': 'Limite de vagas',
+  'Private group': 'Grupo privado',
+  'Members': 'Membros',
+  'Active members': 'Membros ativos',
+  'Pending invites': 'Convites pendentes',
+  'Invite code': 'Código de convite',
+  'Copy code': 'Copiar código',
+  'Rotate code': 'Rotacionar código',
+  'Add athlete': 'Adicionar aluno',
+  'Search athlete': 'Buscar aluno',
+  'Remove member': 'Remover membro',
+  'Are you sure you want to remove this member?': 'Tem certeza que deseja remover este membro?',
+  'New challenge': 'Novo desafio',
+  'Create challenge': 'Criar desafio',
+  'Challenge details': 'Detalhes do desafio',
+  'Leaderboard': 'Classificação',
+  'Activity feed': 'Feed de atividades',
+  'Award points': 'Atribuir pontos',
+  'Custom points': 'Pontos personalizados',
+  'Points': 'Pontos',
+  'Justification': 'Justificativa',
+  'Activate challenge': 'Ativar desafio',
+  'End challenge': 'Encerrar desafio',
+  'Archive challenge': 'Arquivar desafio',
+  'New collective program': 'Novo programa coletivo',
+  'Publish version': 'Publicar versão',
+  'Archive program': 'Arquivar programa',
+  'Adopt program': 'Adotar programa',
+  'Join group': 'Entrar no grupo',
+  'Join with code': 'Entrar com código',
+  'Leave group': 'Sair do grupo',
+  'Accept invitation': 'Aceitar convite',
+  'Decline invitation': 'Recusar convite',
+  'Are you sure you want to leave this group?': 'Tem certeza que deseja sair deste grupo?',
+  'Workouts count': 'Contagem de treinos',
+  'Volume load': 'Volume de carga',
+  'Habits consistency': 'Consistência de hábitos',
+  'All': 'Todos',
+  'Draft': 'Rascunho',
+  'Completed': 'Concluído',
+  'Archived': 'Arquivado',
+  'You': 'Você',
+  'This group is full.': 'Este grupo atingiu a capacidade máxima.',
+  'Invite code expired or invalid.': 'Convite expirado ou inválido.',
+  'Active training scope required.': 'Escopo de treino ativo obrigatório.',
+  'This group has reached its maximum member capacity.': 'Este grupo atingiu a capacidade máxima de membros.',
+  'This group is no longer available.': 'Este grupo não está mais disponível.',
+  'This invitation has expired.': 'Este convite expirou.',
+  'This invitation has been revoked.': 'Este convite foi revogado.',
+  'The invite code is invalid or does not exist.': 'Código de convite inválido ou não encontrado.',
+  'This athlete is already a member of the group.': 'Este atleta já é membro do grupo.',
+  'This challenge is no longer available.': 'Este desafio não está mais disponível.',
+  'This collective program is no longer available.': 'Este programa coletivo não está mais disponível.',
+  'This collective program has been archived.': 'Este programa coletivo foi arquivado.',
+  'A concurrent request with the same key is already processed.': 'Uma requisição concorrente com a mesma chave já foi processada.',
+  'The adjustment correction is invalid or was already reversed.': 'A correção do ajuste é inválida ou já foi revertida.',
+  'Adoption is in progress. Please retry shortly.': 'Adoção em andamento. Tente novamente em instantes.',
+  'Too many requests. Please wait a moment and try again.': 'Muitas requisições. Aguarde um momento e tente novamente.',
+  'Access denied or missing active training scope.': 'Acesso negado ou falta de escopo de treino ativo.',
+  'This operation has a conflict or the group is full.': 'Conflito na operação ou grupo lotado.',
+  'This invitation or resource has expired.': 'Este convite ou recurso expirou.',
+  'The requested entity was not found.': 'O item solicitado não foi encontrado.',
+
   // Scheduling & Appointments
   'Scheduling': 'Agendamento',
   'Appointments': 'Compromissos',
@@ -576,6 +660,20 @@ export function professionalText(source, ...args) {
 }
 
 const ERROR_COPY = {
+  group_full: 'This group has reached its maximum member capacity.',
+  group_not_found: 'This group is no longer available.',
+  invite_expired: 'This invitation has expired.',
+  invite_revoked: 'This invitation has been revoked.',
+  invalid_invite: 'The invite code is invalid or does not exist.',
+  already_member: 'This athlete is already a member of the group.',
+  challenge_not_found: 'This challenge is no longer available.',
+  program_not_found: 'This collective program is no longer available.',
+  program_archived: 'This collective program has been archived.',
+  idempotency_conflict: 'A concurrent request with the same key is already processed.',
+  invalid_correction: 'The adjustment correction is invalid or was already reversed.',
+  adoption_pending: 'Adoption is in progress. Please retry shortly.',
+  rate_limit: 'Too many requests. Please wait a moment and try again.',
+
   revision_conflict: 'The availability schedule was updated in another session. Please reload and try again.',
   conflict: 'This slot is no longer available. Please select another time.',
   forbidden: 'You do not have permission for this scheduling action.',
@@ -654,8 +752,13 @@ const ERROR_COPY = {
 export function professionalError(error) {
   const code = error?.data?.code || error?.code
   if (ERROR_COPY[code]) return professionalText(ERROR_COPY[code])
+  if (error?.status === 409) return professionalText('This operation has a conflict or the group is full.')
+  if (error?.status === 410) return professionalText('This invitation or resource has expired.')
+  if (error?.status === 403) return professionalText('Access denied or missing active training scope.')
+  if (error?.status === 404) return professionalText('The requested entity was not found.')
+  if (error?.status === 429) return professionalText('Too many requests. Please wait a moment and try again.')
   if (code === 'network' || code === 'timeout' || !error?.status) {
     return professionalText('Could not reach PR Fit. Check your connection and try again.')
   }
-  return professionalText('Something went wrong. Try again.')
+  return professionalText(error?.message || 'Something went wrong. Try again.')
 }
