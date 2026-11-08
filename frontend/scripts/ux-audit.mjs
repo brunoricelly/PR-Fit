@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { PROFESSIONAL_PT_BR } from '../src/lib/professional-copy.js'
 
 const frontendRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const repoRoot = resolve(frontendRoot, '..')
@@ -174,6 +175,17 @@ function allowlisted(value, allowlist) {
   return allowlist.exact.has(value) || allowlist.patterns.some(pattern => pattern.test(value))
 }
 
+function professionalTextAliases(source) {
+  const aliases = new Set()
+  for (const match of source.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"][^'"]*professional-copy\.js['"]/g)) {
+    for (const specifier of match[1].split(',')) {
+      const imported = specifier.trim().match(/^professionalText(?:\s+as\s+([A-Za-z_$][\w$]*))?$/)
+      if (imported) aliases.add(imported[1] || 'professionalText')
+    }
+  }
+  return aliases
+}
+
 export function scanVisibleEnglish(files, allowlist = readAllowlist()) {
   const findings = []
   for (const file of files) {
@@ -185,11 +197,20 @@ export function scanVisibleEnglish(files, allowlist = readAllowlist()) {
     for (const match of source.matchAll(/\b(aria-label|title|subtitle|placeholder|alt|label)=['"]([^'"]*[A-Za-z][^'"]*)['"]/g)) {
       candidates.push({ kind: match[1], value: normalizeSpace(match[2]), index: match.index })
     }
+    for (const alias of professionalTextAliases(source)) {
+      const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      const callPattern = new RegExp(`\\b${escapedAlias}\\(\\s*(['"])(.*?)\\1`, 'g')
+      for (const match of source.matchAll(callPattern)) {
+        const value = normalizeSpace(match[2])
+        if (!PROFESSIONAL_PT_BR[value]) candidates.push({ kind: 'professional-copy', value, index: match.index })
+      }
+    }
     for (const candidate of candidates) {
       const lineStart = source.lastIndexOf('\n', candidate.index) + 1
       if (source.slice(lineStart, candidate.index).trimStart().startsWith('//')) continue
       if (candidate.kind === 'jsx-text' && (/^(\/\/|\/\*|:)/.test(candidate.value) || /=>|===|&&|\|\||\?\.|\b(const|return|function|if|else|new Set)\b/.test(candidate.value))) continue
-      if (!candidate.value || allowlisted(candidate.value, allowlist) || !isObviousEnglish(candidate.value)) continue
+      if (!candidate.value || allowlisted(candidate.value, allowlist)) continue
+      if (candidate.kind !== 'professional-copy' && !isObviousEnglish(candidate.value)) continue
       findings.push({
         file: relative(repoRoot, file),
         line: lineOf(source, candidate.index),
