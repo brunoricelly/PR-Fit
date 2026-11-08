@@ -61,6 +61,7 @@ import {
 import {
   cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS, validateSchedulingState,
 } from './scheduling.js';
+import { createChallengeRoutes, validateChallengesState, CHALLENGE_LIMITS } from './challenges.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
 import { createInterprocessLock, mergeDbCandidate } from './db-coordinator.js';
@@ -2859,7 +2860,31 @@ const reminderHealth = () => {
 
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
+const challengeDbWrites = new SerialWriteQueue();
+const challengeCollections = [
+  'coachGroups', 'groupMembers', 'challenges', 'challengeScores', 'challengeActivityFeed',
+];
+const latestChallengeDb = () => {
+  const latest = loadDb();
+  migrateB2B2C(latest);
+  compactB2B2C(latest, B2B2C_LIMITS);
+  return latest;
+};
+const commitChallengeDb = (candidate, base = persistedDb, keys = challengeCollections) => challengeDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestChallengeDb();
+  const merged = mergeDbCandidate(latest, base, candidate, { keys });
+  validateChallengesState(merged, B2B2C_LIMITS);
+  saveDbUnlocked(merged);
+  publishDb(merged);
+}));
+const challengeRoutes = createChallengeRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  makeEntityId, profileOf, readBody, readSession, readState: readStateCached, rate: B2B2C_RATE,
+  saveDb, publishDb, commitCandidate: commitChallengeDb,
+});
+
 const routes = {
+  ...challengeRoutes,
   ...communicationHabitsRoutes,
   ...progressRoutes,
   ...schedulingRoutes,
@@ -4985,6 +5010,60 @@ const server = http.createServer(async (req, res) => {
   }
   if (url.pathname === '/api/scheduling/reminder-preferences') {
     key = req.method + ' /api/scheduling/reminder-preferences';
+  }
+
+  if (url.pathname === '/api/coach/groups') key = req.method + ' /api/coach/groups';
+  const coachGroupMembers = new RegExp("^/api/coach/groups/([A-Za-z0-9_-]+)/members/([A-Za-z0-9_-]+)$").exec(url.pathname);
+  if (coachGroupMembers) {
+    key = req.method + ' /api/coach/groups/{groupId}/members/{athleteId}';
+    req.groupId = coachGroupMembers[1];
+    req.athleteId = coachGroupMembers[2];
+  } else {
+    const coachGroupMembersCollection = new RegExp("^/api/coach/groups/([A-Za-z0-9_-]+)/members$").exec(url.pathname);
+    if (coachGroupMembersCollection) {
+      key = req.method + ' /api/coach/groups/{groupId}/members';
+      req.groupId = coachGroupMembersCollection[1];
+    } else {
+      const coachGroupItem = new RegExp("^/api/coach/groups/([A-Za-z0-9_-]+)$").exec(url.pathname);
+      if (coachGroupItem) {
+        key = req.method + ' /api/coach/groups/{groupId}';
+        req.groupId = coachGroupItem[1];
+      }
+    }
+  }
+
+  if (url.pathname === '/api/coach/challenges') key = req.method + ' /api/coach/challenges';
+  const coachChallengeLeaderboard = new RegExp("^/api/coach/challenges/([A-Za-z0-9_-]+)/leaderboard$").exec(url.pathname);
+  if (coachChallengeLeaderboard) {
+    key = req.method + ' /api/coach/challenges/{challengeId}/leaderboard';
+    req.challengeId = coachChallengeLeaderboard[1];
+  } else {
+    const coachChallengeItem = new RegExp("^/api/coach/challenges/([A-Za-z0-9_-]+)$").exec(url.pathname);
+    if (coachChallengeItem) {
+      key = req.method + ' /api/coach/challenges/{challengeId}';
+      req.challengeId = coachChallengeItem[1];
+    }
+  }
+
+  if (url.pathname === '/api/athlete/groups') key = req.method + ' /api/athlete/groups';
+  if (url.pathname === '/api/athlete/groups/join') key = req.method + ' /api/athlete/groups/join';
+  const athleteGroupLeave = new RegExp("^/api/athlete/groups/([A-Za-z0-9_-]+)/leave$").exec(url.pathname);
+  if (athleteGroupLeave) {
+    key = req.method + ' /api/athlete/groups/{groupId}/leave';
+    req.groupId = athleteGroupLeave[1];
+  }
+
+  if (url.pathname === '/api/athlete/challenges') key = req.method + ' /api/athlete/challenges';
+  const athleteChallengeLeaderboard = new RegExp("^/api/athlete/challenges/([A-Za-z0-9_-]+)/leaderboard$").exec(url.pathname);
+  if (athleteChallengeLeaderboard) {
+    key = req.method + ' /api/athlete/challenges/{challengeId}/leaderboard';
+    req.challengeId = athleteChallengeLeaderboard[1];
+  } else {
+    const athleteChallengeItem = new RegExp("^/api/athlete/challenges/([A-Za-z0-9_-]+)$").exec(url.pathname);
+    if (athleteChallengeItem) {
+      key = req.method + ' /api/athlete/challenges/{challengeId}';
+      req.challengeId = athleteChallengeItem[1];
+    }
   }
 
   const handler = routes[key];

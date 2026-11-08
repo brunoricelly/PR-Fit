@@ -2391,6 +2391,448 @@ paths:
         '503': { $ref: '#/components/responses/Busy' }
 
 
+  /api/coach/groups:
+    post:
+      tags: [professionals]
+      operationId: createCoachGroup
+      summary: Create a coach group
+      description: Creates a training or consulting group owned by the coach.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCoachGroupRequest' }
+      responses:
+        '201':
+          description: Group created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group]
+                properties:
+                  group: { $ref: '#/components/schemas/CoachGroup' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '503': { $ref: '#/components/responses/Busy' }
+    get:
+      tags: [professionals]
+      operationId: listCoachGroups
+      summary: List coach groups
+      description: Returns all groups owned by the authenticated coach.
+      responses:
+        '200':
+          description: List of groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/CoachGroup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+
+  /api/coach/groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [professionals]
+      operationId: getCoachGroup
+      summary: Get coach group details and members
+      description: Returns group details and member list for group owned by the coach.
+      responses:
+        '200':
+          description: Group details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group, members]
+                properties:
+                  group: { $ref: '#/components/schemas/CoachGroup' }
+                  members:
+                    type: array
+                    items: { $ref: '#/components/schemas/GroupMember' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+    put:
+      tags: [professionals]
+      operationId: updateCoachGroup
+      summary: Update coach group
+      description: Updates group details, capacity or archive state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCoachGroupRequest' }
+      responses:
+        '200':
+          description: Group updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [group]
+                properties:
+                  group: { $ref: '#/components/schemas/CoachGroup' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '503': { $ref: '#/components/responses/Busy' }
+    delete:
+      tags: [professionals]
+      operationId: deleteCoachGroup
+      summary: Delete coach group
+      description: Deletes a group owned by the coach.
+      responses:
+        '200':
+          description: Group deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/groups/{groupId}/members:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags: [professionals]
+      operationId: addCoachGroupMember
+      summary: Add athlete to coach group
+      description: Adds an athlete to a group.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AddGroupMemberRequest' }
+      responses:
+        '201':
+          description: Member added.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [member]
+                properties:
+                  member: { $ref: '#/components/schemas/GroupMember' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/groups/{groupId}/members/{athleteId}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+      - $ref: '#/components/parameters/AthleteId'
+    delete:
+      tags: [professionals]
+      operationId: removeCoachGroupMember
+      summary: Remove athlete from coach group
+      description: Removes an athlete from a group.
+      responses:
+        '200':
+          description: Member removed.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, athleteId, status]
+                properties:
+                  ok: { type: boolean }
+                  athleteId: { type: string }
+                  status: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/challenges:
+    post:
+      tags: [professionals]
+      operationId: createCoachChallenge
+      summary: Create collective challenge
+      description: Creates a new collective challenge for a group or coach students.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateCoachChallengeRequest' }
+      responses:
+        '201':
+          description: Challenge created.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge]
+                properties:
+                  challenge: { $ref: '#/components/schemas/Challenge' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '503': { $ref: '#/components/responses/Busy' }
+    get:
+      tags: [professionals]
+      operationId: listCoachChallenges
+      summary: List coach challenges
+      description: Returns challenges created by the authenticated coach.
+      responses:
+        '200':
+          description: List of challenges.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenges]
+                properties:
+                  challenges:
+                    type: array
+                    items: { $ref: '#/components/schemas/Challenge' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+
+  /api/coach/challenges/{challengeId}:
+    parameters:
+      - $ref: '#/components/parameters/ChallengeId'
+    get:
+      tags: [professionals]
+      operationId: getCoachChallenge
+      summary: Get coach challenge details
+      description: Returns details of a challenge owned by the coach.
+      responses:
+        '200':
+          description: Challenge details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge]
+                properties:
+                  challenge: { $ref: '#/components/schemas/Challenge' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+    put:
+      tags: [professionals]
+      operationId: updateCoachChallenge
+      summary: Update challenge
+      description: Updates challenge attributes, dates, or status.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpdateCoachChallengeRequest' }
+      responses:
+        '200':
+          description: Challenge updated.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge]
+                properties:
+                  challenge: { $ref: '#/components/schemas/Challenge' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '503': { $ref: '#/components/responses/Busy' }
+    delete:
+      tags: [professionals]
+      operationId: deleteCoachChallenge
+      summary: Delete challenge
+      description: Deletes a challenge and associated scores.
+      responses:
+        '200':
+          description: Challenge deleted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/challenges/{challengeId}/leaderboard:
+    parameters:
+      - $ref: '#/components/parameters/ChallengeId'
+    get:
+      tags: [professionals]
+      operationId: getCoachChallengeLeaderboard
+      summary: Get challenge leaderboard
+      description: Calculates real-time rankings and returns leaderboard with activity feed.
+      responses:
+        '200':
+          description: Challenge leaderboard and activity feed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChallengeLeaderboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+
+  /api/athlete/groups:
+    get:
+      tags: [professionals]
+      operationId: listAthleteGroups
+      summary: List groups athlete belongs to
+      description: Returns all groups where athlete is an active member.
+      responses:
+        '200':
+          description: Athlete groups.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [groups]
+                properties:
+                  groups:
+                    type: array
+                    items: { $ref: '#/components/schemas/CoachGroup' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+
+  /api/athlete/groups/join:
+    post:
+      tags: [professionals]
+      operationId: joinAthleteGroup
+      summary: Join group via invite code
+      description: Enrolls athlete in a group using its invite code.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/JoinGroupRequest' }
+      responses:
+        '200':
+          description: Successfully joined group.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, group, member]
+                properties:
+                  ok: { type: boolean }
+                  group: { $ref: '#/components/schemas/CoachGroup' }
+                  member: { $ref: '#/components/schemas/GroupMember' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/groups/{groupId}/leave:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags: [professionals]
+      operationId: leaveAthleteGroup
+      summary: Leave a group
+      description: Leaves a group the athlete was participating in.
+      responses:
+        '200':
+          description: Left group successfully.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, groupId, status]
+                properties:
+                  ok: { type: boolean }
+                  groupId: { type: string }
+                  status: { type: string }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/challenges:
+    get:
+      tags: [professionals]
+      operationId: listAthleteChallenges
+      summary: List challenges athlete participates in
+      description: Returns active challenges available to the athlete.
+      responses:
+        '200':
+          description: Athlete challenges.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenges]
+                properties:
+                  challenges:
+                    type: array
+                    items: { $ref: '#/components/schemas/Challenge' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+
+  /api/athlete/challenges/{challengeId}:
+    parameters:
+      - $ref: '#/components/parameters/ChallengeId'
+    get:
+      tags: [professionals]
+      operationId: getAthleteChallenge
+      summary: Get athlete challenge details
+      description: Returns challenge details if athlete is a participant.
+      responses:
+        '200':
+          description: Challenge details.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [challenge]
+                properties:
+                  challenge: { $ref: '#/components/schemas/Challenge' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+
+  /api/athlete/challenges/{challengeId}/leaderboard:
+    parameters:
+      - $ref: '#/components/parameters/ChallengeId'
+    get:
+      tags: [professionals]
+      operationId: getAthleteChallengeLeaderboard
+      summary: Get challenge leaderboard for athlete
+      description: Returns real-time challenge leaderboard and activity feed for participant athlete.
+      responses:
+        '200':
+          description: Leaderboard and activity feed.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ChallengeLeaderboardResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+
   /api/register/options:
     post:
       tags: [auth]
@@ -5969,6 +6411,16 @@ components:
         skip the CSRF origin check; a browser never attaches this header on its own.
 
   parameters:
+    GroupId:
+      in: path
+      name: groupId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    ChallengeId:
+      in: path
+      name: challengeId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
     AthleteId:
       in: path
       name: athleteId
@@ -6165,6 +6617,26 @@ components:
       schema: { type: string, format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
 
   responses:
+    ChallengeBadRequest:
+      description: Invalid group, challenge, member or dates payload.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ChallengeForbidden:
+      description: Role forbidden or cross-tenant access denied.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ChallengeNotFound:
+      description: Group or challenge not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ChallengeConflict:
+      description: Group full, already member, or limit reached.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
     CommunicationBadRequest:
       description: Invalid message, habit, check-in, timezone, period, link id, read cursor or pagination cursor. The stable code identifies the invalid input.
       content:
@@ -6472,6 +6944,167 @@ components:
           example: { error: 'use explicit reschedule, cancel, or attendance actions', code: 'action_required', violations: [] }
 
   schemas:
+    CoachGroup:
+      type: object
+      additionalProperties: false
+      required: [id, coachId, name, maxMembers, isPrivate, inviteCode, memberCount, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        category: { type: string, maxLength: 50 }
+        maxMembers: { type: integer, minimum: 1, maximum: 500 }
+        isPrivate: { type: boolean }
+        inviteCode: { type: string, maxLength: 30 }
+        memberCount: { type: integer, minimum: 0 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        archivedAt: { type: ['string', 'null'], format: date-time }
+        myMembership: { $ref: '#/components/schemas/GroupMember' }
+
+    GroupMember:
+      type: object
+      additionalProperties: false
+      required: [id, groupId, coachId, athleteId, joinedAt, role, status]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        groupId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        joinedAt: { type: string, format: date-time }
+        role: { type: string, enum: [member, moderator] }
+        status: { type: string, enum: [active, removed, left] }
+        athleteName: { type: string }
+
+    Challenge:
+      type: object
+      additionalProperties: false
+      required: [id, coachId, scope, name, type, startAt, endAt, timeZone, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        groupId: { type: ['string', 'null'] }
+        scope: { type: string, enum: [group, coach_students] }
+        name: { type: string, minLength: 1, maxLength: 100 }
+        title: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 2000 }
+        type: { type: string, enum: [workouts_count, habits_consistency, volume_load, custom_points] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        status: { type: string, enum: [draft, active, completed, archived] }
+        rules: { type: object }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    ChallengeLeaderboardEntry:
+      type: object
+      additionalProperties: false
+      required: [athleteId, athleteName, rank, score]
+      properties:
+        athleteId: { type: string }
+        athleteName: { type: string }
+        rank: { type: integer, minimum: 1 }
+        score: { type: number }
+        workoutsCount: { type: integer }
+        volumeLoad: { type: number }
+        habitCheckinsCount: { type: integer }
+        lastActivityAt: { type: ['string', 'null'] }
+
+    ChallengeActivityFeedEntry:
+      type: object
+      additionalProperties: false
+      required: [id, challengeId, athleteId, timestamp, pointsAwarded]
+      properties:
+        id: { type: string }
+        challengeId: { type: string }
+        athleteId: { type: string }
+        athleteName: { type: string }
+        activityType: { type: string }
+        description: { type: string }
+        pointsAwarded: { type: number }
+        timestamp: { type: string, format: date-time }
+
+    ChallengeLeaderboardResponse:
+      type: object
+      additionalProperties: false
+      required: [challenge, leaderboard, activityFeed]
+      properties:
+        challenge: { $ref: '#/components/schemas/Challenge' }
+        leaderboard:
+          type: array
+          items: { $ref: '#/components/schemas/ChallengeLeaderboardEntry' }
+        activityFeed:
+          type: array
+          items: { $ref: '#/components/schemas/ChallengeActivityFeedEntry' }
+
+    CreateCoachGroupRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        category: { type: string, maxLength: 50 }
+        maxMembers: { type: integer, minimum: 1, maximum: 500 }
+        isPrivate: { type: boolean }
+
+    UpdateCoachGroupRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, minLength: 1, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        category: { type: string, maxLength: 50 }
+        maxMembers: { type: integer, minimum: 1, maximum: 500 }
+        isPrivate: { type: boolean }
+        archived: { type: boolean }
+
+    AddGroupMemberRequest:
+      type: object
+      additionalProperties: false
+      required: [athleteId]
+      properties:
+        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        role: { type: string, enum: [member, moderator] }
+
+    JoinGroupRequest:
+      type: object
+      additionalProperties: false
+      required: [inviteCode]
+      properties:
+        inviteCode: { type: string, minLength: 1, maxLength: 30 }
+
+    CreateCoachChallengeRequest:
+      type: object
+      additionalProperties: false
+      required: [type, scope, startAt, endAt]
+      properties:
+        name: { type: string, maxLength: 100 }
+        title: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 2000 }
+        type: { type: string, enum: [workouts_count, habits_consistency, volume_load, custom_points] }
+        scope: { type: string, enum: [group, coach_students] }
+        groupId: { type: ['string', 'null'] }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        status: { type: string, enum: [draft, active, completed, archived] }
+        rules: { type: object }
+
+    UpdateCoachChallengeRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        name: { type: string, maxLength: 100 }
+        title: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 2000 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        status: { type: string, enum: [draft, active, completed, archived] }
+        rules: { type: object }
     RelationshipHistoryState:
       type: object
       additionalProperties: false
