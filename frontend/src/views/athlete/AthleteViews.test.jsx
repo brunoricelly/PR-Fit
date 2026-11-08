@@ -84,6 +84,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  document.querySelectorAll('.ds-modal-backdrop, #modal-root').forEach(el => el.remove())
 })
 
 const settle = () => act(async () => {
@@ -103,7 +104,7 @@ const mount = async (component, initialEntry = '/') => {
   await settle()
 }
 
-const button = (label, container = host) =>
+const button = (label, container = document.body) =>
   [...container.querySelectorAll('button')].find(item => item.textContent.trim().includes(label))
 
 const input = (name, container = host) =>
@@ -196,7 +197,7 @@ describe('AthleteGroupsView', () => {
     })
     await settle()
 
-    const confirmModal = host.querySelector('#leave-group-confirm-title')?.closest('.pro-modal-container')
+    const confirmModal = document.querySelector('#leave-group-confirm-title')?.closest('.pro-modal-container')
     expect(confirmModal).toBeTruthy()
 
     await act(async () => {
@@ -271,7 +272,7 @@ describe('AthleteGroupsView', () => {
     })
     await settle()
 
-    const confirmModal = host.querySelector('#leave-group-confirm-title')?.closest('.pro-modal-container')
+    const confirmModal = document.querySelector('#leave-group-confirm-title')?.closest('.pro-modal-container')
     expect(confirmModal).toBeTruthy()
 
     await act(async () => {
@@ -301,9 +302,9 @@ describe('AthleteGroupsView', () => {
     await settle()
 
     expect(mocks.getAthleteGroup).toHaveBeenCalledWith('grp_1', { limit: 50 })
-    expect(host.textContent).toContain('Carlos M.')
-    expect(host.textContent).toContain('Diana S.')
-    expect(host.textContent).toContain('Moderator')
+    expect(document.body.textContent).toContain('Carlos M.')
+    expect(document.body.textContent).toContain('Diana S.')
+    expect(document.body.textContent).toContain('Moderator')
   })
 })
 
@@ -364,11 +365,11 @@ describe('AthleteChallengesView', () => {
     await settle()
 
     expect(mocks.getAthleteChallengeLeaderboard).toHaveBeenCalledWith('ch_1', expect.anything())
-    expect(host.textContent).toContain('Bob')
-    expect(host.textContent).toContain('Alice Silva')
+    expect(document.body.textContent).toContain('Bob')
+    expect(document.body.textContent).toContain('Alice Silva')
 
     // Verify current athlete highlight row
-    const meRow = host.querySelector('.athlete-me-row')
+    const meRow = document.querySelector('.athlete-me-row')
     expect(meRow).toBeTruthy()
     expect(meRow.textContent).toContain('You')
     expect(meRow.textContent).toContain('180')
@@ -457,7 +458,7 @@ describe('AthleteGroupProgramsView', () => {
     })
     await settle()
 
-    const confirmModal = host.querySelector('#adopt-program-confirm-title')?.closest('.pro-modal-container')
+    const confirmModal = document.querySelector('#adopt-program-confirm-title')?.closest('.pro-modal-container')
     expect(confirmModal).toBeTruthy()
     expect(confirmModal.textContent).toContain('overwrite conflicting routines')
 
