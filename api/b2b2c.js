@@ -14,8 +14,12 @@ import {
 import {
   compactGroupProgramsState, removeGroupProgramsUser, validateGroupProgramsState, GROUP_PROGRAM_LIMITS,
 } from './group-programs.js';
+import {
+  LEGACY_NUTRITION_CONTRACT_VERSION, NUTRITION_CONTRACT_VERSION, NUTRITION_TOLERANCES,
+  nutritionPlanIssues, nutritionTolerances,
+} from './nutrition-contract.js';
 
-export const B2B2C_SCHEMA_VERSION = 9;
+export const B2B2C_SCHEMA_VERSION = 10;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
@@ -85,7 +89,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, 4, 5, 6, 7, 8, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, 5, 6, 7, 8, 9, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -93,7 +97,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs', 'coachAvailability', 'coachAppointments', 'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealPlanTombstones', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs', 'coachAvailability', 'coachAppointments', 'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -130,6 +134,25 @@ export function migrateB2B2C(db) {
       }
     }
   }
+  if (sourceVersion === undefined || sourceVersion < 10) {
+    const plansByIdentity = new Map();
+    for (const plan of db.mealPlans) {
+      if (!record(plan)) throw new B2B2CDataError('mealPlans contains an invalid record');
+      if (plan.nutritionContractVersion === undefined) {
+        plan.nutritionContractVersion = LEGACY_NUTRITION_CONTRACT_VERSION;
+        changed = true;
+      }
+      plansByIdentity.set(`${plan.athleteId}\0${plan.id}`, plan);
+    }
+    for (const adherence of db.mealAdherence) {
+      if (!record(adherence)) throw new B2B2CDataError('mealAdherence contains an invalid record');
+      if (adherence.planSnapshot !== undefined) continue;
+      const plan = plansByIdentity.get(`${adherence.athleteId}\0${adherence.mealPlanId}`);
+      if (!plan) throw new B2B2CDataError('legacy mealAdherence cannot be migrated without its meal plan');
+      adherence.planSnapshot = createMealPlanSnapshot(plan);
+      changed = true;
+    }
+  }
   for (const item of db.coachAssessments) {
     if (!record(item) || typeof item.id !== 'string' || typeof item.coachId !== 'string' || typeof item.athleteId !== 'string') {
       throw new B2B2CDataError('coachAssessments contains an invalid record');
@@ -156,7 +179,7 @@ export function migrateB2B2C(db) {
       throw new B2B2CDataError('coachAssessments contains invalid assessment data');
     }
   }
-  validateNutritionState(db.mealPlans, db.mealAdherence);
+  validateNutritionState(db.mealPlans, db.mealAdherence, db.mealPlanTombstones);
   try { validateCommunicationHabitsState(db); }
   catch (error) { throw new B2B2CDataError(error.message); }
   try { changed = migrateProgressState(db) || changed; }
@@ -200,6 +223,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   // migrateB2B2C initializes these in production; defaults keep the policy helper usable with
   // focused legacy fixtures that predate the nutrition collections.
   db.mealPlans ||= [];
+  db.mealPlanTombstones ||= [];
   db.mealAdherence ||= [];
   db.coachMessages ||= [];
   db.coachHabits ||= [];
@@ -280,6 +304,14 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     ...db.coachAppointments.map(item => item.linkId),
     ...progressDependentLinkIds(db),
   ]);
+  const nutritionHistoryPairs = new Set([...db.mealPlans, ...db.mealPlanTombstones]
+    .filter(plan => db.mealAdherence.some(item => item.athleteId === plan.athleteId && item.mealPlanId === plan.id))
+    .map(plan => `${plan.coachId}\0${plan.athleteId}`));
+  for (const link of db.coachAthleteLinks) {
+    if (link.acceptedAt && link.scopes.includes('nutrition') && nutritionHistoryPairs.has(`${link.coachId}\0${link.athleteId}`)) {
+      dependentLinkIds.add(link.id);
+    }
+  }
   const protectedTerminalSource = db.coachAthleteLinks
     .filter(link => link.status === 'ended' && dependentLinkIds.has(link.id));
   if (liveLinks.length + protectedTerminalSource.length > limits.maxLinks) {
@@ -373,6 +405,10 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     if (keptAdherence.length !== db.mealAdherence.length) changed = true;
     db.mealAdherence = keptAdherence;
   }
+  const retainedPlanKeys = new Set(db.mealAdherence.map(item => `${item.athleteId}\0${item.mealPlanId}`));
+  const keptMealPlanTombstones = db.mealPlanTombstones.filter(item => retainedPlanKeys.has(`${item.athleteId}\0${item.id}`));
+  if (keptMealPlanTombstones.length !== db.mealPlanTombstones.length) changed = true;
+  db.mealPlanTombstones = keptMealPlanTombstones;
   if (db.coachAssessments.length > (limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments)) {
     throw new B2B2CDataError(`coachAssessments exceed configured limit ${limits.maxAssessments ?? B2B2C_LIMITS.maxAssessments}`);
   }
@@ -399,6 +435,9 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   }
   if (db.mealAdherence.length > (limits.maxMealAdherence ?? B2B2C_LIMITS.maxMealAdherence)) {
     throw new B2B2CDataError(`mealAdherence exceeds configured limit ${limits.maxMealAdherence ?? B2B2C_LIMITS.maxMealAdherence}`);
+  }
+  if (db.mealPlanTombstones.length > db.mealAdherence.length) {
+    throw new B2B2CDataError('mealPlanTombstones exceed retained meal adherence references');
   }
   const adherenceCounts = new Map();
   for (const adherence of db.mealAdherence) {
@@ -427,7 +466,7 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
-    mealPlans: db.mealPlans.length, mealAdherence: db.mealAdherence.length,
+    mealPlans: db.mealPlans.length, mealPlanTombstones: db.mealPlanTombstones.length, mealAdherence: db.mealAdherence.length,
     messages: db.coachMessages.length, habits: db.coachHabits.length, checkins: db.habitCheckins.length,
     goals: db.progressGoals.length, reports: db.progressReports.length,
     availability: db.coachAvailability.length, appointments: db.coachAppointments.length,
@@ -733,27 +772,12 @@ const mealId = (value, fallback) => (
   value === undefined ? fallback : typeof value === 'string' && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : null
 );
 
-// Deliberately broad corridors: plans may use rounded labels and foods from different nutrition
-// databases, but a partial snack cannot claim to implement a full-day target. Target calories may
-// differ 35% from 4/4/9 macro calories; summed foods must be 50–150% of each declared daily target.
-export const NUTRITION_TOLERANCES = Object.freeze({
-  targetMacroCaloriesMin: 0.65,
-  targetMacroCaloriesMax: 1.35,
-  foodTotalsMin: 0.5,
-  foodTotalsMax: 1.5,
-  substitutePercent: 0.3,
-});
-
-const inRatio = (actual, target, min, max) => target > 0
-  ? actual >= target * min && actual <= target * max
-  : actual === 0;
-const substituteClose = (actual, source, key) => {
-  const absolute = key === 'calories' ? 100 : 5;
-  return Math.abs(actual - source) <= Math.max(absolute, source * NUTRITION_TOLERANCES.substitutePercent);
-};
-
 /** Strictly normalize the client-editable portion of a nutrition plan. */
-export function validateMealPlan(payload) {
+export { NUTRITION_TOLERANCES };
+
+export function validateMealPlan(payload, { contractVersion = NUTRITION_CONTRACT_VERSION } = {}) {
+  const tolerances = nutritionTolerances(contractVersion);
+  if (!tolerances) return null;
   if (!record(payload) || Object.keys(payload).some(key => !['meals', 'notes', 'status', 'targetCalories', 'targetMacros', 'title'].includes(key))) return null;
   const title = cleanText(payload.title, 120, { required: true });
   const notes = cleanText(payload.notes, 2000);
@@ -810,7 +834,8 @@ export function validateMealPlan(payload) {
         for (const key of nutrientKeys) {
           if (substitute[key] === undefined) continue;
           const value = mealNumber(substitute[key], 0, key === 'calories' ? 5000 : key === 'carbs' ? 1000 : key === 'fiber' ? 200 : 500);
-          if (value === null || !substituteClose(value, nutrients[key], key)) return null;
+          const absolute = key === 'calories' ? 100 : 5;
+          if (value === null || Math.abs(value - nutrients[key]) > Math.max(absolute, nutrients[key] * tolerances.substitutePercent)) return null;
           normalizedSubstitute[key] = value;
         }
         substitutes.push(normalizedSubstitute);
@@ -819,26 +844,36 @@ export function validateMealPlan(payload) {
     }
     meals.push({ id, name, time: input.time, items });
   }
-  const totals = meals.flatMap(meal => meal.items).reduce((sum, item) => ({
-    calories: sum.calories + item.calories,
-    protein: sum.protein + item.protein,
-    carbs: sum.carbs + item.carbs,
-    fats: sum.fats + item.fats,
-    fiber: sum.fiber + item.fiber,
-  }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 });
-  const macroCalories = targetMacros.protein * 4 + targetMacros.carbs * 4 + targetMacros.fats * 9;
-  if (!inRatio(macroCalories, targetCalories, NUTRITION_TOLERANCES.targetMacroCaloriesMin, NUTRITION_TOLERANCES.targetMacroCaloriesMax)
-      || !['calories', 'protein', 'carbs', 'fats', 'fiber'].every(key => (
-        key === 'fiber' && targetMacros.fiber === 0
-      ) || inRatio(
-        totals[key], key === 'calories' ? targetCalories : targetMacros[key],
-        NUTRITION_TOLERANCES.foodTotalsMin, NUTRITION_TOLERANCES.foodTotalsMax,
-      ))) return null;
-  return { title, status: payload.status, targetCalories, targetMacros, meals, notes };
+  const normalized = { title, status: payload.status, targetCalories, targetMacros, meals, notes };
+  if (nutritionPlanIssues(normalized, contractVersion).length) return null;
+  return normalized;
+}
+
+export function createMealPlanSnapshot(plan) {
+  return {
+    version: 1,
+    nutritionContractVersion: plan.nutritionContractVersion ?? NUTRITION_CONTRACT_VERSION,
+    title: plan.title,
+    targetCalories: plan.targetCalories,
+    targetMacros: structuredClone(plan.targetMacros),
+    meals: structuredClone(plan.meals),
+    notes: plan.notes,
+  };
+}
+
+export function validateMealPlanSnapshot(snapshot) {
+  if (!record(snapshot) || Object.keys(snapshot).some(key => !['meals', 'notes', 'nutritionContractVersion', 'targetCalories', 'targetMacros', 'title', 'version'].includes(key))
+      || snapshot.version !== 1 || !Number.isInteger(snapshot.nutritionContractVersion)) return null;
+  const normalized = validateMealPlan({
+    title: snapshot.title, status: 'archived', targetCalories: snapshot.targetCalories,
+    targetMacros: snapshot.targetMacros, meals: snapshot.meals, notes: snapshot.notes,
+  }, { contractVersion: snapshot.nutritionContractVersion });
+  if (!normalized) return null;
+  return createMealPlanSnapshot({ ...normalized, nutritionContractVersion: snapshot.nutritionContractVersion });
 }
 
 export function validateMealAdherence(payload, plan) {
-  if (!record(payload) || Object.keys(payload).some(key => !['athleteId', 'date', 'id', 'mealPlanId', 'mealsChecked', 'notes', 'updatedAt', 'waterDrunkMl'].includes(key))) return null;
+  if (!record(payload) || Object.keys(payload).some(key => !['athleteId', 'date', 'id', 'mealPlanId', 'mealsChecked', 'notes', 'planSnapshot', 'updatedAt', 'waterDrunkMl'].includes(key))) return null;
   if (typeof payload.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(payload.date)
       || new Date(`${payload.date}T00:00:00.000Z`).toISOString().slice(0, 10) !== payload.date
       || !Array.isArray(payload.mealsChecked) || payload.mealsChecked.length > 20) return null;
@@ -854,9 +889,9 @@ export function validateMealAdherence(payload, plan) {
   return { date: payload.date, mealsChecked, waterDrunkMl, notes };
 }
 
-/** Validate the two nutrition collections as one persistence unit. Throws on any ambiguity. */
-export function validateNutritionState(mealPlans, mealAdherence) {
-  if (!Array.isArray(mealPlans) || !Array.isArray(mealAdherence)) {
+/** Validate the nutrition collections as one persistence unit. Throws on any ambiguity. */
+export function validateNutritionState(mealPlans, mealAdherence, mealPlanTombstones = []) {
+  if (!Array.isArray(mealPlans) || !Array.isArray(mealAdherence) || !Array.isArray(mealPlanTombstones)) {
     throw new B2B2CDataError('nutrition collections must be arrays');
   }
   const plansByIdentity = new Map();
@@ -868,8 +903,9 @@ export function validateNutritionState(mealPlans, mealAdherence) {
         || !Number.isFinite(item.createdAt) || !Number.isFinite(item.updatedAt)) {
       throw new B2B2CDataError('mealPlans contains a duplicate id or invalid record');
     }
-    const { id, coachId, athleteId, createdAt, updatedAt, ...payload } = item;
-    if (!validateMealPlan(payload)) throw new B2B2CDataError('mealPlans contains invalid meal plan data');
+    const { id, coachId, athleteId, createdAt, updatedAt, nutritionContractVersion, ...payload } = item;
+    if (!Number.isInteger(nutritionContractVersion)
+        || !validateMealPlan(payload, { contractVersion: nutritionContractVersion })) throw new B2B2CDataError('mealPlans contains invalid meal plan data');
     if (item.status === 'active' && activeAthletes.has(item.athleteId)) {
       throw new B2B2CDataError('mealPlans contains more than one active plan for an athlete');
     }
@@ -877,15 +913,26 @@ export function validateNutritionState(mealPlans, mealAdherence) {
     if (item.status === 'active') activeAthletes.add(item.athleteId);
     plansByIdentity.set(`${item.athleteId}\0${item.id}`, item);
   }
+  for (const item of mealPlanTombstones) {
+    if (!record(item) || Object.keys(item).some(key => !['athleteId', 'coachId', 'createdAt', 'deletedAt', 'id', 'updatedAt'].includes(key))
+        || typeof item.id !== 'string' || !item.id || planIds.has(item.id)
+        || typeof item.coachId !== 'string' || typeof item.athleteId !== 'string'
+        || !Number.isFinite(item.createdAt) || !Number.isFinite(item.updatedAt) || !Number.isFinite(item.deletedAt)) {
+      throw new B2B2CDataError('mealPlanTombstones contains a duplicate id or invalid record');
+    }
+    planIds.add(item.id);
+    plansByIdentity.set(`${item.athleteId}\0${item.id}`, item);
+  }
   const adherenceIds = new Set();
   const adherenceKeys = new Set();
   for (const item of mealAdherence) {
     const plan = plansByIdentity.get(`${item?.athleteId}\0${item?.mealPlanId}`);
+    const snapshot = validateMealPlanSnapshot(item?.planSnapshot);
     const adherenceKey = `${item?.athleteId}\0${item?.mealPlanId}\0${item?.date}`;
     if (!record(item) || typeof item.id !== 'string' || !item.id || adherenceIds.has(item.id)
         || typeof item.athleteId !== 'string' || typeof item.mealPlanId !== 'string'
-        || !Number.isFinite(item.updatedAt) || !plan || adherenceKeys.has(adherenceKey)
-        || !validateMealAdherence(item, plan)) {
+        || !Number.isFinite(item.updatedAt) || !plan || !snapshot || adherenceKeys.has(adherenceKey)
+        || !validateMealAdherence(item, snapshot)) {
       throw new B2B2CDataError('mealAdherence contains a duplicate id, duplicate day, or invalid record');
     }
     adherenceIds.add(item.id);
@@ -905,6 +952,7 @@ export function serializeMealPlan(db, plan) {
     targetMacros: structuredClone(plan.targetMacros),
     meals: structuredClone(plan.meals),
     notes: plan.notes,
+    nutritionContractVersion: plan.nutritionContractVersion,
     createdAt: plan.createdAt,
     updatedAt: plan.updatedAt,
   };
@@ -973,9 +1021,11 @@ export function removeB2B2CUser(db, userId) {
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);
   db.coachAssessments = db.coachAssessments.filter(item => item.coachId !== userId && item.athleteId !== userId);
-  const removedPlans = new Set(db.mealPlans.filter(item => item.coachId === userId || item.athleteId === userId)
+  const removedPlans = new Set([...db.mealPlans, ...(db.mealPlanTombstones || [])]
+    .filter(item => item.coachId === userId || item.athleteId === userId)
     .map(item => `${item.athleteId}\0${item.id}`));
   db.mealPlans = db.mealPlans.filter(item => item.coachId !== userId && item.athleteId !== userId);
+  db.mealPlanTombstones = (db.mealPlanTombstones || []).filter(item => item.coachId !== userId && item.athleteId !== userId);
   db.mealAdherence = db.mealAdherence.filter(item => item.athleteId !== userId
     && !removedPlans.has(`${item.athleteId}\0${item.mealPlanId}`));
 }

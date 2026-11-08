@@ -85,7 +85,7 @@ test('B2B2C profile, invite, relationship isolation and persistence', async t =>
   assert.deepEqual(result.body.user, { id: IDS.legacy, name: 'Legacy', admin: false });
   assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, `state-${IDS.legacy}.json`), 'utf8')).workouts, [{ id: 'w_legacy' }]);
   let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 9);
+  assert.equal(stored.schemaVersion, 10);
   assert.ok(Array.isArray(stored.coachInvites));
   assert.ok(Array.isArray(stored.coachAthleteLinks));
   assert.ok(Array.isArray(stored.coachPrescriptions));

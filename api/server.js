@@ -49,9 +49,10 @@ import {
   B2B2CDataError, B2B2C_LIMITS as B2B2C_DEFAULT_LIMITS, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
   capabilitiesFor, makeOpaqueInvite, hashInviteToken, makeEntityId, linkForActor, serializeLink,
   authorizeAthleteAccess, validatePrescriptionRoutine, serializePrescription, validateAssessment, removeB2B2CUser,
-  validateMealPlan, validateMealAdherence, validateNutritionState, serializeMealPlan,
+  validateMealPlan, validateMealAdherence, validateNutritionState, serializeMealPlan, createMealPlanSnapshot,
   PARQ_QUESTIONS, PARQ_VERSION,
 } from './b2b2c.js';
+import { NUTRITION_CONTRACT_VERSION } from './nutrition-contract.js';
 import {
   COMMUNICATION_HABITS_LIMITS, createCommunicationHabitsRoutes, validateCommunicationHabitsLimits,
 } from './communication-habits.js';
@@ -1639,20 +1640,47 @@ function commitAssessmentCollection(next) {
   }
 }
 
-function commitNutrition(nextPlans, nextAdherence = db.mealAdherence) {
+function commitNutrition(nextPlans, nextAdherence = db.mealAdherence, nextTombstones = db.mealPlanTombstones) {
   const previousPlans = db.mealPlans;
   const previousAdherence = db.mealAdherence;
+  const previousTombstones = db.mealPlanTombstones;
   db.mealPlans = nextPlans;
   db.mealAdherence = nextAdherence;
+  db.mealPlanTombstones = nextTombstones;
   try {
-    validateNutritionState(db.mealPlans, db.mealAdherence);
+    validateNutritionState(db.mealPlans, db.mealAdherence, db.mealPlanTombstones);
     saveDb();
   }
   catch (error) {
     db.mealPlans = previousPlans;
     db.mealAdherence = previousAdherence;
+    db.mealPlanTombstones = previousTombstones;
     throw error;
   }
+}
+
+function serializeSnapshotMealPlan(plan, snapshot) {
+  return serializeMealPlan(db, {
+    ...plan,
+    title: snapshot.title,
+    targetCalories: snapshot.targetCalories,
+    targetMacros: snapshot.targetMacros,
+    meals: snapshot.meals,
+    notes: snapshot.notes,
+    nutritionContractVersion: snapshot.nutritionContractVersion,
+  });
+}
+
+function authorizeNutritionHistory(coach, athleteId) {
+  if (!coach) return { ok: false, code: 'not_signed_in' };
+  if (profileOf(coach).kind !== 'coach') return { ok: false, code: 'role_forbidden' };
+  if (!capabilitiesFor(coach).includes('athlete:nutrition:read')) return { ok: false, code: 'scope_forbidden' };
+  const link = db.coachAthleteLinks.find(item => item.coachId === coach.id && item.athleteId === athleteId
+    && item.scopes.includes('nutrition') && (
+      ['active', 'suspended'].includes(item.status)
+      || item.status === 'ended' && item.acceptedAt
+    ));
+  return link ? { ok: true, link } : { ok: false, code: 'relationship_not_found' };
 }
 
 const adherenceNewestFirst = (left, right) => right.date.localeCompare(left.date)
@@ -3438,7 +3466,10 @@ const routes = {
       return b2bError(res, 409, 'meal_plan_capacity', 'meal plan storage capacity reached');
     }
     const now = Date.now();
-    const row = { id: makeEntityId('mp', db.mealPlans), coachId: coach.id, athleteId: req.athleteId, ...normalized, createdAt: now, updatedAt: now };
+    const row = {
+      id: makeEntityId('mp', [...db.mealPlans, ...db.mealPlanTombstones]), coachId: coach.id, athleteId: req.athleteId,
+      nutritionContractVersion: NUTRITION_CONTRACT_VERSION, ...normalized, createdAt: now, updatedAt: now,
+    };
     let next = db.mealPlans;
     if (row.status === 'active') {
       next = next.map(plan => plan.athleteId === req.athleteId && plan.status === 'active'
@@ -3485,23 +3516,22 @@ const routes = {
       return b2bError(res, 400, 'invalid_meal_plan', 'invalid meal plan');
     }
     const current = db.mealPlans[index];
+    const changesNutrition = ['meals', 'targetCalories', 'targetMacros'].some(key => Object.hasOwn(body, key))
+      || body.status === 'active' && current.status !== 'active';
+    const nutritionContractVersion = changesNutrition ? NUTRITION_CONTRACT_VERSION : current.nutritionContractVersion;
     const normalized = validateMealPlan({
       title: current.title, status: current.status, targetCalories: current.targetCalories,
       targetMacros: current.targetMacros, meals: current.meals, notes: current.notes, ...body,
-    });
+    }, { contractVersion: nutritionContractVersion });
     if (!normalized) return b2bError(res, 400, 'invalid_meal_plan', 'invalid meal plan');
     const now = Date.now();
-    const updated = { ...current, ...normalized, updatedAt: now };
+    const updated = { ...current, ...normalized, nutritionContractVersion, updatedAt: now };
     let next = db.mealPlans.map((plan, planIndex) => planIndex === index ? updated : plan);
     if (updated.status === 'active') {
       next = next.map(plan => plan.id !== updated.id && plan.athleteId === req.athleteId && plan.status === 'active'
         ? { ...plan, status: 'archived', updatedAt: now } : plan);
     }
-    const allowedMealIds = new Set(updated.meals.map(meal => meal.id));
-    const nextAdherence = db.mealAdherence.map(item => item.athleteId === updated.athleteId && item.mealPlanId === updated.id
-      ? { ...item, mealsChecked: item.mealsChecked.filter(mealId => allowedMealIds.has(mealId)), updatedAt: now }
-      : item);
-    try { commitNutrition(next, nextAdherence); }
+    try { commitNutrition(next); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'meal plan could not be saved'); }
     audit(req, 'b2b2c.meal-plan.update', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: updated.id });
     json(res, 200, { mealPlan: serializeMealPlan(db, updated) });
@@ -3520,10 +3550,17 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.meal-plan.delete.denied', coach, 'meal_plan_forbidden');
       return b2bError(res, 403, 'meal_plan_forbidden', 'meal plan belongs to another professional');
     }
+    const now = Date.now();
     try {
+      const hasHistory = db.mealAdherence.some(item => item.athleteId === plan.athleteId && item.mealPlanId === plan.id);
+      const tombstone = {
+        id: plan.id, coachId: plan.coachId, athleteId: plan.athleteId,
+        createdAt: plan.createdAt, updatedAt: now, deletedAt: now,
+      };
       commitNutrition(
         db.mealPlans.filter(item => !(item.id === plan.id && item.athleteId === plan.athleteId)),
-        db.mealAdherence.filter(item => !(item.athleteId === plan.athleteId && item.mealPlanId === plan.id)),
+        db.mealAdherence,
+        hasHistory ? [...db.mealPlanTombstones, tombstone] : db.mealPlanTombstones,
       );
     } catch { return b2bError(res, 503, 'storage_unavailable', 'meal plan could not be deleted'); }
     audit(req, 'b2b2c.meal-plan.delete', { user: coach, target: db.users.find(user => user.id === req.athleteId), msg: plan.id });
@@ -3533,12 +3570,22 @@ const routes = {
   'GET /api/athlete/meal-plan': async (req, res) => {
     const athlete = readSession(req);
     if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
-    const active = db.mealPlans.filter(plan => plan.athleteId === athlete.id && plan.status === 'active'
+    const url = new URL(req.url, 'http://x');
+    const requestedDate = url.searchParams.get('date');
+    const date = requestedDate || new Date().toISOString().slice(0, 10);
+    if (!validateMealAdherence({ date, mealsChecked: [], waterDrunkMl: 0, notes: '' })) {
+      return b2bError(res, 400, 'invalid_adherence', 'date must use YYYY-MM-DD');
+    }
+    const authorizedPlans = db.mealPlans.filter(plan => plan.athleteId === athlete.id
       && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
-        && link.status === 'active' && link.scopes.includes('nutrition')))
+        && link.status === 'active' && link.scopes.includes('nutrition')));
+    const authorizedById = new Map(authorizedPlans.map(plan => [plan.id, plan]));
+    const started = db.mealAdherence.filter(item => item.athleteId === athlete.id && item.date === date && authorizedById.has(item.mealPlanId))
       .sort((left, right) => right.updatedAt - left.updatedAt)[0] || null;
-    audit(req, 'b2b2c.meal-plan.athlete-read', { user: athlete, msg: active?.id || 'none' });
-    json(res, 200, { mealPlan: active ? serializeMealPlan(db, active) : null });
+    const active = authorizedPlans.filter(plan => plan.status === 'active').sort((left, right) => right.updatedAt - left.updatedAt)[0] || null;
+    const selected = started ? authorizedById.get(started.mealPlanId) : active;
+    audit(req, 'b2b2c.meal-plan.athlete-read', { user: athlete, msg: selected?.id || 'none' });
+    json(res, 200, { mealPlan: selected ? started ? serializeSnapshotMealPlan(selected, started.planSnapshot) : serializeMealPlan(db, selected) : null });
   },
 
   'GET /api/athlete/meal-adherence': async (req, res) => {
@@ -3548,10 +3595,7 @@ const routes = {
     if (!date || !validateMealAdherence({ date, mealsChecked: [], waterDrunkMl: 0, notes: '' })) {
       return b2bError(res, 400, 'invalid_adherence', 'date must use YYYY-MM-DD');
     }
-    const activePlanIds = new Set(db.mealPlans.filter(plan => plan.athleteId === athlete.id && plan.status === 'active'
-      && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
-        && link.status === 'active' && link.scopes.includes('nutrition'))).map(plan => plan.id));
-    const rows = db.mealAdherence.filter(item => item.athleteId === athlete.id && item.date === date && activePlanIds.has(item.mealPlanId))
+    const rows = db.mealAdherence.filter(item => item.athleteId === athlete.id && item.date === date)
       .sort((left, right) => right.updatedAt - left.updatedAt).map(item => structuredClone(item));
     json(res, 200, { adherence: rows[0] || null, adherenceRecords: rows });
   },
@@ -3567,18 +3611,20 @@ const routes = {
         || !['mealUpdate', 'notes', 'waterDrunkMl'].some(key => Object.hasOwn(body, key))) {
       return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence mutation');
     }
-    const plan = db.mealPlans.find(item => item.id === body.mealPlanId && item.athleteId === athlete.id && item.status === 'active');
-    const allowed = plan && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
+    const retained = retainedMealAdherence();
+    const existingIndex = retained.findIndex(item => item.athleteId === athlete.id && item.mealPlanId === body.mealPlanId && item.date === body.date);
+    const existing = existingIndex < 0 ? null : retained[existingIndex];
+    const plan = db.mealPlans.find(item => item.id === body.mealPlanId && item.athleteId === athlete.id);
+    const allowed = plan && (plan.status === 'active' || existing) && db.coachAthleteLinks.some(link => link.coachId === plan.coachId && link.athleteId === athlete.id
       && link.status === 'active' && link.scopes.includes('nutrition'));
     if (!allowed) return b2bError(res, 404, 'meal_plan_not_found', 'active meal plan not found');
+    const effectivePlan = existing?.planSnapshot || plan;
     if (body.mealUpdate !== undefined && (!body.mealUpdate || typeof body.mealUpdate !== 'object' || Array.isArray(body.mealUpdate)
         || Object.keys(body.mealUpdate).some(key => !['checked', 'mealId'].includes(key))
         || typeof body.mealUpdate.mealId !== 'string' || typeof body.mealUpdate.checked !== 'boolean'
-        || !plan.meals.some(meal => meal.id === body.mealUpdate.mealId))) {
+        || !effectivePlan.meals.some(meal => meal.id === body.mealUpdate.mealId))) {
       return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence mutation');
     }
-    const retained = retainedMealAdherence();
-    const existingIndex = retained.findIndex(item => item.athleteId === athlete.id && item.mealPlanId === plan.id && item.date === body.date);
     const current = existingIndex < 0 ? {
       date: body.date, mealsChecked: [], waterDrunkMl: 0, notes: '',
     } : retained[existingIndex];
@@ -3592,7 +3638,7 @@ const routes = {
       mealsChecked: [...checked],
       waterDrunkMl: Object.hasOwn(body, 'waterDrunkMl') ? body.waterDrunkMl : current.waterDrunkMl,
       notes: Object.hasOwn(body, 'notes') ? body.notes : current.notes,
-    }, plan);
+    }, effectivePlan);
     if (!normalized) return b2bError(res, 400, 'invalid_adherence', 'invalid meal adherence');
     if (existingIndex < 0 && (retained.filter(item => item.athleteId === athlete.id).length >= B2B2C_LIMITS.maxMealAdherencePerAthlete
         || retained.length >= B2B2C_LIMITS.maxMealAdherence)) {
@@ -3600,7 +3646,10 @@ const routes = {
     }
     const now = Date.now();
     const row = existingIndex < 0
-      ? { id: makeEntityId('adh', retained), athleteId: athlete.id, mealPlanId: plan.id, ...normalized, updatedAt: now }
+      ? {
+        id: makeEntityId('adh', retained), athleteId: athlete.id, mealPlanId: plan.id,
+        ...normalized, planSnapshot: createMealPlanSnapshot(plan), updatedAt: now,
+      }
       : { ...retained[existingIndex], ...normalized, updatedAt: now };
     const next = existingIndex < 0 ? [...retained, row]
       : retained.map((item, index) => index === existingIndex ? row : item);
@@ -3614,7 +3663,7 @@ const routes = {
     const coach = readSession(req);
     if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
     if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
-    const access = authorizeAthleteAccess(db, coach, req.athleteId, 'athlete:nutrition:read');
+    const access = authorizeNutritionHistory(coach, req.athleteId);
     if (!access.ok) return b2bError(res, access.code === 'relationship_not_found' ? 404 : 403, access.code, 'active nutrition relationship required');
     const url = new URL(req.url, 'http://x');
     const rawLimit = url.searchParams.get('limit');
@@ -3623,7 +3672,8 @@ const routes = {
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || cursor === false) {
       return b2bError(res, 400, 'invalid_pagination', 'limit must be 1-100 and cursor must be valid');
     }
-    const planIds = new Set(db.mealPlans.filter(plan => plan.coachId === coach.id && plan.athleteId === req.athleteId).map(plan => plan.id));
+    const planIds = new Set([...db.mealPlans, ...db.mealPlanTombstones]
+      .filter(plan => plan.coachId === coach.id && plan.athleteId === req.athleteId).map(plan => plan.id));
     let rows = db.mealAdherence.filter(item => item.athleteId === req.athleteId && planIds.has(item.mealPlanId)).sort(adherenceNewestFirst);
     if (cursor) rows = rows.filter(item => adherenceNewestFirst(item, cursor) > 0);
     const hasMore = rows.length > limit;

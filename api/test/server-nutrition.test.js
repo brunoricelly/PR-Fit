@@ -32,9 +32,9 @@ function seed(dataDir) {
     ],
     creds: [], subs: [], invites: [], coachInvites: [], coachPrescriptions: [], coachAssessments: [],
     coachAthleteLinks: [
-      { id: 'cal_a_a', coachId: IDS.coachA, athleteId: IDS.athleteA, scopes: ['nutrition'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
-      { id: 'cal_b_a', coachId: IDS.coachB, athleteId: IDS.athleteA, scopes: ['nutrition'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
-      { id: 'cal_a_b', coachId: IDS.coachA, athleteId: IDS.athleteB, scopes: ['training'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
+      { id: 'cal_a_a', coachId: IDS.coachA, athleteId: IDS.athleteA, scopes: ['nutrition'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', acceptedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
+      { id: 'cal_b_a', coachId: IDS.coachB, athleteId: IDS.athleteA, scopes: ['nutrition'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', acceptedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
+      { id: 'cal_a_b', coachId: IDS.coachA, athleteId: IDS.athleteB, scopes: ['training'], status: 'active', createdAt: '2026-11-01T00:00:00.000Z', acceptedAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z' },
     ],
   }, null, 2));
 }
@@ -91,7 +91,7 @@ test('nutrition plans and daily adherence are isolated, bounded and atomic', asy
   t.after(async () => stop(server));
 
   let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 9);
+  assert.equal(stored.schemaVersion, 10);
   assert.deepEqual(stored.mealPlans, []);
   assert.deepEqual(stored.mealAdherence, []);
 
@@ -136,6 +136,7 @@ test('nutrition plans and daily adherence are isolated, bounded and atomic', asy
   });
   assert.equal(result.status, 201);
   const adherenceId = result.body.adherence.id;
+  const originalSnapshot = structuredClone(result.body.adherence.planSnapshot);
   result = await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
     mealPlanId: planId, date: '2026-11-06', waterDrunkMl: 3000, notes: 'Atualizado.',
   });
@@ -167,14 +168,16 @@ test('nutrition plans and daily adherence are isolated, bounded and atomic', asy
   result = await request(server, IDS.coachA, 'PATCH', `/api/coach/athletes/${IDS.athleteA}/meal-plans/${planId}`, { meals: [replacementMeal] });
   assert.equal(result.status, 200, JSON.stringify(result.body));
   let reconciled = (await request(server, IDS.athleteA, 'GET', '/api/athlete/meal-adherence?date=2026-11-06')).body.adherence;
-  assert.deepEqual(reconciled.mealsChecked, []);
+  assert.deepEqual(reconciled.mealsChecked, [mealId]);
   assert.equal(reconciled.waterDrunkMl, 3000);
   assert.equal(reconciled.notes, 'Atualizado.');
+  assert.deepEqual(reconciled.planSnapshot, originalSnapshot, 'plan edits never rewrite the historical denominator');
   await stop(server);
   server = await launch(dataDir);
   assert.equal((await request(server, IDS.athleteA, 'GET', '/api/athlete/meal-plan')).body.mealPlan.id, planId);
   reconciled = (await request(server, IDS.athleteA, 'GET', '/api/athlete/meal-adherence?date=2026-11-06')).body.adherence;
-  assert.deepEqual(reconciled.mealsChecked, [], 'reconciled state survives a healthy restart');
+  assert.deepEqual(reconciled.mealsChecked, [mealId], 'immutable historical state survives a healthy restart');
+  assert.deepEqual(reconciled.planSnapshot, originalSnapshot);
 
   result = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/meal-plans`, { ...plan, title: 'Rascunho', status: 'draft' });
   assert.equal(result.status, 201);
@@ -189,7 +192,16 @@ test('nutrition plans and daily adherence are isolated, bounded and atomic', asy
   assert.equal(result.status, 200);
   stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
   assert.equal(stored.mealPlans.some(item => item.id === planId), false);
-  assert.equal(stored.mealAdherence.some(item => item.mealPlanId === planId), false);
+  assert.equal(stored.mealPlanTombstones.some(item => item.id === planId), true);
+  assert.equal(stored.mealAdherence.some(item => item.mealPlanId === planId), true);
+  const preserved = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`);
+  assert.equal(preserved.status, 200);
+  assert.deepEqual(preserved.body.adherence.find(item => item.id === adherenceId)?.planSnapshot, originalSnapshot);
+  assert.deepEqual((await request(server, IDS.coachB, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`)).body.adherence, []);
+  await stop(server);
+  server = await launch(dataDir);
+  assert.deepEqual((await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`)).body.adherence
+    .find(item => item.id === adherenceId)?.planSnapshot, originalSnapshot, 'deleted-plan history survives restart');
 
   const audit = fs.readFileSync(path.join(dataDir, 'audit.log'), 'utf8');
   for (const event of ['b2b2c.meal-plan.create', 'b2b2c.meal-plan.update', 'b2b2c.meal-plan.delete', 'b2b2c.meal-adherence.update']) {
@@ -245,6 +257,128 @@ test('nutrition validation rejects non-finite, incoherent, duplicate and false-e
   const checkedSubstitute = structuredClone(plan);
   Object.assign(checkedSubstitute.meals[0].items[0].substitutes[0], { calories: 2750, protein: 175, carbs: 345, fats: 68, fiber: 33 });
   assert.ok(validateMealPlan(checkedSubstitute));
+
+  const coverage = ratio => ({
+    ...plan,
+    meals: [{ ...plan.meals[0], items: [{
+      ...plan.meals[0].items[0],
+      calories: plan.targetCalories * ratio,
+      protein: plan.targetMacros.protein * ratio,
+      carbs: plan.targetMacros.carbs * ratio,
+      fats: plan.targetMacros.fats * ratio,
+      fiber: plan.targetMacros.fiber * ratio,
+    }] }],
+  });
+  assert.equal(validateMealPlan(coverage(0.79)), null, 'food coverage below the lower boundary is rejected');
+  assert.ok(validateMealPlan(coverage(0.5), { contractVersion: 1 }), 'migrated legacy plans retain their historical validation contract');
+  assert.ok(validateMealPlan(coverage(0.8)), 'food coverage accepts the lower boundary');
+  assert.ok(validateMealPlan(coverage(1)), 'food coverage accepts the target');
+  assert.ok(validateMealPlan(coverage(1.2)), 'food coverage accepts the upper boundary');
+  assert.equal(validateMealPlan(coverage(1.21)), null, 'food coverage above the upper boundary is rejected');
+  assert.equal(validateMealPlan({ ...plan, targetMacros: { ...plan.targetMacros, protein: -1 } }), null);
+  assert.equal(validateMealPlan({ ...plan, targetMacros: { ...plan.targetMacros, protein: Number.NaN } }), null);
+  assert.equal(validateMealPlan({ ...plan, targetMacros: { ...plan.targetMacros, protein: Number.POSITIVE_INFINITY } }), null);
+});
+
+test('a started day keeps its original plan snapshot while future days use the edited plan', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-nutrition-current-day-'));
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  const created = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/meal-plans`, plan);
+  const planId = created.body.mealPlan.id;
+  const oldMealId = created.body.mealPlan.meals[0].id;
+  const date = new Date().toISOString().slice(0, 10);
+  let saved = await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
+    mealPlanId: planId, date, waterDrunkMl: 500,
+  });
+  assert.equal(saved.status, 201);
+  const snapshot = structuredClone(saved.body.adherence.planSnapshot);
+  const updatedAt = saved.body.adherence.updatedAt;
+  const replacementMeal = {
+    id: 'm_tomorrow', name: 'Plano de amanhã', time: '09:00', items: [{
+      id: 'it_tomorrow', name: 'Cardápio amanhã', portion: 'porções prescritas',
+      calories: 2800, protein: 180, carbs: 350, fats: 70, fiber: 35, substitutes: [],
+    }],
+  };
+  const patched = await request(server, IDS.coachA, 'PATCH', `/api/coach/athletes/${IDS.athleteA}/meal-plans/${planId}`, {
+    meals: [replacementMeal], targetMacros: { ...plan.targetMacros, waterMl: 4200 },
+  });
+  assert.equal(patched.status, 200, JSON.stringify(patched.body));
+  saved = await request(server, IDS.athleteA, 'GET', `/api/athlete/meal-adherence?date=${date}`);
+  assert.equal(saved.body.adherence.updatedAt, updatedAt, 'PATCH does not touch the check-in timestamp');
+  assert.deepEqual(saved.body.adherence.planSnapshot, snapshot);
+  assert.equal((await request(server, IDS.athleteA, 'GET', `/api/athlete/meal-plan?date=${date}`)).body.mealPlan.meals[0].id, oldMealId);
+  assert.equal((await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
+    mealPlanId: planId, date, mealUpdate: { mealId: oldMealId, checked: true },
+  })).status, 200, 'the already-started day remains writable against its snapshot');
+  assert.equal((await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
+    mealPlanId: planId, date, mealUpdate: { mealId: replacementMeal.id, checked: true },
+  })).status, 400, 'new meal ids do not leak into the already-started day');
+  const tomorrow = new Date(Date.parse(`${date}T00:00:00.000Z`) + 86400000).toISOString().slice(0, 10);
+  const future = await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
+    mealPlanId: planId, date: tomorrow, mealUpdate: { mealId: replacementMeal.id, checked: true },
+  });
+  assert.equal(future.status, 201, JSON.stringify(future.body));
+  assert.equal(future.body.adherence.planSnapshot.meals[0].id, replacementMeal.id);
+  assert.equal(future.body.adherence.planSnapshot.targetMacros.waterMl, 4200);
+  const replacementPlan = await request(server, IDS.coachB, 'POST', `/api/coach/athletes/${IDS.athleteA}/meal-plans`, { ...plan, title: 'Novo plano ativo' });
+  assert.equal(replacementPlan.status, 201, JSON.stringify(replacementPlan.body));
+  const currentDayPlan = (await request(server, IDS.athleteA, 'GET', `/api/athlete/meal-plan?date=${date}`)).body.mealPlan;
+  assert.equal(currentDayPlan.id, planId, 'activating another plan does not replace a day already started');
+  assert.equal(currentDayPlan.meals[0].id, oldMealId);
+});
+
+test('former nutrition relationships keep read-only access to owned retained history', async t => {
+  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-nutrition-history-access-'));
+  const oldRetention = process.env.B2B2C_TERMINAL_RETENTION_DAYS;
+  process.env.B2B2C_TERMINAL_RETENTION_DAYS = '1';
+  seed(dataDir);
+  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  t.after(() => {
+    if (oldRetention === undefined) delete process.env.B2B2C_TERMINAL_RETENTION_DAYS;
+    else process.env.B2B2C_TERMINAL_RETENTION_DAYS = oldRetention;
+  });
+  const server = await launch(dataDir);
+  t.after(async () => stop(server));
+  const created = await request(server, IDS.coachA, 'POST', `/api/coach/athletes/${IDS.athleteA}/meal-plans`, plan);
+  const planId = created.body.mealPlan.id;
+  const date = new Date().toISOString().slice(0, 10);
+  assert.equal((await request(server, IDS.athleteA, 'POST', '/api/athlete/meal-adherence', {
+    mealPlanId: planId, date, waterDrunkMl: 500,
+  })).status, 201);
+  assert.equal((await request(server, IDS.coachA, 'POST', '/api/coach/links/status', { linkId: 'cal_a_a', status: 'ended' })).status, 200);
+  assert.equal((await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-plans`)).status, 403);
+  const history = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`);
+  assert.equal(history.status, 200);
+  assert.equal(history.body.adherence.length, 1);
+  assert.equal((await request(server, IDS.coachB, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`)).body.adherence.length, 0);
+  await stop(server);
+  const aged = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  const endedLink = aged.coachAthleteLinks.find(item => item.id === 'cal_a_a');
+  endedLink.updatedAt = '2020-01-01T00:00:00.000Z';
+  endedLink.endedAt = '2020-01-01T00:00:00.000Z';
+  fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify(aged));
+  const restarted = await launch(dataDir);
+  t.after(async () => stop(restarted));
+  assert.equal((await request(restarted, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/meal-adherence`)).status, 200,
+    'retained nutrition history protects the ended relationship tombstone across restart');
+
+  const pendingDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-nutrition-pending-history-'));
+  t.after(() => fs.rmSync(pendingDataDir, { recursive: true, force: true }));
+  seed(pendingDataDir);
+  const stored = JSON.parse(fs.readFileSync(path.join(pendingDataDir, 'db.json'), 'utf8'));
+  stored.coachAthleteLinks.push({
+    id: 'cal_pending', coachId: IDS.coachA, athleteId: IDS.athleteB, scopes: ['nutrition'], status: 'ended',
+    createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:01:00.000Z',
+    endedAt: '2026-01-01T00:01:00.000Z', endedBy: IDS.coachA,
+  });
+  fs.writeFileSync(path.join(pendingDataDir, 'db.json'), JSON.stringify(stored));
+  const pendingServer = await launch(pendingDataDir);
+  t.after(async () => stop(pendingServer));
+  assert.equal((await request(pendingServer, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteB}/meal-adherence`)).status, 404,
+    'an invite ended before acceptance never grants historical nutrition access');
 });
 
 test('defensive account cascade uses athlete plus plan id when corrupt ids collide', () => {

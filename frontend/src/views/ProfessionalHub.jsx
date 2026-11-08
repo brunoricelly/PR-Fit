@@ -28,6 +28,17 @@ const statusTone = status => ({
   suspended: 'danger',
   ended: 'neutral',
 }[status] || 'neutral')
+const handleRovingTabs = event => {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  const tabs = [...event.currentTarget.parentElement.querySelectorAll('[role="tab"]')].filter(tab => !tab.disabled)
+  const current = tabs.indexOf(event.currentTarget)
+  if (current < 0 || !tabs.length) return
+  event.preventDefault()
+  const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+    : event.key === 'ArrowRight' ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length
+  tabs[next].focus()
+  tabs[next].click()
+}
 const formatDate = value => value ? new Date(value).toLocaleDateString(dateLocale()) : ''
 const prescriptionStateLabel = state => ({
   available: p('Available'), adopted: p('Adopted'), withdrawn: p('Withdrawn'),
@@ -730,15 +741,14 @@ function CoachNutritionWorkspace({ user }) {
         link => link.status === 'active' && link.scopes.includes('nutrition') && link.athlete
       )
       setLinks(activeNutritionLinks)
-      if (activeNutritionLinks.length > 0 && !selectedAthleteId) {
-        setSelectedAthleteId(activeNutritionLinks[0].athlete.id)
-      }
+      setSelectedAthleteId(current => activeNutritionLinks.some(link => link.athlete.id === current)
+        ? current : activeNutritionLinks[0]?.athlete.id || null)
     } catch {
       setLoadError(true)
     } finally {
       setLoading(false)
     }
-  }, [user?.id, selectedAthleteId])
+  }, [user?.id])
 
   useEffect(() => { load() }, [load])
 
@@ -766,21 +776,35 @@ function CoachNutritionWorkspace({ user }) {
       </header>
       {links.length > 1 && (
         <div className="pro-athlete-selector" role="tablist" aria-label={p('Nutrition athletes')}>
-          {links.map(link => (
-            <button
-              key={link.id}
-              role="tab"
-              aria-selected={link.athlete.id === selectedLink.athlete.id}
-              className={`pro-sched-tab ${link.athlete.id === selectedLink.athlete.id ? 'active' : ''}`}
-              onClick={() => setSelectedAthleteId(link.athlete.id)}
-            >
-              <Icon name="person" />
-              <span>{link.athlete.name}</span>
-            </button>
-          ))}
+          {links.map(link => {
+            const selected = link.athlete.id === selectedLink.athlete.id
+            const tabId = `nutrition-athlete-tab-${link.athlete.id}`
+            const panelId = `nutrition-athlete-panel-${link.athlete.id}`
+            return (
+              <button
+                key={link.id}
+                id={tabId}
+                role="tab"
+                aria-selected={selected}
+                aria-controls={panelId}
+                tabIndex={selected ? 0 : -1}
+                className={`pro-sched-tab ${selected ? 'active' : ''}`}
+                onClick={() => setSelectedAthleteId(link.athlete.id)}
+                onKeyDown={handleRovingTabs}
+              >
+                <Icon name="person" />
+                <span>{link.athlete.name}</span>
+              </button>
+            )
+          })}
         </div>
       )}
-      <div className="pro-athlete-active-nutrition">
+      <div
+        className="pro-athlete-active-nutrition"
+        id={`nutrition-athlete-panel-${selectedLink.athlete.id}`}
+        role="tabpanel"
+        aria-labelledby={links.length > 1 ? `nutrition-athlete-tab-${selectedLink.athlete.id}` : undefined}
+      >
         <div className="athlete-card-head" style={{ marginBottom: 12 }}>
           <h3>{selectedLink.athlete.name}</h3>
           <span className="pro-meta">{selectedLink.athlete.email || ''}</span>
@@ -1149,65 +1173,83 @@ export default function ProfessionalHub() {
     <ProfileSetup user={user} />
     <nav className="pro-sched-nav" role="tablist" style={{ marginTop: 12 }}>
       <button
+        id="professional-tab-relationships"
         role="tab"
         aria-selected={tab === 'relationships'}
+        aria-controls="professional-panel-relationships"
+        tabIndex={tab === 'relationships' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'relationships' ? 'active' : '')}
         onClick={() => setTab('relationships')}
+        onKeyDown={handleRovingTabs}
       >
         <Icon name="person" />
         <span>{p('Relationships')}</span>
       </button>
       <button
+        id="professional-tab-scheduling"
         role="tab"
         aria-selected={tab === 'scheduling'}
+        aria-controls="professional-panel-scheduling"
+        tabIndex={tab === 'scheduling' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'scheduling' ? 'active' : '')}
         onClick={() => setTab('scheduling')}
+        onKeyDown={handleRovingTabs}
       >
         <Icon name="calendar" />
         <span>{p('Appointments')}</span>
       </button>
       <button
+        id="professional-tab-community"
         role="tab"
         aria-selected={tab === 'community'}
+        aria-controls="professional-panel-community"
+        tabIndex={tab === 'community' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'community' ? 'active' : '')}
         onClick={() => setTab('community')}
+        onKeyDown={handleRovingTabs}
       >
         <Icon name="trophy" />
         <span>{p('Community')}</span>
       </button>
       {hasNutrition && (
         <button
+          id="professional-tab-nutrition"
           role="tab"
           aria-selected={tab === 'nutrition'}
+          aria-controls="professional-panel-nutrition"
+          tabIndex={tab === 'nutrition' ? 0 : -1}
           className={"pro-sched-tab " + (tab === 'nutrition' ? 'active' : '')}
           onClick={() => setTab('nutrition')}
+          onKeyDown={handleRovingTabs}
         >
           <Icon name="scale" />
           <span>{p('Nutrition')}</span>
         </button>
       )}
     </nav>
-    {tab === 'scheduling' ? (
-      <SchedulingView embedded />
-    ) : tab === 'community' ? (
-      <CommunityHub embedded defaultRole={coach ? 'coach' : 'athlete'} />
-    ) : tab === 'nutrition' ? (
-      coach ? (
-        <CoachNutritionWorkspace user={user} />
+    <section id={`professional-panel-${tab}`} role="tabpanel" aria-labelledby={`professional-tab-${tab}`}>
+      {tab === 'scheduling' ? (
+        <SchedulingView embedded />
+      ) : tab === 'community' ? (
+        <CommunityHub embedded defaultRole={coach ? 'coach' : 'athlete'} />
+      ) : tab === 'nutrition' ? (
+        coach ? (
+          <CoachNutritionWorkspace user={user} />
+        ) : (
+          <section aria-labelledby="athlete-nutrition-section">
+            <h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2>
+            <AthleteNutritionView />
+          </section>
+        )
       ) : (
-        <section aria-labelledby="athlete-nutrition-section">
-          <h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2>
-          <AthleteNutritionView />
-        </section>
-      )
-    ) : (
-      <>
-        {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
-        {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
-        {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
-          : <AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
-        {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
-      </>
-    )}
+        <>
+          {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
+          {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
+          {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
+            : <AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
+          {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
+        </>
+      )}
+    </section>
   </main>
 }

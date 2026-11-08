@@ -23,6 +23,7 @@ describe('professionalText', () => {
     expect(professionalText('This professional profile is self-declared and is not verified by PR Fit.')).toBe('Este perfil profissional é autodeclarado e não é verificado pelo PR Fit.')
     expect(professionalText('You already have too many pending invitations. Wait for one to be accepted or expire.')).toBe('Você já tem convites pendentes demais. Aguarde um aceite ou a expiração de um deles.')
     expect(professionalText('Workout prescriptions')).toBe('Prescrições de treino')
+    expect(professionalText('Adherence unavailable now')).toBe('Adesão indisponível agora')
     expect(professionalText('{0} sets · {1} reps · {2} rest', 4, '8-10', '90s')).toBe('4 séries · 8-10 repetições · 90s descanso')
   })
 
@@ -32,7 +33,7 @@ describe('professionalText', () => {
   })
 
   it('keeps every shipped professional UI string complete in PT-BR', () => {
-    const sources = ['views/ProfessionalHub.jsx', 'views/Settings.jsx', 'views/coach/CoachGroupsView.jsx']
+    const sources = ['views/ProfessionalHub.jsx', 'views/NutritionPanel.jsx', 'views/Settings.jsx', 'views/coach/CoachGroupsView.jsx']
       .flatMap(file => [...fs.readFileSync(path.join(SRC, file), 'utf8').matchAll(/\bp\('([^']+)'/g)].map(match => match[1]))
     expect([...new Set(sources)].filter(source => !PROFESSIONAL_PT_BR[source])).toEqual([])
   })

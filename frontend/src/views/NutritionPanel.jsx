@@ -5,6 +5,9 @@ import { useUI } from '../store/useUI.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
 import { Alert, Badge, EmptyState } from '../components/design-system.jsx'
+import {
+  NUTRITION_CONTRACT_VERSION, NUTRITION_TOLERANCES, nutritionPlanIssues, nutritionTotals,
+} from '../../../api/nutrition-contract.js'
 import './NutritionPanel.css'
 
 const today = () => {
@@ -35,6 +38,94 @@ const totalsOf = plan => plan.meals.flatMap(meal => meal.items).reduce((totals, 
   calories: totals.calories + number(item.calories), protein: totals.protein + number(item.protein),
   carbs: totals.carbs + number(item.carbs), fats: totals.fats + number(item.fats), fiber: totals.fiber + number(item.fiber),
 }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 })
+const formatDay = value => {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '')
+  return match ? `${match[3]}/${match[2]}/${match[1]}` : value
+}
+const finiteNumber = value => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : null
+}
+const numericPlan = plan => ({
+  title: plan.title,
+  status: plan.status,
+  targetCalories: finiteNumber(plan.targetCalories),
+  targetMacros: Object.fromEntries(Object.entries(plan.targetMacros).map(([key, value]) => [key, finiteNumber(value)])),
+  meals: plan.meals.map(meal => ({ ...meal, items: meal.items.map(item => ({
+    ...item,
+    ...Object.fromEntries(SUBSTITUTE_NUTRIENTS.map(key => [key, finiteNumber(item[key])])),
+    substitutes: item.substitutes.map(substitute => ({
+      ...substitute,
+      ...Object.fromEntries(SUBSTITUTE_NUTRIENTS.filter(key => substitute[key] !== '' && substitute[key] !== undefined)
+        .map(key => [key, finiteNumber(substitute[key])])),
+    })),
+  })) })),
+  notes: plan.notes,
+})
+const ratioText = ratio => `${Math.round(ratio * 10000) / 100}%`
+const editorIssues = plan => {
+  const normalized = numericPlan(plan)
+  const issues = []
+  const targetRanges = { targetCalories: [1, 10000], protein: [1, 500], carbs: [1, 1200], fats: [1, 500], fiber: [0, 200], waterMl: [1, 15000] }
+  for (const [field, [min, max]] of Object.entries(targetRanges)) {
+    const value = field === 'targetCalories' ? normalized.targetCalories : normalized.targetMacros[field]
+    if (value === null || value < min || value > max) issues.push({ field, code: 'invalid_number', min, max })
+  }
+  const itemRanges = { calories: [0, 5000], protein: [0, 500], carbs: [0, 1000], fats: [0, 500], fiber: [0, 200] }
+  if (normalized.meals.length < 1 || normalized.meals.length > 20) issues.push({ field: 'meals', code: 'count_out_of_range', min: 1, max: 20 })
+  normalized.meals.forEach((meal, mealIndex) => {
+    if (meal.items.length < 1 || meal.items.length > 50) issues.push({ field: `meals.${mealIndex}.items`, code: 'count_out_of_range', min: 1, max: 50 })
+    meal.items.forEach((item, itemIndex) => {
+      if (item.substitutes.length > 20) issues.push({ field: `meals.${mealIndex}.items.${itemIndex}.substitutes`, code: 'count_out_of_range', min: 0, max: 20 })
+      for (const [field, [min, max]] of Object.entries(itemRanges)) {
+        const value = item[field]
+        if (value === null || value < min || value > max) issues.push({ field: `meals.${mealIndex}.items.${itemIndex}.${field}`, code: 'invalid_number', min, max })
+      }
+      item.substitutes.forEach((substitute, substituteIndex) => SUBSTITUTE_NUTRIENTS.forEach(field => {
+        if (substitute[field] === undefined || substitute[field] === '') return
+        const [min, max] = itemRanges[field]
+        const value = substitute[field]
+        if (value === null || value < min || value > max) {
+          issues.push({ field: `meals.${mealIndex}.items.${itemIndex}.substitutes.${substituteIndex}.${field}`, code: 'invalid_number', min, max })
+          return
+        }
+        const absolute = field === 'calories' ? 100 : 5
+        if (Math.abs(value - item[field]) > Math.max(absolute, item[field] * NUTRITION_TOLERANCES.substitutePercent)) {
+          issues.push({ field, code: 'substitute_out_of_range', actual: value, target: item[field] })
+        }
+      }))
+    })
+  })
+  if (!issues.length) issues.push(...nutritionPlanIssues(normalized, NUTRITION_CONTRACT_VERSION))
+  return { normalized, issues }
+}
+export { editorIssues as nutritionEditorIssues }
+const issueMessage = issue => {
+  if (!issue) return ''
+  if (issue.code === 'invalid_number') return p('{0} must be a finite value between {1} and {2}.', p(issue.field.split('.').at(-1)), issue.min, issue.max)
+  if (issue.code === 'count_out_of_range') return p('{0} must contain between {1} and {2} entries.', p(issue.field.split('.').at(-1)), issue.min, issue.max)
+  if (issue.code === 'substitute_out_of_range') return p('The substitute {0} must remain equivalent to the original food.', p(issue.field))
+  const label = issue.field === 'targetMacros' ? p('Calories derived from macros') : p(issue.field === 'calories' ? 'Calories' : issue.field[0].toUpperCase() + issue.field.slice(1))
+  const direction = issue.ratio < issue.min ? p('increase') : p('decrease')
+  return p('{0} is at {1}; {2} it to stay between {3}% and {4}% of the target.', label, ratioText(issue.ratio), direction, Math.round(issue.min * 100), Math.round(issue.max * 100))
+}
+
+const validSnapshot = snapshot => snapshot && snapshot.version === 1
+  && Number.isInteger(snapshot.nutritionContractVersion) && typeof snapshot.title === 'string'
+  && Number.isFinite(snapshot.targetCalories) && snapshot.targetMacros && typeof snapshot.targetMacros === 'object'
+  && Array.isArray(snapshot.meals)
+const validAdherenceEnvelope = value => value && Array.isArray(value.adherence)
+  && value.page && Number.isInteger(value.page.limit) && value.page.limit >= 1 && value.page.limit <= 100
+  && typeof value.page.hasMore === 'boolean' && (value.page.nextCursor === null || typeof value.page.nextCursor === 'string')
+  && value.quota && Number.isInteger(value.quota.used) && value.quota.used >= 0
+  && Number.isInteger(value.quota.limit) && value.quota.limit >= 1
+  && Number.isInteger(value.quota.retentionDays) && value.quota.retentionDays >= 1
+  && value.adherence.every(item => (
+    item && typeof item.id === 'string' && typeof item.athleteId === 'string' && typeof item.mealPlanId === 'string'
+    && /^\d{4}-\d{2}-\d{2}$/.test(item.date) && Array.isArray(item.mealsChecked)
+    && Number.isFinite(item.waterDrunkMl) && typeof item.notes === 'string' && Number.isFinite(item.updatedAt)
+    && validSnapshot(item.planSnapshot)
+  ))
 
 const CONTEXTUAL_RECOMMENDATIONS = [
   'Meal timing: 4-5 meals spaced every 3-4 hours',
@@ -133,24 +224,29 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
   const targetFiber = number(plan.targetMacros.fiber)
   const targetWater = number(plan.targetMacros.waterMl)
 
-  const hasNegativeTarget = targetCal < 0 || targetProt < 0 || targetCarbs < 0 || targetFats < 0 || targetFiber < 0 || targetWater < 0
-  const hasNegativeItem = plan.meals.some(m => m.items.some(i => number(i.calories) < 0 || number(i.protein) < 0 || number(i.carbs) < 0 || number(i.fats) < 0 || number(i.fiber) < 0
-    || i.substitutes.some(s => (s.calories !== '' && number(s.calories) < 0) || (s.protein !== '' && number(s.protein) < 0) || (s.carbs !== '' && number(s.carbs) < 0) || (s.fats !== '' && number(s.fats) < 0) || (s.fiber !== '' && number(s.fiber) < 0))))
-
   const macroCalories = targetProt * 4 + targetCarbs * 4 + targetFats * 9
-  const macroCoherence = targetCal > 0 && (targetProt > 0 || targetCarbs > 0 || targetFats > 0) ? (
-    macroCalories < targetCal * 0.65
-      ? { tone: 'warning', title: p('Macronutrient sum incoherence'), text: p('Macro sum ({0} kcal) is too low for the daily goal of {1} kcal. Increase protein, carbs or fats.', macroCalories, targetCal) }
-      : macroCalories > targetCal * 1.35
-        ? { tone: 'warning', title: p('Macronutrient sum incoherence'), text: p('Macro sum ({0} kcal) exceeds the daily goal of {1} kcal. Decrease protein, carbs or fats.', macroCalories, targetCal) }
-        : { tone: 'info', title: p('Consistent macro distribution'), text: p('Calculated macro calories: {0} kcal (P: {1}g · C: {2}g · G: {3}g)', macroCalories, targetProt, targetCarbs, targetFats) }
+  const validation = editorIssues(plan)
+  const contractIssues = validation.issues.filter(issue => issue.code !== 'invalid_number')
+  const macroIssue = contractIssues.find(issue => issue.field === 'targetMacros')
+  const totals = validation.issues.some(issue => issue.code === 'invalid_number') ? totalsOf(plan) : nutritionTotals(validation.normalized)
+  const macroDifference = macroCalories - targetCal
+  const macroCoherence = targetCal > 0 && Number.isFinite(macroCalories) ? (
+    macroIssue
+      ? { tone: 'error', title: p('Macronutrient sum incoherence'), text: issueMessage(macroIssue) }
+      : { tone: 'info', title: p('Consistent macro distribution'), text: p('Calculated macro calories: {0} kcal; difference from target: {1} kcal ({2}).', macroCalories, macroDifference >= 0 ? `+${macroDifference}` : macroDifference, ratioText(macroCalories / targetCal)) }
   ) : null
+  const coverage = ['calories', 'protein', 'carbs', 'fats', 'fiber'].map(field => {
+    const target = field === 'calories' ? targetCal : number(plan.targetMacros[field])
+    const actual = totals[field]
+    const ratio = target > 0 ? actual / target : 0
+    return { field, actual, target, ratio, issue: contractIssues.find(item => item.field === field) }
+  })
 
   const save = async () => {
-    if (hasNegativeTarget || hasNegativeItem) return toast(p('Food nutrient values cannot be negative.'))
     const invalid = !plan.title.trim() || plan.meals.some(meal => !meal.name.trim() || !meal.time || meal.items.some(item => !item.name.trim() || !item.portion.trim()
       || item.substitutes.some(substitute => !substitute.name.trim() || !substitute.portion.trim())))
     if (invalid) return toast(p('Complete the plan, meals, foods and portions.'))
+    if (validation.issues.length) return toast(issueMessage(validation.issues[0]))
     setSaving(true)
     try {
       const body = {
@@ -204,13 +300,11 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
       </div>
     )}
 
-    {hasNegativeTarget && (
-      <div className="nutrition-validation-box">
-        <Alert tone="error" title={p('Food nutrient values cannot be negative.')}>
-          {p('Calories cannot be negative.')}
-        </Alert>
-      </div>
-    )}
+    <div className="nutrition-validation-box" aria-label={p('Food coverage versus targets')}>
+      {coverage.map(item => <Alert key={item.field} tone={item.issue ? 'error' : 'info'} title={p('{0} coverage', p(item.field === 'calories' ? 'Calories' : item.field[0].toUpperCase() + item.field.slice(1)))}>
+        {p('{0} of {1} ({2}); allowed range is {3}%–{4}%.', item.actual, item.target, ratioText(item.ratio), NUTRITION_TOLERANCES.foodTotalsMin * 100, NUTRITION_TOLERANCES.foodTotalsMax * 100)}
+      </Alert>)}
+    </div>
 
     <MacroSummary plan={plan} />
     <div className="nutrition-meal-editors">{plan.meals.map((meal, mealIndex) => <MealEditor key={meal.id || mealIndex} meal={meal} mealIndex={mealIndex}
@@ -235,10 +329,10 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
   </section>
 }
 
-function PlanSummary({ plan, adherence, onEdit, onStatus, onDelete }) {
-  const checked = adherence.filter(item => item.mealPlanId === plan.id)
+function PlanSummary({ plan, adherenceState, onEdit, onStatus, onDelete, historyOnly = false }) {
+  const checked = adherenceState.data.filter(item => item.mealPlanId === plan.id)
   return <article className="card nutrition-plan-summary" data-status={plan.status}>
-    <div className="nutrition-editor-head"><div><h3>{plan.title}</h3><span className="pro-meta">{p('By {0}', plan.coach?.name || p('Unavailable account'))} · {plan.targetCalories} kcal · {plan.meals.length} {p('meals')}</span></div><span className={`pro-status ${plan.status}`}>{p(plan.status === 'active' ? 'Active' : plan.status === 'draft' ? 'Draft' : 'Archived')}</span></div>
+    <div className="nutrition-editor-head"><div><h3>{plan.title}</h3><span className="pro-meta">{historyOnly ? p('Deleted plan history') : p('By {0}', plan.coach?.name || p('Unavailable account'))} · {plan.targetCalories} kcal · {plan.meals.length} {p('meals')}</span></div><span className={`pro-status ${plan.status}`}>{p(plan.status === 'active' ? 'Active' : plan.status === 'draft' ? 'Draft' : 'Archived')}</span></div>
     <MacroSummary plan={plan} />
     {plan.notes && <p className="nutrition-notes">{plan.notes}</p>}
     <div className="nutrition-history">
@@ -246,42 +340,45 @@ function PlanSummary({ plan, adherence, onEdit, onStatus, onDelete }) {
         <strong>{p('Recent adherence')}</strong>
         {checked.length > 0 && <span className="pro-meta">{checked.length} {checked.length === 1 ? 'registro' : 'registros'}</span>}
       </div>
-      {checked.length === 0 ? <span>{p('No meal check-ins yet.')}</span> : (
+      {adherenceState.status === 'loading' ? <span>{p('Loading adherence…')}</span>
+        : adherenceState.status === 'error' ? <span>{p('Adherence unavailable now')}</span>
+          : checked.length === 0 ? <span>{p('No meal check-ins yet.')}</span> : (
         <div className="nutrition-adherence-card-grid">
           {checked.slice(0, 7).map(item => {
-            const mealCount = plan.meals.length
+            const snapshot = item.planSnapshot
+            const mealCount = Array.isArray(snapshot?.meals) ? snapshot.meals.length : null
             const mealsDone = item.mealsChecked.length
-            const allMealsDone = mealCount > 0 && mealsDone >= mealCount
+            const allMealsDone = mealCount !== null && mealCount > 0 && mealsDone >= mealCount
             const waterMl = item.waterDrunkMl || 0
-            const waterTarget = plan.targetMacros?.waterMl || 0
+            const waterTarget = Number.isFinite(snapshot?.targetMacros?.waterMl) ? snapshot.targetMacros.waterMl : null
             const waterDone = waterTarget > 0 && waterMl >= waterTarget
-            const mealPct = mealCount > 0 ? Math.round((mealsDone / mealCount) * 100) : 0
-            const waterPct = waterTarget > 0 ? Math.round((Math.min(waterMl, waterTarget) / waterTarget) * 100) : 0
+            const mealPct = mealCount > 0 ? Math.round((mealsDone / mealCount) * 100) : null
+            const waterPct = waterTarget > 0 ? Math.round((Math.min(waterMl, waterTarget) / waterTarget) * 100) : null
 
             return (
               <div key={item.id} className="nutrition-adherence-day">
                 <div className="nutrition-adherence-day-head">
-                  <span>{item.date}</span>
+                  <span>{formatDay(item.date)}</span>
                   <Badge tone={allMealsDone && (waterTarget === 0 || waterDone) ? 'success' : 'neutral'}>
-                    {allMealsDone ? p('Completed') : `${mealPct}%`}
+                    {allMealsDone ? p('Completed') : mealPct === null ? p('Unavailable') : `${mealPct}%`}
                   </Badge>
                 </div>
                 <div className="nutrition-adherence-day-metrics">
                   <div className="nutrition-adherence-metric-row">
                     <span>{p('Meal check-ins')}:</span>
-                    <strong>{mealsDone}/{mealCount} ({mealPct}%)</strong>
+                    <strong>{mealCount === null ? mealsDone : `${mealsDone}/${mealCount} (${mealPct}%)`}</strong>
                   </div>
-                  <progress
+                  {mealCount !== null && <progress
                     aria-label={p('Meal adherence progress')}
                     aria-valuenow={mealPct}
                     aria-valuemin="0"
                     aria-valuemax="100"
                     max={mealCount}
                     value={mealsDone}
-                  />
+                  />}
                   <div className="nutrition-adherence-metric-row">
                     <span>{p('Water intake')}:</span>
-                    <strong>{waterMl}{waterTarget > 0 ? ` / ${waterTarget} ml` : ' ml'} ({waterPct}%)</strong>
+                    <strong>{waterTarget === null ? `${waterMl} ml` : `${waterMl} / ${waterTarget} ml (${waterPct}%)`}</strong>
                   </div>
                   {waterTarget > 0 && (
                     <progress
@@ -300,29 +397,47 @@ function PlanSummary({ plan, adherence, onEdit, onStatus, onDelete }) {
         </div>
       )}
     </div>
-    <div className="pro-actions"><Button size="sm" onClick={() => onEdit(plan)}>{p('Edit')}</Button>
+    {!historyOnly && <div className="pro-actions"><Button size="sm" onClick={() => onEdit(plan)}>{p('Edit')}</Button>
       {plan.status !== 'active' && <Button size="sm" variant="primary" onClick={() => onStatus(plan, 'active')}>{p('Activate')}</Button>}
       {plan.status === 'active' && <Button size="sm" onClick={() => onStatus(plan, 'archived')}>{p('Archive')}</Button>}
-      <Button size="sm" variant="danger" onClick={() => onDelete(plan)}>{p('Delete')}</Button></div>
+      <Button size="sm" variant="danger" onClick={() => onDelete(plan)}>{p('Delete')}</Button></div>}
   </article>
 }
 
 export default function NutritionPanel({ athleteId }) {
   const toast = useUI(state => state.toast)
   const [plans, setPlans] = useState(null)
-  const [adherence, setAdherence] = useState([])
+  const [adherenceState, setAdherenceState] = useState({ status: 'loading', data: [], error: null })
   const [editing, setEditing] = useState(null)
-  const [error, setError] = useState(null)
-  const [quota, setQuota] = useState(null)
-  const load = useCallback(async () => {
-    setError(null)
+  const [plansError, setPlansError] = useState(null)
+  const [quota, setQuota] = useState({ plans: null, adherence: null })
+  const loadAdherence = useCallback(async () => {
+    setAdherenceState(current => ({ ...current, status: 'loading', error: null }))
     try {
-      const [plansResult, adherenceResult] = await Promise.all([
-        api(`/api/coach/athletes/${athleteId}/meal-plans`), api(`/api/coach/athletes/${athleteId}/meal-adherence`),
-      ])
-      setPlans(plansResult.mealPlans || []); setAdherence(adherenceResult.adherence || [])
-      setQuota({ plans: plansResult.quota, adherence: adherenceResult.quota })
-    } catch (loadError) { setError(loadError) }
+      const result = await api(`/api/coach/athletes/${athleteId}/meal-adherence`)
+      if (!validAdherenceEnvelope(result)) throw new Error('invalid adherence envelope')
+      setAdherenceState({ status: result.adherence.length ? 'ok' : 'empty', data: result.adherence, error: null })
+      setQuota(current => ({ ...current, adherence: result.quota || null }))
+    } catch (error) {
+      setAdherenceState(current => ({ ...current, status: 'error', error }))
+    }
+  }, [athleteId])
+  const load = useCallback(async () => {
+    setPlansError(null)
+    setAdherenceState(current => ({ ...current, status: 'loading', error: null }))
+    const [plansResult, adherenceResult] = await Promise.allSettled([
+      api(`/api/coach/athletes/${athleteId}/meal-plans`), api(`/api/coach/athletes/${athleteId}/meal-adherence`),
+    ])
+    if (plansResult.status === 'fulfilled' && Array.isArray(plansResult.value?.mealPlans)) {
+      setPlans(plansResult.value.mealPlans)
+      setQuota(current => ({ ...current, plans: plansResult.value.quota || null }))
+    } else setPlansError(plansResult.status === 'rejected' ? plansResult.reason : new Error('invalid meal plan envelope'))
+    if (adherenceResult.status === 'fulfilled' && validAdherenceEnvelope(adherenceResult.value)) {
+      setAdherenceState({ status: adherenceResult.value.adherence.length ? 'ok' : 'empty', data: adherenceResult.value.adherence, error: null })
+      setQuota(current => ({ ...current, adherence: adherenceResult.value.quota || null }))
+    } else {
+      setAdherenceState(current => ({ ...current, status: 'error', error: adherenceResult.status === 'rejected' ? adherenceResult.reason : new Error('invalid adherence envelope') }))
+    }
   }, [athleteId])
   useEffect(() => { load() }, [load])
   const saveStatus = async (plan, status) => {
@@ -331,23 +446,37 @@ export default function NutritionPanel({ athleteId }) {
       setPlans(current => current.map(item => item.id === plan.id ? result.mealPlan : status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item))
     } catch (saveError) { toast(professionalError(saveError)) }
   }
-  const remove = plan => confirmSheet({ title: p('Delete this meal plan?'), message: p('Its meal check-ins will also be removed.'), confirmText: p('Delete meal plan'), danger: true,
+  const remove = plan => confirmSheet({ title: p('Delete this meal plan?'), message: p('The plan will be removed, but its historical check-ins will remain available.'), confirmText: p('Delete meal plan'), danger: true,
     onConfirm: async () => { try { await api(`/api/coach/athletes/${athleteId}/meal-plans/${plan.id}`, { method: 'DELETE' }); setPlans(current => current.filter(item => item.id !== plan.id)) } catch (removeError) { toast(professionalError(removeError)) } },
   })
+  const livePlanIds = new Set((plans || []).map(plan => plan.id))
+  const retainedHistoryPlans = [...adherenceState.data.reduce((groups, item) => {
+    if (livePlanIds.has(item.mealPlanId) || groups.has(item.mealPlanId) || !validSnapshot(item.planSnapshot)) return groups
+    const snapshot = item.planSnapshot
+    groups.set(item.mealPlanId, {
+      id: item.mealPlanId, title: snapshot.title, status: 'archived', targetCalories: snapshot.targetCalories,
+      targetMacros: snapshot.targetMacros, meals: snapshot.meals, notes: '', coach: null,
+    })
+    return groups
+  }, new Map()).values()]
   return <section className="nutrition-panel" aria-labelledby={`nutrition-panel-${athleteId}`}>
     <div className="pro-panel-head"><strong id={`nutrition-panel-${athleteId}`}>{p('Nutrition')}</strong>
       {!editing && <Button size="sm" icon="plus" onClick={() => setEditing(true)}>{p('New meal plan')}</Button>}</div>
     {quota?.plans && <p className="nutrition-quota">{p('{0} of {1} meal-plan slots used. Delete obsolete plans to free a slot.', quota.plans.used, quota.plans.limit)}</p>}
     {quota?.adherence && <p className="nutrition-quota">{p('{0} of {1} check-ins stored; entries older than {2} days are removed automatically.', quota.adherence.used, quota.adherence.limit, quota.adherence.retentionDays)}</p>}
+    {adherenceState.status === 'error' && <div className="pro-load-inline" role="alert"><span>{p('Adherence unavailable now')}</span><Button size="sm" onClick={loadAdherence}>{p('Try again')}</Button></div>}
     {editing && <MealPlanEditor athleteId={athleteId} initial={editing === true ? null : editing} onCancel={() => setEditing(null)} onSaved={(saved, previous) => {
       setPlans(current => previous ? current.map(item => item.id === saved.id ? saved : saved.status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item)
         : [saved, ...(current || []).map(item => saved.status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item)])
       setEditing(null)
     }} />}
-    {error ? <div className="pro-load-inline" role="alert"><span>{professionalError(error)}</span><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
+    {plansError ? <div className="pro-load-inline" role="alert"><span>{professionalError(plansError)}</span><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
       : plans === null ? <div className="pro-loading">{p('Loading…')}</div>
-        : plans.length === 0 ? <p className="pro-empty-inline">{p('No meal plans yet.')}</p>
-          : <div className="nutrition-plan-list">{plans.map(plan => <PlanSummary key={plan.id} plan={plan} adherence={adherence} onEdit={setEditing} onStatus={saveStatus} onDelete={remove} />)}</div>}
+        : plans.length === 0 && retainedHistoryPlans.length === 0 ? <p className="pro-empty-inline">{p('No meal plans yet.')}</p>
+          : <div className="nutrition-plan-list">
+            {plans.map(plan => <PlanSummary key={plan.id} plan={plan} adherenceState={adherenceState} onEdit={setEditing} onStatus={saveStatus} onDelete={remove} />)}
+            {retainedHistoryPlans.map(plan => <PlanSummary key={plan.id} plan={plan} adherenceState={adherenceState} historyOnly />)}
+          </div>}
   </section>
 }
 
@@ -404,7 +533,7 @@ export function AthleteNutritionView() {
   const load = useCallback(async () => {
     setError(null)
     try {
-      const [planResult, adherenceResult] = await Promise.all([api('/api/athlete/meal-plan'), api(`/api/athlete/meal-adherence?date=${date}`)])
+      const [planResult, adherenceResult] = await Promise.all([api(`/api/athlete/meal-plan?date=${date}`), api(`/api/athlete/meal-adherence?date=${date}`)])
       const current = (adherenceResult.adherenceRecords || [adherenceResult.adherence]).find(item => item?.mealPlanId === planResult.mealPlan?.id) || null
       adherenceRef.current = current; setPlan(planResult.mealPlan || null); setAdherence(current); setWater(String(current?.waterDrunkMl || 0)); setLoaded(true)
     } catch (loadError) { setError(loadError); setLoaded(true) }

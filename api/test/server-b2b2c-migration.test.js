@@ -21,10 +21,10 @@ function fixture(t, db, backup = 'backup-sentinel') {
   return { dataDir, raw, backup };
 }
 
-function start(dataDir) {
+function start(dataDir, env = {}) {
   const child = spawn(process.execPath, ['server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost' },
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', ...env },
   });
   let log = '';
   child.stdout.on('data', chunk => log += chunk);
@@ -128,7 +128,7 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 9);
+  assert.equal(stored.schemaVersion, 10);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
@@ -148,19 +148,20 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   assert.deepEqual(stored.challengeScores, []);
 });
 
-test('known schema versions migrate to version 9', async t => {
-  for (const schemaVersion of [1, 2, 3, 4, 5, 6, 7, 8]) {
+test('known schema versions migrate to version 10', async t => {
+  for (const schemaVersion of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
     const sample = fixture(t, { schemaVersion, users: [], creds: [], subs: [], invites: [] });
     const server = start(sample.dataDir);
     await boundPort(server.child, server.log);
     await stop(server.child);
     const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-    assert.equal(stored.schemaVersion, 9);
+    assert.equal(stored.schemaVersion, 10);
     assert.deepEqual(stored.coachInvites, []);
     assert.deepEqual(stored.coachAthleteLinks, []);
     assert.deepEqual(stored.coachPrescriptions, []);
     assert.deepEqual(stored.coachAssessments, []);
     assert.deepEqual(stored.mealPlans, []);
+    assert.deepEqual(stored.mealPlanTombstones, []);
     assert.deepEqual(stored.mealAdherence, []);
     assert.deepEqual(stored.coachMessages, []);
     assert.deepEqual(stored.coachHabits, []);
@@ -170,6 +171,78 @@ test('known schema versions migrate to version 9', async t => {
     assert.deepEqual(stored.coachAvailability, []);
     assert.deepEqual(stored.coachAppointments, []);
   }
+});
+
+test('version 9 nutrition adherence migrates once with a reproducible legacy snapshot', async t => {
+  const mealPlan = {
+    id: 'mp_legacy', coachId: 'u_coach', athleteId: 'u_athlete', title: 'Plano legado', status: 'archived',
+    targetCalories: 2000, targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 },
+    meals: [{ id: 'm_legacy', name: 'Dia completo', time: '08:00', items: [{
+      id: 'it_legacy', name: 'Cardápio', portion: 'porções prescritas', calories: 2000,
+      protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [],
+    }] }],
+    notes: 'Legado', createdAt: 1, updatedAt: 2,
+  };
+  const sample = fixture(t, {
+    schemaVersion: 9, users: [], creds: [], subs: [], invites: [],
+    mealPlans: [mealPlan], mealAdherence: [{
+      id: 'adh_legacy', athleteId: 'u_athlete', mealPlanId: 'mp_legacy', date: '2026-11-01',
+      mealsChecked: ['m_legacy'], waterDrunkMl: 1000, notes: '', updatedAt: 3,
+    }],
+  });
+  let server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  const firstText = fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8');
+  const first = JSON.parse(firstText);
+  assert.equal(first.schemaVersion, 10);
+  assert.equal(first.mealPlans[0].nutritionContractVersion, 1);
+  assert.equal(first.mealAdherence[0].planSnapshot.version, 1);
+  assert.deepEqual(first.mealAdherence[0].planSnapshot.meals, mealPlan.meals);
+  assert.equal(first.mealAdherence[0].updatedAt, 3);
+  server = start(sample.dataDir);
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), firstText);
+});
+
+test('nutrition migration save failure leaves disk untouched and the next restart migrates cleanly', async t => {
+  const sample = fixture(t, { schemaVersion: 9, users: [], creds: [], subs: [], invites: [] });
+  const failFile = path.join(sample.dataDir, 'fail-db-write');
+  fs.writeFileSync(failFile, 'once');
+  let server = start(sample.dataDir, { B2B2C_DB_FAIL_FILE: failFile });
+  assert.equal(await server.exit, 1);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), sample.raw);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json.bak'), 'utf8'), sample.backup);
+
+  server = start(sample.dataDir, { B2B2C_DB_FAIL_FILE: failFile });
+  await boundPort(server.child, server.log);
+  await stop(server.child);
+  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+  assert.equal(stored.schemaVersion, 10);
+  assert.deepEqual(stored.mealPlanTombstones, []);
+});
+
+test('unknown future nutrition snapshot refuses boot without rewriting primary or backup', async t => {
+  const sample = fixture(t, {
+    schemaVersion: 10, users: [], creds: [], subs: [], invites: [], mealPlanTombstones: [],
+    mealPlans: [{
+      id: 'mp_future_snapshot', coachId: 'u_coach', athleteId: 'u_athlete', nutritionContractVersion: 2,
+      title: 'Plano', status: 'archived', targetCalories: 2000,
+      targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 },
+      meals: [{ id: 'm_1', name: 'Dia', time: '08:00', items: [{ id: 'it_1', name: 'Cardápio', portion: 'dia', calories: 2000, protein: 150, carbs: 250, fats: 65, fiber: 30, substitutes: [] }] }],
+      notes: '', createdAt: 1, updatedAt: 1,
+    }],
+    mealAdherence: [{
+      id: 'adh_future', athleteId: 'u_athlete', mealPlanId: 'mp_future_snapshot', date: '2026-11-01', mealsChecked: [],
+      waterDrunkMl: 0, notes: '', updatedAt: 1, planSnapshot: { version: 999 },
+    }],
+  });
+  const server = start(sample.dataDir);
+  assert.equal(await server.exit, 1);
+  assert.match(server.log(), /B2B2C data is invalid/);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), sample.raw);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json.bak'), 'utf8'), sample.backup);
 });
 
 test('historical archived goals and revoked reports migrate once without changing historical payloads', async t => {

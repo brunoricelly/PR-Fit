@@ -4544,7 +4544,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Prescribe a meal plan for one linked athlete</span>
   </summary>
   <div class="ep-body">
-<p>Strictly validates realistic positive nutrition targets, meals, foods and substitutions. Target macro calories may differ by at most 35%; summed food calories/macros must remain within 50–150% of targets. Every mutation is rate limited, quota bounded and persisted atomically. Activating a plan archives every other active plan for the athlete, regardless of professional.</p>
+<p>Strictly validates realistic positive nutrition targets, meals, foods and substitutions. Target macro calories must remain within 85–115% of target calories; summed food calories/macros must remain within 80–120% of targets. Every mutation is rate limited, quota bounded and persisted atomically. Activating a plan archives every other active plan for the athlete, regardless of professional.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-MealPlanCreateInput">MealPlanCreateInput</a></p>
@@ -4628,7 +4628,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Update or activate a prescribed meal plan</span>
   </summary>
   <div class="ep-body">
-<p>Accepts one or more editable fields, including existing meal/item ids so clients can preserve identity. Activating a plan archives every other active plan for this athlete. Removed meal ids are atomically removed from existing check-ins before the combined state is validated and saved.</p>
+<p>Accepts one or more editable fields, including existing meal/item ids so clients can preserve identity. Activating a plan archives every other active plan for this athlete. Existing daily check-ins and timestamps are immutable with respect to plan edits; a day already started continues to use its persisted plan snapshot.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-MealPlanPatchInput">MealPlanPatchInput</a></p>
@@ -4671,10 +4671,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="m delete">DELETE</span>
     <span class="ep-path"><code>/api/coach/athletes/{athleteId}/meal-plans/{planId}</code></span>
     <span class="ep-chev" aria-hidden="true"></span>
-    <span class="ep-sum">Delete a prescribed meal plan and its check-ins</span>
+    <span class="ep-sum">Delete a prescribed meal plan while retaining its check-in history</span>
   </summary>
   <div class="ep-body">
-<p>Atomically removes the professional-owned plan and every adherence record that references it.</p>
+<p>Atomically removes the live professional-owned plan. Retained adherence rows remain readable through a minimal ownership tombstone and cannot reactivate the deleted plan.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 
@@ -4716,7 +4716,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">List meal adherence for one linked athlete</span>
   </summary>
   <div class="ep-body">
-<p>Requires the <code>nutrition</code> scope and returns only check-ins for plans created by the signed-in professional. Cursor pagination is stable in newest-first order; retained history is automatically compacted after the configured retention period.</p>
+<p>Requires a current or historical relationship that included the <code>nutrition</code> scope and returns only retained check-ins for plans created by the signed-in professional. Suspended and ended relationships are read-only. Cursor pagination is stable in newest-first order; retained history is automatically compacted after the configured retention period.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 <p class="ep-h">Query parameters</p><div class="ptab">
   <div class="prow">
@@ -4752,7 +4752,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   </div>
   <div class="prow rrow">
     <span class="r-code s4">403</span>
-    <span class="p-desc">Professional profile</span>
+    <span class="p-desc">Professional profile or nutrition authorization missing.</span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">404</span>
@@ -4770,9 +4770,15 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Read the signed-in athlete's active meal plan</span>
   </summary>
   <div class="ep-body">
-<p>Returns the athlete's single global active plan backed by a currently active nutrition relationship, including the responsible professional, or null.</p>
+<p>Returns the athlete's single global active plan backed by a currently active nutrition relationship, including the responsible professional, or null. When <code>date</code> already has a check-in, the immutable snapshot for that day is returned so same-day plan edits do not alter the in-progress prescription.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
-
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">date</span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
 
     <p class="ep-h">Responses</p>
     <div class="ptab">
@@ -4810,7 +4816,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <div class="ptab">
   <div class="prow rrow">
     <span class="r-code s2">200</span>
-    <span class="p-desc">Most recently updated daily adherence record or null, plus all active-plan rows for that day.<span class="r-sig">{ adherence: <a href="#schema-MealAdherenceResponse">MealAdherenceResponse</a> | null, adherenceRecords: <a href="#schema-MealAdherenceResponse">MealAdherenceResponse</a>[] }</span></span>
+    <span class="p-desc">Most recently updated retained daily adherence record or null, plus all retained rows for that day.<span class="r-sig">{ adherence: <a href="#schema-MealAdherenceResponse">MealAdherenceResponse</a> | null, adherenceRecords: <a href="#schema-MealAdherenceResponse">MealAdherenceResponse</a>[] }</span></span>
   </div>
   <div class="prow rrow">
     <span class="r-code s4">400</span>
@@ -4832,7 +4838,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="ep-sum">Mutate one meal completion or merge daily water/notes</span>
   </summary>
   <div class="ep-body">
-<p>Upserts one athlete-owned row per active meal plan and date. <code>mealUpdate</code> changes only one meal id; water and notes merge independently, so concurrent controls cannot replace unrelated fields. All writes are atomic and rate limited.</p>
+<p>Upserts one athlete-owned row per plan and date. New rows require an active plan; an already-started day remains writable against its immutable plan snapshot if the plan is later archived. <code>mealUpdate</code> changes only one meal id; water and notes merge independently, so concurrent controls cannot replace unrelated fields. All writes are atomic and rate limited.</p>
     <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
 
 <p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-MealAdherenceMutationInput">MealAdherenceMutationInput</a></p>
@@ -12853,10 +12859,10 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <summary>
     <span class="sch-name"><code>MealPlanCreateInput</code></span>
     <span class="ep-chev" aria-hidden="true"></span>
-    <span class="ep-sum">Complete plan.</span>
+    <span class="ep-sum">Complete plan under nutrition contract version 2.</span>
   </summary>
   <div class="ep-body">
-<p>Macro-derived calories may be 65–135% of targetCalories; summed item calories and macros must each be 50–150% of their target.</p>
+<p>Macro-derived calories must be 85–115% of targetCalories; summed item calories and macros must each be 80–120% of their target.</p>
 <div class="ptab">
   <div class="prow">
     <span class="p-name">title<em class="p-req" title="required">required</em></span>
@@ -12990,6 +12996,11 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-desc"></span>
   </div>
   <div class="prow">
+    <span class="p-name">nutritionContractVersion<em class="p-req" title="required">required</em></span>
+    <span class="p-type">1 | 2</span>
+    <span class="p-desc">Version 1 identifies migrated legacy validation; new or nutritionally edited plans use version 2.</span>
+  </div>
+  <div class="prow">
     <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
     <span class="p-type">integer <span class="p-hint">(int64)</span></span>
     <span class="p-desc">Unix epoch milliseconds.</span>
@@ -13096,9 +13107,62 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     <span class="p-desc"></span>
   </div>
   <div class="prow">
+    <span class="p-name">planSnapshot<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-MealPlanSnapshot">MealPlanSnapshot</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
     <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
     <span class="p-type">integer <span class="p-hint">(int64)</span></span>
     <span class="p-desc">Unix epoch milliseconds.</span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-MealPlanSnapshot">
+  <summary>
+    <span class="sch-name"><code>MealPlanSnapshot</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Immutable daily prescription snapshot used for historical denominators and same-day continuity after later plan edits or deletion.</span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">version<em class="p-req" title="required">required</em></span>
+    <span class="p-type">always 1</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nutritionContractVersion<em class="p-req" title="required">required</em></span>
+    <span class="p-type">1 | 2</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">title<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 120 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetCalories<em class="p-req" title="required">required</em></span>
+    <span class="p-type">number <span class="p-hint">(1&ndash;10000)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">targetMacros<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-MealMacros">MealMacros</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">meals<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-Meal">Meal</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">notes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 2000 chars)</span></span>
+    <span class="p-desc"></span>
   </div>
 </div>
   </div>

@@ -872,7 +872,7 @@ paths:
       tags: [professionals]
       operationId: createAthleteMealPlan
       summary: Prescribe a meal plan for one linked athlete
-      description: Strictly validates realistic positive nutrition targets, meals, foods and substitutions. Target macro calories may differ by at most 35%; summed food calories/macros must remain within 50–150% of targets. Every mutation is rate limited, quota bounded and persisted atomically. Activating a plan archives every other active plan for the athlete, regardless of professional.
+      description: Strictly validates realistic positive nutrition targets, meals, foods and substitutions. Target macro calories must remain within 85–115% of target calories; summed food calories/macros must remain within 80–120% of targets. Every mutation is rate limited, quota bounded and persisted atomically. Activating a plan archives every other active plan for the athlete, regardless of professional.
       requestBody:
         required: true
         content:
@@ -922,7 +922,7 @@ paths:
       tags: [professionals]
       operationId: updateAthleteMealPlan
       summary: Update or activate a prescribed meal plan
-      description: Accepts one or more editable fields, including existing meal/item ids so clients can preserve identity. Activating a plan archives every other active plan for this athlete. Removed meal ids are atomically removed from existing check-ins before the combined state is validated and saved.
+      description: Accepts one or more editable fields, including existing meal/item ids so clients can preserve identity. Activating a plan archives every other active plan for this athlete. Existing daily check-ins and timestamps are immutable with respect to plan edits; a day already started continues to use its persisted plan snapshot.
       requestBody:
         required: true
         content:
@@ -943,8 +943,8 @@ paths:
     delete:
       tags: [professionals]
       operationId: deleteAthleteMealPlan
-      summary: Delete a prescribed meal plan and its check-ins
-      description: Atomically removes the professional-owned plan and every adherence record that references it.
+      summary: Delete a prescribed meal plan while retaining its check-in history
+      description: Atomically removes the live professional-owned plan. Retained adherence rows remain readable through a minimal ownership tombstone and cannot reactivate the deleted plan.
       responses:
         '200':
           description: Deleted meal plan.
@@ -966,7 +966,7 @@ paths:
       tags: [professionals]
       operationId: listAthleteMealAdherence
       summary: List meal adherence for one linked athlete
-      description: Requires the `nutrition` scope and returns only check-ins for plans created by the signed-in professional. Cursor pagination is stable in newest-first order; retained history is automatically compacted after the configured retention period.
+      description: Requires a current or historical relationship that included the `nutrition` scope and returns only retained check-ins for plans created by the signed-in professional. Suspended and ended relationships are read-only. Cursor pagination is stable in newest-first order; retained history is automatically compacted after the configured retention period.
       parameters:
         - in: path
           name: athleteId
@@ -991,7 +991,7 @@ paths:
                   page: { $ref: '#/components/schemas/CursorPage' }
                   quota: { $ref: '#/components/schemas/AdherenceQuota' }
         '401': { $ref: '#/components/responses/Unauthorized' }
-        '403': { description: Professional profile, active relationship or nutrition scope missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
+        '403': { description: Professional profile or nutrition authorization missing., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '404': { description: The athlete is not linked to this professional., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
         '400': { description: Invalid limit or cursor., content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } } }
 
@@ -1000,7 +1000,12 @@ paths:
       tags: [professionals]
       operationId: getActiveAthleteMealPlan
       summary: Read the signed-in athlete's active meal plan
-      description: Returns the athlete's single global active plan backed by a currently active nutrition relationship, including the responsible professional, or null.
+      description: Returns the athlete's single global active plan backed by a currently active nutrition relationship, including the responsible professional, or null. When `date` already has a check-in, the immutable snapshot for that day is returned so same-day plan edits do not alter the in-progress prescription.
+      parameters:
+        - in: query
+          name: date
+          required: false
+          schema: { type: string, format: date }
       responses:
         '200':
           description: Active meal plan or null.
@@ -1021,7 +1026,7 @@ paths:
           schema: { type: string, format: date }
       responses:
         '200':
-          description: Most recently updated daily adherence record or null, plus all active-plan rows for that day.
+          description: Most recently updated retained daily adherence record or null, plus all retained rows for that day.
           content:
             application/json:
               schema:
@@ -1035,7 +1040,7 @@ paths:
       tags: [professionals]
       operationId: upsertAthleteMealAdherence
       summary: Mutate one meal completion or merge daily water/notes
-      description: Upserts one athlete-owned row per active meal plan and date. `mealUpdate` changes only one meal id; water and notes merge independently, so concurrent controls cannot replace unrelated fields. All writes are atomic and rate limited.
+      description: Upserts one athlete-owned row per plan and date. New rows require an active plan; an already-started day remains writable against its immutable plan snapshot if the plan is later archived. `mealUpdate` changes only one meal id; water and notes merge independently, so concurrent controls cannot replace unrelated fields. All writes are atomic and rate limited.
       requestBody:
         required: true
         content:
@@ -8189,7 +8194,7 @@ components:
     MealPlanCreateInput:
       type: object
       required: [title, status, targetCalories, targetMacros, meals]
-      description: Complete plan. Macro-derived calories may be 65–135% of targetCalories; summed item calories and macros must each be 50–150% of their target.
+      description: Complete plan under nutrition contract version 2. Macro-derived calories must be 85–115% of targetCalories; summed item calories and macros must each be 80–120% of their target.
       properties:
         title: { type: string, minLength: 1, maxLength: 120 }
         status: { type: string, enum: [active, archived, draft] }
@@ -8221,7 +8226,7 @@ components:
 
     MealPlanResponse:
       type: object
-      required: [id, coach, athlete, title, status, targetCalories, targetMacros, meals, notes, createdAt, updatedAt]
+      required: [id, coach, athlete, title, status, targetCalories, targetMacros, meals, notes, nutritionContractVersion, createdAt, updatedAt]
       properties:
         id: { type: string }
         coach: { $ref: '#/components/schemas/SessionUser' }
@@ -8232,6 +8237,7 @@ components:
         targetMacros: { $ref: '#/components/schemas/MealMacros' }
         meals: { type: array, minItems: 1, maxItems: 20, items: { $ref: '#/components/schemas/Meal' } }
         notes: { type: string, maxLength: 2000 }
+        nutritionContractVersion: { type: integer, enum: [1, 2], description: Version 1 identifies migrated legacy validation; new or nutritionally edited plans use version 2. }
         createdAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
         updatedAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
       additionalProperties: false
@@ -8259,7 +8265,7 @@ components:
 
     MealAdherenceResponse:
       type: object
-      required: [id, athleteId, mealPlanId, date, mealsChecked, waterDrunkMl, notes, updatedAt]
+      required: [id, athleteId, mealPlanId, date, mealsChecked, waterDrunkMl, notes, planSnapshot, updatedAt]
       properties:
         id: { type: string }
         athleteId: { type: string }
@@ -8268,8 +8274,23 @@ components:
         mealsChecked: { type: array, uniqueItems: true, maxItems: 20, items: { type: string } }
         waterDrunkMl: { type: number, minimum: 0, maximum: 20000 }
         notes: { type: string, maxLength: 1000 }
+        planSnapshot: { $ref: '#/components/schemas/MealPlanSnapshot' }
         updatedAt: { type: integer, format: int64, description: Unix epoch milliseconds. }
       additionalProperties: false
+
+    MealPlanSnapshot:
+      type: object
+      additionalProperties: false
+      required: [version, nutritionContractVersion, title, targetCalories, targetMacros, meals, notes]
+      description: Immutable daily prescription snapshot used for historical denominators and same-day continuity after later plan edits or deletion.
+      properties:
+        version: { type: integer, const: 1 }
+        nutritionContractVersion: { type: integer, enum: [1, 2] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        targetCalories: { type: number, minimum: 1, maximum: 10000 }
+        targetMacros: { $ref: '#/components/schemas/MealMacros' }
+        meals: { type: array, minItems: 1, maxItems: 20, items: { $ref: '#/components/schemas/Meal' } }
+        notes: { type: string, maxLength: 2000 }
 
     NutritionQuota:
       type: object

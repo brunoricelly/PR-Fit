@@ -55,6 +55,11 @@ const mount = async entry => {
 }
 const button = label => [...host.querySelectorAll('button')].find(item => item.textContent.trim() === label)
 const card = label => [...host.querySelectorAll('.pro-link')].find(item => item.textContent.includes(label))
+const adherenceEnvelope = adherence => ({
+  adherence,
+  page: { limit: 50, hasMore: false, nextCursor: null },
+  quota: { used: adherence.length, limit: 1000, retentionDays: 730 },
+})
 const type = async (input, value) => {
   await act(async () => {
     Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, value)
@@ -318,7 +323,18 @@ describe('ProfessionalHub', () => {
 
     expect(button('Relationships')).toBeDefined()
     expect(button('Appointments')).toBeDefined()
+    const relationshipTab = button('Relationships')
+    const appointmentTab = button('Appointments')
+    expect(relationshipTab.tabIndex).toBe(0)
+    expect(appointmentTab.tabIndex).toBe(-1)
+    expect(relationshipTab.getAttribute('aria-controls')).toBeTruthy()
+    expect(host.querySelector(`#${relationshipTab.getAttribute('aria-controls')}[role="tabpanel"]`)).toBeTruthy()
     expect(host.textContent).toContain('Portfolio')
+
+    relationshipTab.focus()
+    await act(async () => relationshipTab.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+    expect(document.activeElement).toBe(appointmentTab)
+    expect(appointmentTab.getAttribute('aria-selected')).toBe('true')
 
     // Switch to Appointments tab
     await act(async () => { button('Appointments').click() })
@@ -476,7 +492,7 @@ describe('ProfessionalHub', () => {
       ],
     }
     mocks.answers[`/api/coach/athletes/${athleteNutri.id}/meal-plans`] = { mealPlans: [] }
-    mocks.answers[`/api/coach/athletes/${athleteNutri.id}/meal-adherence`] = { adherence: [] }
+    mocks.answers[`/api/coach/athletes/${athleteNutri.id}/meal-adherence`] = adherenceEnvelope([])
 
     await mount('/professionals')
 
@@ -491,4 +507,32 @@ describe('ProfessionalHub', () => {
     expect(host.textContent).toContain('Atleta Nutrição')
     expect(host.textContent).not.toContain('Atleta Treino')
     expect(host.textContent).toContain('New meal plan')
+    expect(mocks.calls.filter(call => call.path === '/api/coach/athletes')).toHaveLength(2)
+  })
+
+  it('uses roving tabs for nutrition athletes with associated tabpanels', async () => {
+    const athleteA = { id: 'u_nutri_a', name: 'Ana' }
+    const athleteB = { id: 'u_nutri_b', name: 'Bia' }
+    mocks.user = { id: 'u_coach_nutri_tabs', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['nutrition'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [
+      { id: 'link_a', status: 'active', scopes: ['nutrition'], athlete: athleteA },
+      { id: 'link_b', status: 'active', scopes: ['nutrition'], athlete: athleteB },
+    ] }
+    for (const athlete of [athleteA, athleteB]) {
+      mocks.answers[`/api/coach/athletes/${athlete.id}/meal-plans`] = { mealPlans: [] }
+      mocks.answers[`/api/coach/athletes/${athlete.id}/meal-adherence`] = adherenceEnvelope([])
+    }
+    await mount('/professionals?tab=nutrition')
+
+    const tabs = [...host.querySelectorAll('.pro-athlete-selector [role="tab"]')]
+    expect(tabs).toHaveLength(2)
+    expect(tabs.map(tab => tab.tabIndex)).toEqual([0, -1])
+    expect(tabs[0].getAttribute('aria-controls')).toBeTruthy()
+    expect(host.querySelector(`#${tabs[0].getAttribute('aria-controls')}[role="tabpanel"]`)).toBeTruthy()
+    tabs[0].focus()
+    await act(async () => tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+    await settle()
+    expect(document.activeElement).toBe(tabs[1])
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true')
+    expect(mocks.calls.filter(call => call.path === '/api/coach/athletes')).toHaveLength(1)
   })
