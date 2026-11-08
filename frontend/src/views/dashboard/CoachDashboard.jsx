@@ -1,0 +1,228 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { api } from '../../lib/api.js'
+import { communicationApi, browserTimeZone } from '../../lib/communication-api.js'
+import { getCoachAppointments } from '../../lib/scheduling-api.js'
+import { useStore } from '../../store/useStore.js'
+import { useOnline } from '../../components/ServerSync.jsx'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  Skeleton,
+  Surface,
+} from '../../components/design-system.jsx'
+import Icon from '../../components/Icon.jsx'
+import './DashboardHome.css'
+
+const dayBounds = date => {
+  const start = new Date(date)
+  start.setHours(0, 0, 0, 0)
+  const end = new Date(start)
+  end.setDate(end.getDate() + 1)
+  end.setMilliseconds(-1)
+  return { from: start.toISOString(), to: end.toISOString() }
+}
+
+const athleteName = link => link.athlete?.name || 'Aluno sem nome disponível'
+
+function CoachLoading() {
+  return <main className="ds-scope dashboard-page dashboard-page-coach" aria-busy="true" aria-label="Carregando visão geral">
+    <div className="dashboard-shell">
+      <Skeleton width="9rem" height="1rem" />
+      <Skeleton width="min(28rem, 88%)" height="2.5rem" />
+      <Skeleton width="min(36rem, 100%)" height="1.25rem" />
+      <div className="dashboard-loading-grid" aria-hidden="true">
+        <Skeleton height="12rem" />
+        <Skeleton height="12rem" />
+        <Skeleton height="9rem" />
+      </div>
+    </div>
+  </main>
+}
+
+export default function CoachDashboard() {
+  const navigate = useNavigate()
+  const user = useStore(state => state.user)
+  const ready = useStore(state => state.ready)
+  const online = useOnline()
+  const [data, setData] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [errors, setErrors] = useState([])
+
+  const load = useCallback(async () => {
+    if (!user?.id) return
+    setLoading(true)
+    setErrors([])
+    const bounds = dayBounds(new Date())
+    const [linksResult, inboxResult, appointmentsResult] = await Promise.allSettled([
+      api('/api/coach/athletes'),
+      communicationApi.inbox({ limit: 100 }),
+      getCoachAppointments({ status: 'scheduled', ...bounds, limit: 100 }),
+    ])
+
+    const links = linksResult.status === 'fulfilled' ? linksResult.value.links || [] : []
+    const conversations = inboxResult.status === 'fulfilled' ? inboxResult.value.conversations || [] : []
+    const appointments = appointmentsResult.status === 'fulfilled' ? appointmentsResult.value.items || [] : []
+    const nextErrors = []
+    if (linksResult.status === 'rejected') nextErrors.push('alunos')
+    if (inboxResult.status === 'rejected') nextErrors.push('mensagens')
+    if (appointmentsResult.status === 'rejected') nextErrors.push('agenda')
+    if (nextErrors.length === 3) {
+      setErrors(nextErrors)
+      setLoading(false)
+      return
+    }
+
+    const trainingLinks = links.filter(link => link.status === 'active' && link.scopes?.includes('training'))
+    const summaries = await Promise.allSettled(trainingLinks.map(link => communicationApi.summary({
+      side: 'coach',
+      athleteId: link.athlete?.id,
+      linkId: link.id,
+      period: 7,
+      timeZone: browserTimeZone().value,
+    })))
+    const adherence = summaries.flatMap((result, index) => result.status === 'fulfilled'
+      ? [{ link: trainingLinks[index], summary: result.value.summary }]
+      : [])
+    if (summaries.some(result => result.status === 'rejected')) nextErrors.push('adesão')
+
+    setData({ links, conversations, appointments, adherence })
+    setErrors([...new Set(nextErrors)])
+    setLoading(false)
+  }, [user?.id])
+
+  useEffect(() => { if (ready) load() }, [load, ready])
+  useEffect(() => {
+    const retry = () => load()
+    window.addEventListener('online', retry)
+    return () => window.removeEventListener('online', retry)
+  }, [load])
+
+  const view = useMemo(() => {
+    if (!data) return null
+    const conversationByLink = new Map(data.conversations.map(item => [item.linkId, item]))
+    const summaryByLink = new Map(data.adherence.map(item => [item.link.id, item.summary]))
+    const attention = data.links.flatMap(link => {
+      const reasons = []
+      const unread = conversationByLink.get(link.id)?.unreadCount || 0
+      const summary = summaryByLink.get(link.id)
+      if (unread > 0) reasons.push(`${unread} ${unread === 1 ? 'mensagem não lida' : 'mensagens não lidas'}`)
+      if (summary?.scheduledDays > 0 && summary.completedDays === 0) reasons.push('nenhum check-in concluído nesta semana')
+      if (link.status === 'pending') reasons.push('convite ainda pendente')
+      if (link.status === 'suspended') reasons.push('acesso suspenso')
+      return reasons.length ? [{ link, reasons }] : []
+    })
+    const unreadTotal = data.conversations.reduce((sum, item) => sum + (item.unreadCount || 0), 0)
+    const appointments = [...data.appointments].sort((left, right) => new Date(left.startAt) - new Date(right.startAt))
+    const adherence = data.adherence.filter(item => item.summary?.scheduledDays > 0)
+      .sort((left, right) => left.summary.adherencePercent - right.summary.adherencePercent)
+    return { attention, unreadTotal, appointments, adherence }
+  }, [data])
+
+  if (!ready) return <CoachLoading />
+
+  if (!data && !online) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+    <ErrorState title="Você está offline" text="A visão do coach precisa da conexão para buscar alunos, agenda e mensagens." action={<Button onClick={load}>Tentar novamente</Button>} icon="cloudSlash" />
+  </div></main>
+
+  if (loading && !data) return <CoachLoading />
+
+  if (!data) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+    <ErrorState title="Não foi possível abrir sua visão geral" text="Tente carregar novamente. Seus dados e permissões não foram alterados." action={<Button onClick={load}>Tentar novamente</Button>} />
+  </div></main>
+
+  const firstName = user?.name?.trim().split(/\s+/)[0] || 'Treinador'
+  const today = new Date().toLocaleDateString('pt-BR', { weekday: 'long', day: 'numeric', month: 'long' })
+  const primaryTarget = view.attention.length ? '/professionals' : '/plan'
+  const primaryLabel = view.attention.length ? 'Revisar alunos' : 'Organizar treinos'
+
+  return <main className="ds-scope dashboard-page dashboard-page-coach">
+    <div className="dashboard-shell">
+      <PageHeader
+        eyebrow={`Hoje, ${today}`}
+        title={`Olá, ${firstName}.`}
+        description={view.attention.length
+          ? `${view.attention.length} ${view.attention.length === 1 ? 'aluno precisa' : 'alunos precisam'} da sua atenção.`
+          : 'Sua agenda e seus alunos estão organizados para hoje.'}
+        actions={<Button variant="primary" onClick={() => navigate(primaryTarget)}>{primaryLabel}</Button>}
+      />
+
+      {!online && <Alert tone="warning" title="Sem conexão">
+        Você está vendo os últimos dados carregados. Reconecte para atualizar a visão geral.
+      </Alert>}
+      {!!errors.length && <Alert tone="warning" title="Parte da visão geral não atualizou" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
+        Não foi possível atualizar {errors.join(', ')}. O restante continua disponível.
+      </Alert>}
+
+      <section className="dashboard-priority-grid" aria-label="Prioridades de hoje">
+        <Card className="dashboard-priority-card">
+          <div className="dashboard-section-heading">
+            <div><span className="dashboard-kicker">Prioridade</span><h2>Alunos que exigem atenção</h2></div>
+            {view.attention.length > 0 && <Badge tone="warning">{view.attention.length}</Badge>}
+          </div>
+          {view.attention.length ? <>
+            <ul className="dashboard-list">
+              {view.attention.slice(0, 3).map(({ link, reasons }) => <li key={link.id}>
+                <button type="button" onClick={() => navigate('/professionals')}>
+                  <span><strong>{athleteName(link)}</strong><small>{reasons.join(' · ')}</small></span>
+                  <Icon name="chevronRight" aria-hidden="true" />
+                </button>
+              </li>)}
+            </ul>
+            {view.attention.length > 3 && <details className="dashboard-details"><summary>Ver mais {view.attention.length - 3}</summary>
+              <ul className="dashboard-list compact">{view.attention.slice(3).map(({ link, reasons }) => <li key={link.id}><span><strong>{athleteName(link)}</strong><small>{reasons.join(' · ')}</small></span></li>)}</ul>
+            </details>}
+          </> : <EmptyState title="Nenhuma pendência agora" text="Mensagens, vínculos e check-ins da semana estão em dia." action={<Button onClick={() => navigate('/professionals')}>Ver alunos</Button>} />}
+        </Card>
+
+        <Card className="dashboard-priority-card">
+          <div className="dashboard-section-heading">
+            <div><span className="dashboard-kicker">Agenda</span><h2>Compromissos de hoje</h2></div>
+            {view.appointments.length > 0 && <Badge>{view.appointments.length}</Badge>}
+          </div>
+          {view.appointments.length ? <ul className="dashboard-list">
+            {view.appointments.slice(0, 4).map(item => <li key={item.id}>
+              <span className="dashboard-time">{new Date(item.startAt).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</span>
+              <span><strong>{item.title || 'Sessão'}</strong><small>{item.athlete?.name || 'Aluno'}</small></span>
+            </li>)}
+          </ul> : <EmptyState title="Agenda livre hoje" text="Use este espaço para acompanhar alunos ou preparar os próximos treinos." action={<Button onClick={() => navigate('/scheduling')}>Abrir agenda</Button>} />}
+        </Card>
+      </section>
+
+      <section className="dashboard-secondary" aria-labelledby="coach-pulse-title">
+        <div className="dashboard-section-heading dashboard-section-heading-row">
+          <div><span className="dashboard-kicker">Acompanhamento</span><h2 id="coach-pulse-title">Pulso da semana</h2></div>
+          <Button variant="ghost" onClick={() => navigate('/professionals')}>Ver detalhes</Button>
+        </div>
+        <div className="dashboard-pulse-grid">
+          {view.unreadTotal > 0 && <Surface className="dashboard-pulse-item">
+            <Icon name="chat" aria-hidden="true" /><strong>{view.unreadTotal}</strong><span>{view.unreadTotal === 1 ? 'mensagem não lida' : 'mensagens não lidas'}</span>
+          </Surface>}
+          {view.adherence.slice(0, 3).map(({ link, summary }) => <Surface className="dashboard-pulse-item" key={link.id}>
+            <span className="dashboard-progress-value">{summary.adherencePercent}%</span>
+            <strong>{athleteName(link)}</strong>
+            <span>{summary.completedDays} de {summary.scheduledDays} check-ins concluídos</span>
+          </Surface>)}
+          {!view.unreadTotal && !view.adherence.length && <Surface className="dashboard-pulse-empty">
+            <Icon name="checkCircle" aria-hidden="true" /><span>Sem mensagens pendentes ou dados de adesão para mostrar.</span>
+          </Surface>}
+        </div>
+      </section>
+
+      <nav className="dashboard-quick-actions" aria-label="Ações rápidas">
+        <h2>Ações rápidas</h2>
+        <div>
+          <Button onClick={() => navigate('/professionals')}><Icon name="person" />Alunos</Button>
+          <Button onClick={() => navigate('/plan')}><Icon name="dumbbell" />Treinos</Button>
+          <Button onClick={() => navigate('/scheduling')}><Icon name="calendar" />Agenda</Button>
+          <Button onClick={() => navigate('/community')}><Icon name="trophy" />Comunidade</Button>
+        </div>
+      </nav>
+    </div>
+  </main>
+}

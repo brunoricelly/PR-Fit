@@ -62,6 +62,13 @@ Transformar o PR Fit atual em uma experiência simples, moderna, leve, acessíve
 - Onboarding contextual por papel com checklist persistente, ignorável e retomável.
 - Não inventar dados; cards sem fonte real devem ser omitidos ou neutros.
 
+#### Implementação recortada — dashboards por intenção
+- O recorte aprovado desta etapa moderniza somente `/home`; o onboarding amplo permanece adiado para um checkpoint próprio e não foi iniciado.
+- Coach: alunos vêm de `GET /api/coach/athletes`, mensagens de `GET /api/messages/inbox`, agenda de `GET /api/coach/appointments` e adesão de `GET /api/coach/athletes/{athleteId}/habits-summary` com período de 7 dias.
+- “Exige atenção” é derivado apenas de fatos já carregados: mensagem não lida, vínculo pendente/suspenso ou zero check-ins concluídos quando há dias programados na semana. Nenhum limiar novo de desempenho foi criado.
+- Atleta: treino e progresso semanal usam o estado local sincronizado já existente; alimentação/água usam `GET /api/athlete/meal-plan` e `GET /api/athlete/meal-adherence`; hábitos usam `GET /api/athlete/habits`; agenda usa `GET /api/athlete/appointments`; mensagens usam `GET /api/messages/inbox`.
+- Módulos remotos sem dados são omitidos. O atalho de check-in só aparece quando o módulo está habilitado e já existem cartões de academia.
+
 **Gate:** dados reais/API, estados vazios e offline, testes de persistência do onboarding, E2E dos primeiros passos.
 
 ### Etapa 4 — Simplificação dos fluxos essenciais

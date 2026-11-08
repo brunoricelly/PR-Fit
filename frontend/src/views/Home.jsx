@@ -30,9 +30,21 @@ import { WrappedHomeCard } from '../components/WrappedEntry.jsx'
 import RecoveryHint from '../components/RecoveryHint.jsx'
 import { ChallengesCard } from '../components/Challenges.jsx'
 import { isOn } from '../lib/modules.js'
+import { useActiveRole } from '../lib/roles.js'
+import CoachDashboard from './dashboard/CoachDashboard.jsx'
+import AthleteToday from './dashboard/AthleteToday.jsx'
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {
+  const user = useStore(s => s.user)
+  const [activeRole] = useActiveRole(user)
+
+  if (user?.profile?.kind && activeRole === 'coach') return <CoachDashboard />
+  if (user?.profile?.kind && activeRole === 'athlete') return <AthleteToday />
+  return <LegacyHome />
+}
+
+function LegacyHome() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
   const user = useStore(s => s.user)

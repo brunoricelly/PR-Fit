@@ -2,7 +2,7 @@
 
 ## Escopo
 
-A fundação visual da Etapa 1 vive em `frontend/src/design-system.css` e nos componentes exportados por `frontend/src/components/design-system.jsx`. A primeira adoção está em `/coach/groups`; as demais telas continuam usando os estilos legados até uma migração explícita.
+A fundação visual da Etapa 1 vive em `frontend/src/design-system.css` e nos componentes exportados por `frontend/src/components/design-system.jsx`. As adoções explícitas atuais estão em `/coach/groups` e nos dashboards por papel de `/home`; as demais telas continuam usando os estilos legados até uma migração explícita.
 
 ## Tokens canônicos
 

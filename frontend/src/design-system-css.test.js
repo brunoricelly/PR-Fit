@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 
 const css = readFileSync(join(import.meta.dirname, 'design-system.css'), 'utf8')
 const coachCss = readFileSync(join(import.meta.dirname, 'views/coach/CoachGroupsView.css'), 'utf8')
+const dashboardCss = readFileSync(join(import.meta.dirname, 'views/dashboard/DashboardHome.css'), 'utf8')
 
 function variablesFor(selector) {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -56,5 +57,11 @@ describe('PR Fit semantic tokens', () => {
     expect(coachCss).toContain('@media (max-width:30rem)')
     expect(coachCss).toContain('@media (min-width:48rem)')
     expect(coachCss).toContain('grid-template-columns:repeat(2,minmax(0,1fr))')
+    expect(dashboardCss).toContain('@media (max-width: 30rem)')
+    expect(dashboardCss).toContain('@media (min-width: 48rem)')
+    expect(dashboardCss).toContain('@media (min-width: 64rem)')
+    expect(dashboardCss).toContain('grid-template-columns: repeat(2, minmax(0, 1fr))')
+    expect(dashboardCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
+    expect(dashboardCss).toContain('min-height: 44px')
   })
 })
