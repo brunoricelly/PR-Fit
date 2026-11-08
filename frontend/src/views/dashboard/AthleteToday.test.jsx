@@ -253,4 +253,40 @@ describe('AthleteToday', () => {
     expect(host.textContent).toContain('Mensagens indisponíveis')
     expect(host.textContent).not.toContain('Seu dia está livre')
   })
+
+  it('exibe destaque de nova rotina prescrita pelo coach e permite adoção com 1 toque preservando histórico', async () => {
+    const fakePrescription = {
+      id: 'cpr_99',
+      state: 'available',
+      coach: { name: 'Coach Ricardo' },
+      routine: {
+        name: 'Hipertrofia ABC Pro',
+        divisions: [
+          { id: 'div_1', name: 'A', exercises: [{ name: 'Supino', sets: 4, reps: '8-10' }] },
+          { id: 'div_2', name: 'B', exercises: [{ name: 'Puxada', sets: 4, reps: '8-10' }] },
+        ],
+      },
+    }
+    mocks.api.mockImplementation(path => {
+      if (path === '/api/athlete/prescriptions') return Promise.resolve({ prescriptions: [fakePrescription] })
+      if (path === '/api/athlete/prescriptions/cpr_99/adopt') return Promise.resolve({ prescription: { ...fakePrescription, state: 'adopted' } })
+      if (path === '/api/athlete/meal-plan') return Promise.resolve({ mealPlan: null })
+      return Promise.resolve({ adherenceRecords: [] })
+    })
+
+    await renderToday()
+
+    expect(host.textContent).toContain('Hipertrofia ABC Pro')
+    expect(host.textContent).toContain('Coach Ricardo')
+    expect(host.textContent).toContain('2 divisões')
+    expect(host.textContent).toContain('histórico e marcas anteriores 100% seguros')
+
+    const adoptBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Adotar treino do treinador'))
+    expect(adoptBtn).toBeTruthy()
+
+    await act(async () => { adoptBtn.click() })
+    await settle()
+
+    expect(mocks.api).toHaveBeenCalledWith('/api/athlete/prescriptions/cpr_99/adopt', expect.objectContaining({ method: 'POST' }))
+  })
 })

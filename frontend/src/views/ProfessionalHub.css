@@ -220,3 +220,57 @@
     text-align: center;
   }
 }
+
+/* Checkpoint 4.2: Workout Prescription & Adoption Styling */
+.pro-prescription-session-fields {
+  margin-top: 14px;
+}
+
+.pro-division-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.pro-editor-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.pro-adoption-guarantee {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 0;
+  font-size: var(--fs-footnote);
+  color: var(--label-2);
+}
+
+.pro-exercise-editor {
+  margin: 12px 0;
+  padding: 14px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--separator);
+}
+
+.pro-exercise-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pro-routine-editor,
+  .pro-division-editor,
+  .pro-exercise-editor,
+  .pro-prescription {
+    transition: none !important;
+    animation: none !important;
+  }
+}

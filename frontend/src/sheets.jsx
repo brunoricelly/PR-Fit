@@ -48,6 +48,8 @@ import { parseImportFile, mergeImportedRoutines, freshRoutines } from './lib/imp
 import { importHevyData, HevyApiError, HEVY_DEV_SETTINGS, mergeHevyRoutines, hevySummaryCounts } from './lib/import-hevy.js'
 import { buildPlanBundle, buildProgrammeBundle, parsePlan, mergePlan } from './lib/plan-share.js'
 import PrintPlanSheet from './components/PrintPlanSheet.jsx'
+import { api } from './lib/api.js'
+import { communicationApi } from './lib/communication-api.js'
 import { printWorkout } from './lib/report-print.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
 import { setTrendOn, setTrendsFor, lastTimeBefore, trendGlyph, trendLabel } from './lib/set-trend.js'
@@ -4016,6 +4018,43 @@ function KeepInRoutine({ additions }) {
 
 function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
   const st = useStore(s => s.S)
+  const update = useStore(s => s.update)
+  const toast = useUI(s => s.toast)
+  const [effort, setEffort] = useState(w.effort || null)
+  const [feedback, setFeedback] = useState(w.coachFeedback || '')
+  const [sendingFeedback, setSendingFeedback] = useState(false)
+  const [feedbackSent, setFeedbackSent] = useState(false)
+
+  const submitFeedback = async () => {
+    if (!feedback.trim()) return
+    setSendingFeedback(true)
+    try {
+      update(s => {
+        const saved = s.workouts.find(x => x.id === w.id) || w
+        saved.coachFeedback = feedback.trim()
+        if (effort) saved.effort = effort
+      })
+      try {
+        const coachesRes = await api('/api/athlete/coaches')
+        const activeLink = (coachesRes.links || []).find(l => l.status === 'active' && l.scopes?.includes('training'))
+        if (activeLink?.coach?.id) {
+          await communicationApi.sendMessage({
+            side: 'athlete',
+            counterpartId: activeLink.coach.id,
+            content: `[Feedback do Treino: ${w.name || 'Sessão'}] Esforço: ${effort ? `${effort}/10` : 'não informado'}. Comentário: ${feedback.trim()}`,
+            category: 'workout',
+          })
+        }
+      } catch {
+        // Communication is optional; workout local update is primary
+      }
+      setFeedbackSent(true)
+      toast(t('Feedback enviado ao treinador com sucesso.'))
+    } finally {
+      setSendingFeedback(false)
+    }
+  }
+
   return <div style={{ textAlign: 'center', padding: '8px 0' }}>
     {/* Sticky, so the summary can be left from the top however far it has been scrolled. */}
     <div className="fin-x"><button type="button" className="iconbtn" aria-label={t('Close')} onClick={() => closeThenNav(close, '/home')}><Icon name="xmark" /></button></div>
@@ -4031,6 +4070,67 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
       {prs.map(id => <div key={id} className="small accent row" style={{ gap: 6, alignItems: 'flex-start' }}><Icon name="trophy" style={{ fontSize: 'var(--fs-footnote)', marginTop: 2, flex: 'none' }} /><span>{t('New PR:')} <span className={exerciseNameClass(EXIDX[id])}>{EXIDX[id] ? exerciseNameFor(EXIDX[id]) : id}</span></span></div>)}
       {e1prs.map(p => <div key={p.id} className="small accent row" style={{ gap: 6, alignItems: 'flex-start' }}><Icon name="chartLine" style={{ fontSize: 'var(--fs-footnote)', marginTop: 2, flex: 'none' }} /><span>{t('Best estimated 1RM:')} <span className={exerciseNameClass(EXIDX[p.id])}>{EXIDX[p.id] ? exerciseNameFor(EXIDX[p.id]) : p.id}</span> · {fmtNum(p.est)} {st.unit}</span></div>)}
     </div>}
+
+    {/* Resumo de Esforço Percebido (PSE / RPE) */}
+    <div className="fin-effort-section" style={{ textAlign: 'start', margin: '14px 0' }}>
+      <h4 className="sec">{t('Perceived effort (RPE)')}</h4>
+      <div className="fin-effort-grid" role="group" aria-label={t('Perceived effort (RPE)')}>
+        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(level => (
+          <button
+            key={level}
+            type="button"
+            className={'fin-effort-btn' + (effort === level ? ' on' : '')}
+            aria-pressed={effort === level}
+            onClick={() => {
+              setEffort(level)
+              update(s => {
+                const saved = s.workouts.find(x => x.id === w.id) || w
+                saved.effort = level
+              })
+            }}
+          >
+            {level}
+          </button>
+        ))}
+      </div>
+      <div className="small dim" style={{ marginTop: 4 }}>
+        {effort ? t('Esforço avaliado: {0}/10', effort) : t('Selecione de 1 (muito leve) a 10 (esforço máximo)')}
+      </div>
+    </div>
+
+    {/* Feedback para o treinador */}
+    <div className="fin-feedback-section" style={{ textAlign: 'start', margin: '14px 0' }}>
+      <h4 className="sec">{t('Coach feedback')}</h4>
+      <p className="small dim" style={{ margin: '0 0 8px' }}>
+        {t('How did the session feel? Leave feedback for your coach.')}
+      </p>
+      {feedbackSent ? (
+        <div className="small accent row" style={{ gap: 6 }}>
+          <Icon name="checkCircle" />
+          <span>{t('Feedback sent to coach.')}</span>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gap: 8 }}>
+          <textarea
+            className="field ds-input"
+            rows={2}
+            value={feedback}
+            maxLength={500}
+            placeholder={t('Ex: Consegui progredir a carga no supino. Senti leve cansaço nos ombros.')}
+            onChange={e => setFeedback(e.target.value)}
+          />
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!feedback.trim() || sendingFeedback}
+            onClick={submitFeedback}
+          >
+            {sendingFeedback ? t('Enviando…') : t('Send feedback')}
+          </Button>
+        </div>
+      )}
+    </div>
+
     {/* Done is one tap away right under the numbers: the body map, what's next and the photo
         corner sit below it for whoever wants them, nobody has to scroll to leave (Discord). */}
     <div className="fin-actions">

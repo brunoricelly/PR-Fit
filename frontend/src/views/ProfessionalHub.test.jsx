@@ -354,4 +354,81 @@ describe('ProfessionalHub', () => {
     await mount('/professionals?tab=scheduling')
     expect(host.textContent).toContain('Book session')
   })
+
+  it('validates prescription fields with clear error indicators before dispatching', async () => {
+    const athlete = { id: 'u_athlete_val', name: 'Valdir' }
+    mocks.user = { id: 'u_coach', name: 'Coach', admin: false, profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [{ id: 'cal_1', status: 'active', scopes: ['training'], athlete }] }
+    mocks.answers[`/api/coach/athletes/${athlete.id}/routines`] = { routines: [] }
+    await mount('/professionals')
+
+    await act(async () => { button('Prescribe workout').click() })
+    expect(host.textContent).toContain('New workout prescription')
+
+    // Click Send prescription without filling required fields
+    await act(async () => { button('Send prescription').click() })
+    await settle()
+
+    expect(mocks.toast).toHaveBeenCalledWith('Complete the routine name and every exercise.')
+    expect(host.textContent).toContain('Please complete required fields before sending.')
+    expect(host.textContent).toContain('Routine name is required.')
+
+    // Ensure no POST call was dispatched
+    const postCalls = mocks.calls.filter(c => c.path === `/api/coach/athletes/${athlete.id}/routines` && c.method === 'POST')
+    expect(postCalls.length).toBe(0)
+  })
+
+  it('supports start date, frequency, adding/removing divisions and exercise RPE in routine prescription', async () => {
+    const athlete = { id: 'u_athlete_div', name: 'Davi' }
+    mocks.user = { id: 'u_coach', name: 'Coach', admin: false, profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [{ id: 'cal_1', status: 'active', scopes: ['training'], athlete }] }
+    const route = `/api/coach/athletes/${athlete.id}/routines`
+    mocks.answers[route] = body => body ? {
+      routine: {
+        id: 'cpr_div', state: 'available', createdAt: '2026-11-08T00:00:00.000Z', coach: { id: 'u_coach', name: 'Coach' }, athlete,
+        routine: body.routine,
+      },
+    } : { routines: [] }
+    await mount('/professionals')
+
+    await act(async () => { button('Prescribe workout').click() })
+    await type(host.querySelector('input[name="routineName"]'), 'Ficha Força ABCD')
+    await type(host.querySelector('input[name="routineStartDate"]'), '2026-11-10')
+    await type(host.querySelector('input[name="routineFrequency"]'), '4x por semana')
+
+    // Add 4th division (D)
+    await act(async () => { button('Add division').click() })
+    await settle()
+
+    const divisionInputs = [...host.querySelectorAll('input[name^="division-"]')]
+    expect(divisionInputs.length).toBe(4)
+
+    // Remove 4th division
+    const removeDivButtons = [...host.querySelectorAll('button')].filter(b => b.textContent.trim() === 'Remove division')
+    expect(removeDivButtons.length).toBeGreaterThan(0)
+    await act(async () => { removeDivButtons[removeDivButtons.length - 1].click() })
+    await settle()
+    expect(host.querySelectorAll('input[name^="division-"]').length).toBe(3)
+
+    // Fill exercise names
+    const names = [...host.querySelectorAll('input[name^="exercise-"]')]
+    await type(names[0], 'Levantamento Terra')
+    await type(names[1], 'Barra Fixa')
+    await type(names[2], 'Desenvolvimento Halteres')
+
+    // Fill RPE on first exercise
+    const rpeInput = host.querySelector('input[name="rpe-1-1"]')
+    if (rpeInput) await type(rpeInput, '8.5')
+
+    await act(async () => { button('Send prescription').click() })
+    await settle()
+
+    const create = mocks.calls.find(call => call.path === route && call.method === 'POST')
+    expect(create).toBeDefined()
+    expect(create.body.routine.name).toBe('Ficha Força ABCD')
+    expect(create.body.routine.notes).toContain('Start date: 2026-11-10')
+    expect(create.body.routine.notes).toContain('Recommended frequency: 4x por semana')
+    expect(create.body.routine.divisions[0].exercises[0].notes).toContain('[RPE: 8.5]')
+    expect(mocks.toast).toHaveBeenCalledWith('Workout prescription saved.')
+  })
 })

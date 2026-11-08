@@ -9,6 +9,7 @@ import { queueOf, weekTally } from '../../lib/queue.js'
 import { isOn } from '../../lib/modules.js'
 import { startFlow } from '../../sheets.jsx'
 import { useStore } from '../../store/useStore.js'
+import { useUI } from '../../store/useUI.js'
 import { useOnline } from '../../components/ServerSync.jsx'
 import {
   Alert,
@@ -38,6 +39,7 @@ import './DashboardHome.css'
 const localToday = () => todayISO()
 const sourceEmpty = data => !data || data.length === 0
 const planEmpty = plan => plan === null
+const normalizePrescriptions = payload => (Array.isArray(payload?.prescriptions) ? payload.prescriptions : [])
 
 function AthleteLoading() {
   return <main className="ds-scope dashboard-page dashboard-page-athlete" aria-busy="true" aria-label="Carregando Hoje">
@@ -100,6 +102,9 @@ export default function AthleteToday() {
       habits: dualRole
         ? unavailableSource('Hábitos exigem uma identidade contratualmente autorizada como atleta.')
         : loadingSource(),
+      prescriptions: dualRole
+        ? unavailableSource('Prescrições exigem perfil de atleta.')
+        : loadingSource(),
     }
     setRemoteState({ userId, sources: pendingSources })
     setLoading(true)
@@ -115,8 +120,9 @@ export default function AthleteToday() {
       api('/api/athlete/meal-plan', requestOptions),
       api(`/api/athlete/meal-adherence?date=${date}`, requestOptions),
       dualRole ? Promise.resolve(null) : communicationApi.athleteHabits(browserTimeZone().value, requestOptions),
+      dualRole ? Promise.resolve(null) : api('/api/athlete/prescriptions', requestOptions),
     ]
-    const [inboxResult, appointmentsResult, planResult, adherenceResult, habitsResult] = await Promise.allSettled(requests)
+    const [inboxResult, appointmentsResult, planResult, adherenceResult, habitsResult, prescriptionsResult] = await Promise.allSettled(requests)
     if (!current()) return
 
     const sources = {
@@ -129,6 +135,9 @@ export default function AthleteToday() {
       habits: dualRole
         ? pendingSources.habits
         : settledSource(habitsResult, normalizeHabits, sourceEmpty),
+      prescriptions: dualRole
+        ? pendingSources.prescriptions
+        : settledSource(prescriptionsResult, normalizePrescriptions, sourceEmpty),
     }
     setRemoteState({ userId, sources })
     setLoading(false)
@@ -178,6 +187,27 @@ export default function AthleteToday() {
   const adherence = plan && sourceSucceeded(remote?.nutritionAdherence)
     ? adherenceRecords.find(item => item.mealPlanId === plan.id) || null
     : null
+
+  const pullState = useStore(state => state.pullState)
+  const toast = useUI(state => state.toast)
+  const [adoptingPrescription, setAdoptingPrescription] = useState(null)
+
+  const adoptPrescription = async prescription => {
+    setAdoptingPrescription(prescription.id)
+    try {
+      await api(`/api/athlete/prescriptions/${prescription.id}/adopt`, { method: 'POST', body: '{}' })
+      if (pullState) await pullState()
+      toast('Prescrição aplicada ao seu Plano de Treino.')
+      await load()
+    } catch {
+      toast('Não foi possível adotar a rotina. Tente novamente.')
+    } finally {
+      setAdoptingPrescription(null)
+    }
+  }
+
+  const prescriptions = remote?.prescriptions?.data || []
+  const availablePrescription = prescriptions.find(item => item.state === 'available' || (!item.adoptedRoutineIds?.length && item.state !== 'withdrawn'))
   const checkedMeals = new Set(adherence?.mealsChecked || []).size
   const mealCount = plan?.meals.length || 0
   const water = adherence?.waterDrunkMl || 0
@@ -216,6 +246,42 @@ export default function AthleteToday() {
       </Card>
 
       <FirstSteps key={`${user.id}:athlete`} userId={user.id} role="athlete" steps={athleteSteps} />
+
+      {availablePrescription && (
+        <Card className="athlete-prescription-banner" tone="accent" style={{ margin: '14px 0', border: '1.5px solid var(--acc)' }}>
+          <div className="dashboard-section-heading">
+            <div>
+              <span className="dashboard-kicker">Treino Prescrito</span>
+              <h3>{availablePrescription.routine.name}</h3>
+            </div>
+            <Badge tone="success">Novo</Badge>
+          </div>
+          <p className="dashboard-muted">
+            Prescrito por {availablePrescription.coach?.name || 'Treinador'} · {availablePrescription.routine.divisions.length} divisões
+          </p>
+          {availablePrescription.routine.notes && (
+            <p className="athlete-prescription-notes" style={{ margin: '6px 0', fontSize: 'var(--fs-footnote)' }}>
+              {availablePrescription.routine.notes}
+            </p>
+          )}
+          <p className="athlete-prescription-guarantee" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0', fontSize: 'var(--fs-footnote)', color: 'var(--label-2)' }}>
+            <Icon name="checkCircle" style={{ color: 'var(--green)' }} aria-hidden="true" />
+            <span>Ao adotar, o treino entra como sua rotina ativa mantendo seu histórico e marcas anteriores 100% seguros.</span>
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+            <Button
+              variant="primary"
+              disabled={adoptingPrescription === availablePrescription.id}
+              onClick={() => adoptPrescription(availablePrescription)}
+            >
+              {adoptingPrescription === availablePrescription.id ? 'Adotando…' : 'Adotar treino do treinador'}
+            </Button>
+            <Button variant="ghost" onClick={() => navigate('/professionals')}>
+              Ver detalhes
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {!online && <Alert tone="warning" title="Você está offline">
         O treino continua disponível neste dispositivo. Agenda, mensagens e acompanhamentos serão atualizados quando a conexão voltar.

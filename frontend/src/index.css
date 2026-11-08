@@ -3314,3 +3314,54 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
     display: none;
   }
 }
+
+/* Checkpoint 4.2: Workout Effort, Coach Feedback & Touch Targets */
+.fin-effort-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.fin-effort-btn {
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: var(--r-sm, 10px);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
+  color: var(--label);
+  font-weight: 600;
+  font-size: var(--fs-subhead);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  touch-action: manipulation;
+  transition: background var(--fast) var(--ease), border-color var(--fast) var(--ease), transform var(--fast) var(--ease);
+}
+
+.fin-effort-btn:active {
+  transform: scale(var(--press-scale-sm));
+}
+
+.fin-effort-btn.on {
+  background: var(--acc);
+  color: var(--on-acc);
+  border-color: var(--acc);
+}
+
+.fin-feedback-section textarea {
+  min-height: 44px;
+}
+
+.pro-prescription-banner {
+  border: 1.5px solid var(--acc);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fin-effort-btn,
+  #timer .bar i {
+    transition: none !important;
+    animation: none !important;
+  }
+}

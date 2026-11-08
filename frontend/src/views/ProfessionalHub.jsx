@@ -46,6 +46,10 @@ function PrescriptionSummary({ prescription, action }) {
       <span className={'pro-status ' + prescription.state}>{prescriptionStateLabel(prescription.state)}</span>
     </div>
     {prescription.routine.notes && <p className="pro-routine-note">{prescription.routine.notes}</p>}
+    <p className="pro-adoption-guarantee" style={{ display: 'flex', alignItems: 'center', gap: 6, margin: '8px 0', fontSize: 'var(--fs-footnote)', color: 'var(--label-2)' }}>
+      <Icon name="checkCircle" style={{ color: 'var(--green)' }} />
+      <span>{p('Your previous workout history remains completely intact.')}</span>
+    </p>
     <div className="pro-divisions">{prescription.routine.divisions.map((division, divisionIndex) => <section key={division.id || `${prescription.id}-division-${divisionIndex}`} className="pro-division-summary">
       <h4>{division.name}</h4>
       <div className="pro-exercise-list">{division.exercises.map((exercise, exerciseIndex) => <div key={exercise.id || `${prescription.id}-exercise-${divisionIndex}-${exerciseIndex}`} className="pro-exercise-summary">
@@ -59,33 +63,60 @@ function PrescriptionSummary({ prescription, action }) {
   </article>
 }
 
-function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex, exerciseIndex }) {
+function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex, exerciseIndex, errors = {} }) {
   const field = (key, value) => onChange({ ...exercise, [key]: value })
   const prefix = `${divisionIndex + 1}-${exerciseIndex + 1}`
+  const errKey = `${divisionIndex}-${exerciseIndex}`
   return <div className="pro-exercise-editor">
-    <div className="pro-editor-head"><strong>{p('Exercise {0}', exerciseIndex + 1)}</strong>
-      {canRemove && <Button size="sm" variant="danger" onClick={onRemove}>{p('Remove exercise')}</Button>}</div>
-    <label className="pro-field"><span>{p('Exercise')}</span><TextField name={`exercise-${prefix}`} value={exercise.name} maxLength={120}
-      onChange={event => field('name', event.target.value)} /></label>
-    <div className="pro-grid-fields">
-      <label className="pro-field"><span>{p('Sets')}</span><TextField name={`sets-${prefix}`} inputMode="numeric" value={exercise.sets}
-        onChange={event => field('sets', event.target.value.replace(/\D/g, '').slice(0, 2))} /></label>
-      <label className="pro-field"><span>{p('Repetitions')}</span><TextField name={`reps-${prefix}`} value={exercise.reps} maxLength={40}
-        onChange={event => field('reps', event.target.value)} /></label>
-      <label className="pro-field"><span>{p('Load')}</span><TextField name={`load-${prefix}`} value={exercise.load} maxLength={40}
-        placeholder={p('Example: 60 kg')} onChange={event => field('load', event.target.value)} /></label>
-      <label className="pro-field"><span>{p('Rest (seconds)')}</span><TextField name={`rest-${prefix}`} inputMode="numeric" value={exercise.restSeconds}
-        onChange={event => field('restSeconds', event.target.value.replace(/\D/g, '').slice(0, 4))} /></label>
+    <div className="pro-editor-head">
+      <Badge tone="neutral">{p('Exercise {0}', exerciseIndex + 1)}</Badge>
+      {canRemove && <Button size="sm" variant="danger" onClick={onRemove}>{p('Remove exercise')}</Button>}
     </div>
-    <label className="pro-field"><span>{p('Observations')}</span><TextArea name={`notes-${prefix}`} rows={2} value={exercise.notes} maxLength={500}
-      onChange={event => field('notes', event.target.value)} /></label>
+    <Field label={p('Exercise')} required error={errors[`exercise-${errKey}`]}>
+      <TextField name={`exercise-${prefix}`} value={exercise.name} maxLength={120}
+        placeholder={p('Exercise')} onChange={event => field('name', event.target.value)} />
+    </Field>
+    <div className="pro-grid-fields">
+      <Field label={p('Sets')} required error={errors[`sets-${errKey}`]}>
+        <TextField name={`sets-${prefix}`} inputMode="numeric" value={exercise.sets}
+          onChange={event => field('sets', event.target.value.replace(/\D/g, '').slice(0, 2))} />
+      </Field>
+      <Field label={p('Repetitions')} required error={errors[`reps-${errKey}`]}>
+        <TextField name={`reps-${prefix}`} value={exercise.reps} maxLength={40}
+          placeholder="8-12" onChange={event => field('reps', event.target.value)} />
+      </Field>
+      <Field label={p('Load')}>
+        <TextField name={`load-${prefix}`} value={exercise.load} maxLength={40}
+          placeholder={p('Example: 60 kg')} onChange={event => field('load', event.target.value)} />
+      </Field>
+      <Field label={p('RPE / Intensity')}>
+        <TextField name={`rpe-${prefix}`} value={exercise.rpe || ''} maxLength={40}
+          placeholder={p('Example: RPE 8, RIR 2')} onChange={event => field('rpe', event.target.value)} />
+      </Field>
+      <Field label={p('Rest (seconds)')}>
+        <TextField name={`rest-${prefix}`} inputMode="numeric" value={exercise.restSeconds}
+          onChange={event => field('restSeconds', event.target.value.replace(/\D/g, '').slice(0, 4))} />
+      </Field>
+    </div>
+    <Field label={p('Observations')}>
+      <TextArea name={`notes-${prefix}`} rows={2} value={exercise.notes} maxLength={500}
+        placeholder={p('Observations')} onChange={event => field('notes', event.target.value)} />
+    </Field>
   </div>
 }
 
 function RoutineEditor({ athlete, onCreated, onCancel }) {
   const toast = useUI(state => state.toast)
-  const [routine, setRoutine] = useState(blankRoutine)
+  const [routine, setRoutine] = useState(() => ({
+    name: '',
+    startDate: '',
+    frequency: '3x por semana',
+    notes: '',
+    divisions: ['A', 'B', 'C'].map(name => ({ name, exercises: [blankExercise()] })),
+  }))
+  const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
+
   const updateDivision = (divisionIndex, next) => setRoutine(current => ({
     ...current,
     divisions: current.divisions.map((division, index) => index === divisionIndex ? next : division),
@@ -102,21 +133,73 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
     const division = routine.divisions[divisionIndex]
     updateDivision(divisionIndex, { ...division, exercises: [...division.exercises, blankExercise()] })
   }
+  const addDivision = () => {
+    const nextChar = String.fromCharCode(65 + routine.divisions.length)
+    setRoutine(current => ({
+      ...current,
+      divisions: [...current.divisions, { name: nextChar, exercises: [blankExercise()] }],
+    }))
+  }
+  const removeDivision = divisionIndex => {
+    if (routine.divisions.length <= 1) return
+    setRoutine(current => ({
+      ...current,
+      divisions: current.divisions.filter((_, index) => index !== divisionIndex),
+    }))
+  }
+
+  const validate = current => {
+    const errs = {}
+    if (!current.name.trim()) errs.name = p('Routine name is required.')
+    current.divisions.forEach((division, dIdx) => {
+      if (!division.name.trim()) errs[`division-${dIdx}`] = p('Division name is required.')
+      division.exercises.forEach((exercise, eIdx) => {
+        const key = `${dIdx}-${eIdx}`
+        if (!exercise.name.trim()) errs[`exercise-${key}`] = p('Exercise name is required.')
+        const s = Number(exercise.sets)
+        if (!Number.isInteger(s) || s < 1 || s > 20) errs[`sets-${key}`] = p('Sets must be between 1 and 20.')
+        if (!exercise.reps.trim()) errs[`reps-${key}`] = p('Reps are required.')
+      })
+    })
+    return errs
+  }
+
   const save = async () => {
-    const invalid = !routine.name.trim() || routine.divisions.some(division => !division.name.trim()
-      || division.exercises.some(exercise => !exercise.name.trim() || !exercise.reps.trim() || !Number(exercise.sets)))
-    if (invalid) return toast(p('Complete the routine name and every exercise.'))
+    const errs = validate(routine)
+    setErrors(errs)
+    if (Object.keys(errs).length > 0) {
+      return toast(p('Complete the routine name and every exercise.'))
+    }
     setSaving(true)
     try {
+      const metaParts = []
+      if (routine.startDate) metaParts.push(`${p('Start date')}: ${routine.startDate}`)
+      if (routine.frequency) metaParts.push(`${p('Recommended frequency')}: ${routine.frequency}`)
+      const fullNotes = [
+        metaParts.length ? `[${metaParts.join(' · ')}]` : '',
+        routine.notes.trim(),
+      ].filter(Boolean).join('\n')
+
       const body = {
         routine: {
-          name: routine.name.trim(), notes: routine.notes.trim(),
+          name: routine.name.trim(),
+          notes: fullNotes.slice(0, 1000),
           divisions: routine.divisions.map(division => ({
             name: division.name.trim(),
-            exercises: division.exercises.map(exercise => ({
-              name: exercise.name.trim(), sets: Number(exercise.sets), reps: exercise.reps.trim(), load: exercise.load.trim(),
-              restSeconds: Number(exercise.restSeconds || 0), notes: exercise.notes.trim(),
-            })),
+            exercises: division.exercises.map(exercise => {
+              const notesWithRpe = [
+                exercise.rpe ? `[RPE: ${exercise.rpe.trim()}]` : '',
+                exercise.notes.trim(),
+              ].filter(Boolean).join(' ').slice(0, 500)
+              return {
+                name: exercise.name.trim(),
+                sets: Number(exercise.sets),
+                reps: exercise.reps.trim(),
+                load: exercise.load.trim(),
+                restSeconds: Number(exercise.restSeconds || 0),
+                notes: notesWithRpe,
+              }
+            }),
           })),
         },
       }
@@ -130,19 +213,68 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
   return <section className="card pro-routine-editor" aria-label={p('Prescribe workout for {0}', athlete.name)}>
     <div className="pro-editor-title"><div><h3>{p('New workout prescription')}</h3><p>{p('Build the athlete’s A/B/C split with complete exercise guidance.')}</p></div>
       <Button size="sm" onClick={onCancel}>{p('Cancel')}</Button></div>
-    <label className="pro-field"><span>{p('Routine name')}</span><TextField name="routineName" value={routine.name} maxLength={120}
-      placeholder={p('Example: Hypertrophy ABC')} onChange={event => setRoutine(current => ({ ...current, name: event.target.value }))} /></label>
-    <label className="pro-field"><span>{p('General observations')}</span><TextArea name="routineNotes" rows={3} value={routine.notes} maxLength={1000}
-      onChange={event => setRoutine(current => ({ ...current, notes: event.target.value }))} /></label>
+
+    {Object.keys(errors).length > 0 && (
+      <Alert tone="warning" title={p('Please complete required fields before sending.')} style={{ margin: '10px 0' }} />
+    )}
+
+    <div className="pro-prescription-session-fields">
+      <Field label={p('Routine name')} required error={errors.name}>
+        <TextField name="routineName" value={routine.name} maxLength={120}
+          placeholder={p('Example: Hypertrophy ABC')} onChange={event => {
+            const val = event.target.value
+            setRoutine(current => ({ ...current, name: val }))
+            if (errors.name) setErrors(e => ({ ...e, name: undefined }))
+          }} />
+      </Field>
+
+      <div className="pro-grid-fields">
+        <Field label={p('Start date')}>
+          <TextField type="date" name="routineStartDate" value={routine.startDate}
+            onChange={event => setRoutine(current => ({ ...current, startDate: event.target.value }))} />
+        </Field>
+        <Field label={p('Recommended frequency')}>
+          <TextField name="routineFrequency" value={routine.frequency} maxLength={40}
+            placeholder={p('Example: 3x per week')}
+            onChange={event => setRoutine(current => ({ ...current, frequency: event.target.value }))} />
+        </Field>
+      </div>
+
+      <Field label={p('General observations')}>
+        <TextArea name="routineNotes" rows={3} value={routine.notes} maxLength={1000}
+          onChange={event => setRoutine(current => ({ ...current, notes: event.target.value }))} />
+      </Field>
+    </div>
+
     <div className="pro-division-editors">{routine.divisions.map((division, divisionIndex) => <section key={divisionIndex} className="pro-division-editor">
-      <label className="pro-field"><span>{p('Division')}</span><TextField name={`division-${divisionIndex + 1}`} value={division.name} maxLength={80}
-        onChange={event => updateDivision(divisionIndex, { ...division, name: event.target.value })} /></label>
+      <div className="pro-division-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+        <Field label={p('Division')} required error={errors[`division-${divisionIndex}`]} style={{ flex: 1, margin: 0 }}>
+          <TextField name={`division-${divisionIndex + 1}`} value={division.name} maxLength={80}
+            onChange={event => {
+              const val = event.target.value
+              updateDivision(divisionIndex, { ...division, name: val })
+              if (errors[`division-${divisionIndex}`]) setErrors(e => ({ ...e, [`division-${divisionIndex}`]: undefined }))
+            }} />
+        </Field>
+        {routine.divisions.length > 1 && (
+          <Button size="sm" variant="danger" onClick={() => removeDivision(divisionIndex)}>
+            {p('Remove division')}
+          </Button>
+        )}
+      </div>
+
       {division.exercises.map((exercise, exerciseIndex) => <ExerciseEditor key={exerciseIndex} exercise={exercise}
         divisionIndex={divisionIndex} exerciseIndex={exerciseIndex} canRemove={division.exercises.length > 1}
+        errors={errors}
         onChange={next => updateExercise(divisionIndex, exerciseIndex, next)} onRemove={() => removeExercise(divisionIndex, exerciseIndex)} />)}
+
       <Button size="sm" icon="plus" onClick={() => addExercise(divisionIndex)}>{p('Add exercise')}</Button>
     </section>)}</div>
-    <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
+
+    <div className="pro-editor-footer-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 14 }}>
+      <Button size="sm" icon="plus" onClick={addDivision}>{p('Add division')}</Button>
+      <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
+    </div>
   </section>
 }
 

@@ -81,6 +81,37 @@ const HOLD_KEY_GRACE_MS = 1500
 function StartChooser() {
   const nav = useNavigate()
   const S = useStore(s => s.S)
+  const pullState = useStore(s => s.pullState)
+  const toast = useUI(s => s.toast)
+  const [coachPrescriptions, setCoachPrescriptions] = useState([])
+  const [adoptingId, setAdoptingId] = useState(null)
+
+  useEffect(() => {
+    let active = true
+    api('/api/athlete/prescriptions')
+      .then(res => {
+        if (active && Array.isArray(res?.prescriptions)) {
+          setCoachPrescriptions(res.prescriptions.filter(item => item.state === 'available' || (!item.adoptedRoutineIds?.length && item.state !== 'withdrawn')))
+        }
+      })
+      .catch(() => {})
+    return () => { active = false }
+  }, [])
+
+  const adopt = async cpr => {
+    setAdoptingId(cpr.id)
+    try {
+      await api(`/api/athlete/prescriptions/${cpr.id}/adopt`, { method: 'POST', body: '{}' })
+      if (pullState) await pullState()
+      toast(t('Added to your routines.'))
+      setCoachPrescriptions(prev => prev.filter(p => p.id !== cpr.id))
+    } catch {
+      toast(t('Não foi possível adotar a rotina.'))
+    } finally {
+      setAdoptingId(null)
+    }
+  }
+
   const todayIds = effectiveRoutineIds(S, todayISO())
   const todayRoutines = effectiveRoutines(S, todayISO())
   const todayName = todayRoutines.map(r => r.name).join(' + ')
@@ -89,6 +120,35 @@ function StartChooser() {
   const others = S.routines.filter(r => !idSet.has(r.id))
   return <div className="narrow">
     <div className="hdr"><div><h1>{t('Start workout')}</h1><div className="sub">{t(DAYN[new Date().getDay()])} · {todayRoutines.length ? t('today is {0}', todayName) : t('rest day, but no one’s stopping you')}</div></div></div>
+    {coachPrescriptions.map(cpr => (
+      <div key={cpr.id} className="card pro-prescription-banner" style={{ borderColor: 'var(--acc)', marginBottom: 14 }}>
+        <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 6 }}>
+          <div>
+            <span className="tag acc" style={{ marginBottom: 4 }}>{t('Treino do treinador')}</span>
+            <h2 className="accent" style={{ margin: '4px 0' }}>{cpr.routine.name}</h2>
+            <div className="muted small">
+              {t('Prescrito por {0}', cpr.coach?.name || t('Treinador'))} · {cpr.routine.divisions.length} {t('divisões')} ({cpr.routine.divisions.map(d => d.name).join(', ')})
+            </div>
+          </div>
+          <span className="lrow-i" style={{ width: 38, height: 38, borderRadius: 9, fontSize: 'var(--fs-title2)' }}>
+            <Icon name="sparkles" />
+          </span>
+        </div>
+        {cpr.routine.notes && <p className="muted small" style={{ margin: '8px 0' }}>{cpr.routine.notes}</p>}
+        <p className="small dim" style={{ margin: '6px 0 12px' }}>
+          <Icon name="checkCircle" style={{ verticalAlign: 'middle', marginRight: 4 }} />
+          {t('Ao adotar, o treino prescrito se torna sua rotina ativa. Seu histórico anterior permanece 100% intacto.')}
+        </p>
+        <Button
+          variant="primary"
+          icon="plus"
+          disabled={adoptingId === cpr.id}
+          onClick={() => adopt(cpr)}
+        >
+          {adoptingId === cpr.id ? t('Adding…') : t('Adotar como rotina ativa')}
+        </Button>
+      </div>
+    ))}
     {todayRoutines.length > 0 && <div className="card" style={{ borderColor: 'var(--acc)' }}>
       <h2 className="accent">{t("Today's plan")}{todayOvr ? ' · ' + t('rescheduled') : ''}</h2>
       <div className="row between" style={{ marginBottom: 12 }}>
