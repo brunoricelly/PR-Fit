@@ -1,0 +1,16 @@
+{
+  "exact": [
+    "HH:MM",
+    "https://...",
+    "GRP-XXXX...",
+    "openGym",
+    "PR Fit",
+    "Details",
+    "Check the packs",
+    "State, where they are read from, a sample drawing"
+  ],
+  "patterns": [
+    "^(GET|POST|PUT|PATCH|DELETE) /api/",
+    "^[A-Z0-9_-]{2,12}$"
+  ]
+}

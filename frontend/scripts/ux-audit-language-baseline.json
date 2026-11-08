@@ -1,0 +1,557 @@
+{
+  "generatedFrom": [
+    "frontend/src/views",
+    "frontend/src/components"
+  ],
+  "allowlist": "frontend/scripts/ux-audit-allowlist.json",
+  "findings": [
+    "frontend/src/views/Admin.jsx:jsx-text:(or their sign-in e-mail",
+    "frontend/src/views/Admin.jsx:jsx-text:Give them this code. They choose “Sign in with password” → “Have a reset code from your admin?”, enter their name",
+    "frontend/src/views/Admin.jsx:aria-label:copy code",
+    "frontend/src/views/Admin.jsx:jsx-text:Give them this code. On the sign-in screen they tap “Lost access?” → “I have a code” (or “Use a code from your other device”) and enter it; the device they use gets a new passkey for",
+    "frontend/src/views/Admin.jsx:aria-label:copy code",
+    "frontend/src/views/Admin.jsx:jsx-text:admin",
+    "frontend/src/views/Admin.jsx:jsx-text:owner",
+    "frontend/src/views/Admin.jsx:jsx-text:disabled",
+    "frontend/src/views/Admin.jsx:title:sign-in e-mail",
+    "frontend/src/views/Admin.jsx:jsx-text:Workouts",
+    "frontend/src/views/Admin.jsx:jsx-text:Make owner",
+    "frontend/src/views/Admin.jsx:jsx-text:There is one owner. Handing it over makes you a regular admin.",
+    "frontend/src/views/Admin.jsx:jsx-text:Delete account",
+    "frontend/src/views/Admin.jsx:jsx-text:Deleting removes the account and every trace of its training history from this server.",
+    "frontend/src/views/Admin.jsx:jsx-text:Recovery code",
+    "frontend/src/views/Admin.jsx:jsx-text:Lost every device and passkey? A one-time code gives a new device a passkey for this profile. Works with or without password sign-in.",
+    "frontend/src/views/Admin.jsx:jsx-text:A locked-out owner gets a recovery code from the server itself:",
+    "frontend/src/views/Admin.jsx:jsx-text:Workout history",
+    "frontend/src/views/Admin.jsx:jsx-text:No workouts logged.",
+    "frontend/src/views/Admin.jsx:jsx-text:New code",
+    "frontend/src/views/Admin.jsx:jsx-text:Unused · tap to copy",
+    "frontend/src/views/Admin.jsx:aria-label:copy",
+    "frontend/src/views/Admin.jsx:aria-label:revoke",
+    "frontend/src/views/Admin.jsx:jsx-text:Already used",
+    "frontend/src/views/Admin.jsx:jsx-text:No codes yet. \"New code\" makes one and copies it to your clipboard.",
+    "frontend/src/views/Admin.jsx:jsx-text:Activity log",
+    "frontend/src/views/Admin.jsx:aria-label:clear log",
+    "frontend/src/views/Admin.jsx:jsx-text:failed",
+    "frontend/src/views/Admin.jsx:jsx-text:admin",
+    "frontend/src/views/Admin.jsx:jsx-text:Nothing logged yet.",
+    "frontend/src/views/Admin.jsx:jsx-text:Show more",
+    "frontend/src/views/Admin.jsx:aria-label:Back",
+    "frontend/src/views/Admin.jsx:jsx-text:Admin",
+    "frontend/src/views/Admin.jsx:aria-label:refresh",
+    "frontend/src/views/Admin.jsx:jsx-text:Try again",
+    "frontend/src/views/Admin.jsx:jsx-text:Users",
+    "frontend/src/views/Admin.jsx:jsx-text:Training now",
+    "frontend/src/views/Admin.jsx:jsx-text:Active 7 days",
+    "frontend/src/views/Admin.jsx:jsx-text:Disabled",
+    "frontend/src/views/Admin.jsx:jsx-text:Training now",
+    "frontend/src/views/Admin.jsx:jsx-text:Sessions running at this moment. Tap a name for details.",
+    "frontend/src/views/Admin.jsx:jsx-text:Users",
+    "frontend/src/views/Admin.jsx:jsx-text:Everyone with a profile on this instance. Tap one to see their activity, to disable the account (nothing is deleted) or to delete it with all their data for good.",
+    "frontend/src/views/Admin.jsx:jsx-text:disabled",
+    "frontend/src/views/Admin.jsx:title:sign-in e-mail",
+    "frontend/src/views/Admin.jsx:jsx-text:No users yet.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:COACH_DISABLED",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Force-disabled by",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:in the server's environment. Remove that variable and restart to configure the Coach here.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:An optional coach that designs training plans and reviews what people actually log. Off right now, so nobody sees it anywhere in the app.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:An API key from Anthropic, OpenAI or Gemini, or a free local model via Ollama.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:A strict allowlist decides what leaves; every change needs the user's yes and can be undone.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Each user decides.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Turning it on only makes the Coach available; every person consents for themselves.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Set up the Coach",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Pick who answers. A key or token you save stays with its provider, so you can switch back and forth without pasting it again.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:, or a gateway of your own. The base as your provider documents it, with or without its version (",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:), and no key in the URL.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:The address of any server that speaks OpenAI's chat API:",
+    "frontend/src/views/AdminCoach.jsx:placeholder:http://ollama:11434 or https://openrouter.ai/api",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:The host is written to the job log, so you can always see where requests went.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:— those are refused.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:or",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:per line, sent with every request to this endpoint. For gateways that demand routing headers. Never",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Add Claude Code token",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Sends one tiny question to the provider and checks the answer. No training data is involved. Do this after every change above.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Test the Coach",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Failed",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:How many Coach runs are allowed per day. Every run is one request on the provider account above. 0 means no limit.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Per user, per day",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:How long a chat message, refinement or review note can be. The chat composer and the server both enforce this.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Compare with others",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Let people compare with each other.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Activity",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:No jobs yet.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:Counts and outcomes only. What people asked the Coach, and what it answered, is never shown here.",
+    "frontend/src/views/AdminCoach.jsx:jsx-text:can't be read",
+    "frontend/src/views/AdminCoach.jsx:placeholder:whose account is this? (e.g. you@example.com)"
+  ],
+  "details": [
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 40,
+      "kind": "jsx-text",
+      "value": "(or their sign-in e-mail"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 40,
+      "kind": "jsx-text",
+      "value": "Give them this code. They choose “Sign in with password” → “Have a reset code from your admin?”, enter their name"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 41,
+      "kind": "aria-label",
+      "value": "copy code"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 53,
+      "kind": "jsx-text",
+      "value": "Give them this code. On the sign-in screen they tap “Lost access?” → “I have a code” (or “Use a code from your other device”) and enter it; the device they use gets a new passkey for"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 54,
+      "kind": "aria-label",
+      "value": "copy code"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 132,
+      "kind": "jsx-text",
+      "value": "admin"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 132,
+      "kind": "jsx-text",
+      "value": "owner"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 133,
+      "kind": "jsx-text",
+      "value": "disabled"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 137,
+      "kind": "title",
+      "value": "sign-in e-mail"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 143,
+      "kind": "jsx-text",
+      "value": "Workouts"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 157,
+      "kind": "jsx-text",
+      "value": "Make owner"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 158,
+      "kind": "jsx-text",
+      "value": "There is one owner. Handing it over makes you a regular admin."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 183,
+      "kind": "jsx-text",
+      "value": "Delete account"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 185,
+      "kind": "jsx-text",
+      "value": "Deleting removes the account and every trace of its training history from this server."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 194,
+      "kind": "jsx-text",
+      "value": "Recovery code"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 195,
+      "kind": "jsx-text",
+      "value": "Lost every device and passkey? A one-time code gives a new device a passkey for this profile. Works with or without password sign-in."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 197,
+      "kind": "jsx-text",
+      "value": "A locked-out owner gets a recovery code from the server itself:"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 198,
+      "kind": "jsx-text",
+      "value": "Workout history"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 205,
+      "kind": "jsx-text",
+      "value": "No workouts logged."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 225,
+      "kind": "jsx-text",
+      "value": "New code"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 232,
+      "kind": "jsx-text",
+      "value": "Unused · tap to copy"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 236,
+      "kind": "aria-label",
+      "value": "copy"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 237,
+      "kind": "aria-label",
+      "value": "revoke"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 242,
+      "kind": "jsx-text",
+      "value": "Already used"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 247,
+      "kind": "jsx-text",
+      "value": "No codes yet. \"New code\" makes one and copies it to your clipboard."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 279,
+      "kind": "jsx-text",
+      "value": "Activity log"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 281,
+      "kind": "aria-label",
+      "value": "clear log"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 298,
+      "kind": "jsx-text",
+      "value": "failed"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 299,
+      "kind": "jsx-text",
+      "value": "admin"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 305,
+      "kind": "jsx-text",
+      "value": "Nothing logged yet."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 307,
+      "kind": "jsx-text",
+      "value": "Show more"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 354,
+      "kind": "aria-label",
+      "value": "Back"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 355,
+      "kind": "jsx-text",
+      "value": "Admin"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 357,
+      "kind": "aria-label",
+      "value": "refresh"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 365,
+      "kind": "jsx-text",
+      "value": "Try again"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 372,
+      "kind": "jsx-text",
+      "value": "Users"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 373,
+      "kind": "jsx-text",
+      "value": "Training now"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 374,
+      "kind": "jsx-text",
+      "value": "Active 7 days"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 375,
+      "kind": "jsx-text",
+      "value": "Disabled"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 379,
+      "kind": "jsx-text",
+      "value": "Training now"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 380,
+      "kind": "jsx-text",
+      "value": "Sessions running at this moment. Tap a name for details."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 395,
+      "kind": "jsx-text",
+      "value": "Users"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 396,
+      "kind": "jsx-text",
+      "value": "Everyone with a profile on this instance. Tap one to see their activity, to disable the account (nothing is deleted) or to delete it with all their data for good."
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 399,
+      "kind": "jsx-text",
+      "value": "disabled"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 401,
+      "kind": "title",
+      "value": "sign-in e-mail"
+    },
+    {
+      "file": "frontend/src/views/Admin.jsx",
+      "line": 404,
+      "kind": "jsx-text",
+      "value": "No users yet."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 120,
+      "kind": "jsx-text",
+      "value": "COACH_DISABLED"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 120,
+      "kind": "jsx-text",
+      "value": "Force-disabled by"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 120,
+      "kind": "jsx-text",
+      "value": "in the server's environment. Remove that variable and restart to configure the Coach here."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 169,
+      "kind": "jsx-text",
+      "value": "An optional coach that designs training plans and reviews what people actually log. Off right now, so nobody sees it anywhere in the app."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 171,
+      "kind": "jsx-text",
+      "value": "An API key from Anthropic, OpenAI or Gemini, or a free local model via Ollama."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 172,
+      "kind": "jsx-text",
+      "value": "A strict allowlist decides what leaves; every change needs the user's yes and can be undone."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 173,
+      "kind": "jsx-text",
+      "value": "Each user decides."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 173,
+      "kind": "jsx-text",
+      "value": "Turning it on only makes the Coach available; every person consents for themselves."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 175,
+      "kind": "jsx-text",
+      "value": "Set up the Coach"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 197,
+      "kind": "jsx-text",
+      "value": "Pick who answers. A key or token you save stays with its provider, so you can switch back and forth without pasting it again."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 212,
+      "kind": "jsx-text",
+      "value": ", or a gateway of your own. The base as your provider documents it, with or without its version ("
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 212,
+      "kind": "jsx-text",
+      "value": "), and no key in the URL."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 212,
+      "kind": "jsx-text",
+      "value": "The address of any server that speaks OpenAI's chat API:"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 215,
+      "kind": "placeholder",
+      "value": "http://ollama:11434 or https://openrouter.ai/api"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 218,
+      "kind": "jsx-text",
+      "value": "The host is written to the job log, so you can always see where requests went."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 230,
+      "kind": "jsx-text",
+      "value": "— those are refused."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 230,
+      "kind": "jsx-text",
+      "value": "or"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 230,
+      "kind": "jsx-text",
+      "value": "per line, sent with every request to this endpoint. For gateways that demand routing headers. Never"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 262,
+      "kind": "jsx-text",
+      "value": "Add Claude Code token"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 294,
+      "kind": "jsx-text",
+      "value": "Sends one tiny question to the provider and checks the answer. No training data is involved. Do this after every change above."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 296,
+      "kind": "jsx-text",
+      "value": "Test the Coach"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 304,
+      "kind": "jsx-text",
+      "value": "Failed"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 317,
+      "kind": "jsx-text",
+      "value": "How many Coach runs are allowed per day. Every run is one request on the provider account above. 0 means no limit."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 318,
+      "kind": "jsx-text",
+      "value": "Per user, per day"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 324,
+      "kind": "jsx-text",
+      "value": "How long a chat message, refinement or review note can be. The chat composer and the server both enforce this."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 333,
+      "kind": "jsx-text",
+      "value": "Compare with others"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 336,
+      "kind": "jsx-text",
+      "value": "Let people compare with each other."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 363,
+      "kind": "jsx-text",
+      "value": "Activity"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 383,
+      "kind": "jsx-text",
+      "value": "No jobs yet."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 384,
+      "kind": "jsx-text",
+      "value": "Counts and outcomes only. What people asked the Coach, and what it answered, is never shown here."
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 411,
+      "kind": "jsx-text",
+      "value": "can't be read"
+    },
+    {
+      "file": "frontend/src/views/AdminCoach.jsx",
+      "line": 469,
+      "kind": "placeholder",
+      "value": "whose account is this? (e.g. you@example.com)"
+    }
+  ]
+}
