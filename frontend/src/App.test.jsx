@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEF, useStore } from './store/useStore.js'
 import TabBar from './components/TabBar.jsx'
 import RoleSwitcher from './components/RoleSwitcher.jsx'
-import { getActiveRole, setActiveRole, isDualRoleUser } from './lib/roles.js'
+import { getActiveRole, setActiveRole, isDualRoleUser, clearRoleStorage } from './lib/roles.js'
 import { setLang } from './lib/i18n.js'
 import CoachGroupsView from './views/coach/CoachGroupsView.jsx'
 import CoachChallengesView from './views/coach/CoachChallengesView.jsx'
@@ -67,6 +67,7 @@ beforeEach(async () => {
   localStorage.clear()
   mocks.api.mockResolvedValue({ links: [] })
   vi.clearAllMocks()
+  mocks.user = null
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -277,6 +278,8 @@ describe('Dual-Role Mode Switching & Persistence', () => {
 
     expect(coachTab.getAttribute('aria-selected')).toBe('true')
     expect(athleteTab.getAttribute('aria-selected')).toBe('false')
+    expect(coachTab.hasAttribute('aria-controls')).toBe(false)
+    expect(athleteTab.hasAttribute('aria-controls')).toBe(false)
 
     await act(async () => {
       athleteTab.click()
@@ -308,5 +311,49 @@ describe('Dual-Role Mode Switching & Persistence', () => {
     expect(host.textContent).toContain('Evolução')
     expect(host.textContent).toContain('Perfil')
     expect(host.textContent).not.toContain('Alunos')
+  })
+
+  it('does not display role switcher in CommunityHub for standard athlete users', async () => {
+    const athleteUser = {
+      id: 'athlete_standard_1',
+      name: 'Standard Athlete',
+      profile: { kind: 'athlete' },
+    }
+    mocks.user = athleteUser
+    await mount(<CommunityHub />, '/community')
+
+    const switcher = host.querySelector('[aria-label="Role switch"], [aria-label="Alternar papel"]')
+    expect(switcher).toBeNull()
+    expect(host.textContent).not.toContain('Coach view')
+    expect(host.textContent).not.toContain('Athlete view')
+  })
+
+  it('displays role switcher in CommunityHub for verified dual-role users', async () => {
+    const coachUser = {
+      id: 'coach_dual_1',
+      name: 'Coach Bruno',
+      profile: { kind: 'coach' },
+    }
+    mocks.user = coachUser
+    await mount(<CommunityHub />, '/community')
+
+    const switcher = host.querySelector('[aria-label="Role switch"], [aria-label="Alternar papel"]')
+    expect(switcher).toBeTruthy()
+    expect(host.textContent).toContain('Coach view')
+    expect(host.textContent).toContain('Athlete view')
+  })
+
+  it('cleans up prfit_active_role keys on clearRoleStorage', () => {
+    localStorage.setItem('prfit_active_role', 'coach')
+    localStorage.setItem('prfit_active_role_user_1', 'athlete')
+    localStorage.setItem('prfit_active_role_user_2', 'coach')
+    localStorage.setItem('other_app_key', 'preserve')
+
+    clearRoleStorage()
+
+    expect(localStorage.getItem('prfit_active_role')).toBeNull()
+    expect(localStorage.getItem('prfit_active_role_user_1')).toBeNull()
+    expect(localStorage.getItem('prfit_active_role_user_2')).toBeNull()
+    expect(localStorage.getItem('other_app_key')).toBe('preserve')
   })
 })

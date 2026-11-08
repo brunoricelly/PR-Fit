@@ -31,6 +31,7 @@ import { DEFAULT_TEMPLATE_ID } from '../lib/structuralBalanceTemplates.js'
 import { WC_DEFAULT } from '../lib/workout-controls.js'
 import { sanitizeAccent } from '../lib/accent.js'
 import { registerExerciseAliases } from '../lib/exercise-aliases.js'
+import { clearRoleStorage } from '../lib/roles.js'
 
 const KEY = 'gym_state_v1'
 // Where the saved copy stands with the server: the revision it descends from, and its own `_ts`
@@ -1029,6 +1030,7 @@ export const useStore = create((set, get) => {
     localStorage.removeItem(KEY)
     localStorage.removeItem('gym_owner_name')
     localStorage.removeItem('gym_owner')
+    clearRoleStorage()
     seenOwner = null   // a guest's tab now: it joins what other signed-out tabs save (as setUser)
     handedOver = false
     // Signed out, this device is nobody's: the sign-in screen is in the instance's language.

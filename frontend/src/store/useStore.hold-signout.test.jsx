@@ -49,4 +49,15 @@ describe('signing out while a sign-in is held', () => {
     expect(ids(S.workouts)).toEqual(['g1', 'g2', 'h1', 'w1'])
     expect(S.restSec).toBe(70)   // the account's settings
   })
+
+  it('cleans up prfit_active_role storage items upon sign-out', async () => {
+    localStorage.setItem('prfit_active_role', 'coach')
+    localStorage.setItem('prfit_active_role_u1', 'athlete')
+    const U = { id: 'u1', name: 'Olga' }
+    useStore.getState().setUser(U)
+    api.mockResolvedValue({ ok: true })
+    await useStore.getState().signOut({ force: true })
+    expect(localStorage.getItem('prfit_active_role')).toBeNull()
+    expect(localStorage.getItem('prfit_active_role_u1')).toBeNull()
+  })
 })

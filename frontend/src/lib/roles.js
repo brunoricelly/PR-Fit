@@ -61,6 +61,29 @@ export function setActiveRole(user, role) {
 }
 
 /**
+ * Clears active role storage keys (both global and per-user) from localStorage.
+ */
+export function clearRoleStorage() {
+  try {
+    const keysToRemove = []
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i)
+      if (key && (key === GLOBAL_ROLE_STORAGE_KEY || key.startsWith(ROLE_STORAGE_KEY_PREFIX))) {
+        keysToRemove.push(key)
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key)
+    }
+  } catch {
+    // localStorage might not be accessible
+  }
+}
+
+export const clearActiveRoleStorage = clearRoleStorage
+
+
+/**
  * React hook that returns [activeRole, setActiveRole, isDualRole].
  * Automatically updates when the role changes from anywhere in the app.
  */

@@ -15,7 +15,6 @@ export default function RoleSwitcher({ activeRole, onSwitch, className = '' }) {
           role="tab"
           id="role-tab-coach"
           aria-selected={activeRole === 'coach'}
-          aria-controls="role-panel"
           className={`ds-role-tab ${activeRole === 'coach' ? 'active' : ''}`}
           onClick={() => onSwitch('coach')}
         >
@@ -27,7 +26,6 @@ export default function RoleSwitcher({ activeRole, onSwitch, className = '' }) {
           role="tab"
           id="role-tab-athlete"
           aria-selected={activeRole === 'athlete'}
-          aria-controls="role-panel"
           className={`ds-role-tab ${activeRole === 'athlete' ? 'active' : ''}`}
           onClick={() => onSwitch('athlete')}
         >

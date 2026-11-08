@@ -49,7 +49,7 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
 
   const [section, setSection] = useState(querySection)
 
-  const canSwitchRole = isCoach || user?.profile
+  const canSwitchRole = isDual
 
   return (
     <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
