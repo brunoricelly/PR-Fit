@@ -31,6 +31,7 @@
 .pro-trust-note{color:var(--label-2);font-size:var(--fs-footnote);margin:0}
 .pro-load-error{align-items:flex-start;display:flex;flex-direction:column;gap:12px}
 .pro-load-error p{margin:0}
+.pro-load-inline .btn,.pro-load-inline .ds-button{min-height:44px}
 .pro-prescription-panel{margin-top:16px;padding-top:14px;border-top:1px solid var(--separator)}
 .pro-panel-head,.pro-editor-title,.pro-editor-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .pro-panel-head{align-items:center}.pro-panel-head>strong{font-size:var(--fs-subhead)}

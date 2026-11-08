@@ -14,7 +14,8 @@ vi.mock('../lib/api.js', () => ({
   api: vi.fn(async (path, opts) => {
     const body = opts?.body ? JSON.parse(opts.body) : null
     mocks.calls.push({ path, method: opts?.method || 'GET', body })
-    const key = Object.keys(mocks.answers).find(candidate => candidate.endsWith('*') ? path.startsWith(candidate.slice(0, -1)) : candidate === path)
+    const basePath = path.split('?')[0]
+    const key = Object.keys(mocks.answers).find(candidate => candidate.endsWith('*') ? path.startsWith(candidate.slice(0, -1)) : candidate === path || candidate === basePath)
     const answer = mocks.answers[key]
     if (answer instanceof Error) throw answer
     return typeof answer === 'function' ? answer(body, opts, path) : answer ?? {}
@@ -32,10 +33,10 @@ beforeEach(() => {
 })
 afterEach(async () => {
   await act(async () => root.unmount())
-  const actWarnings = consoleError.mock.calls.filter(args => args.some(value => String(value).includes('act(')))
+  const reactWarnings = consoleError.mock.calls.filter(args => args.some(value => /act\(|unique "key"/i.test(String(value))))
   consoleError.mockRestore()
   host.remove()
-  expect(actWarnings).toEqual([])
+  expect(reactWarnings).toEqual([])
 })
 
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -62,6 +63,14 @@ const mealPlan = {
     fiber: 1, substitutes: [{ name: 'Whey', portion: '30g' }] }] }],
   notes: 'Hidratar ao acordar.', coach: { name: 'Nutri' }, athlete: { name: 'Ana' }, createdAt: 1, updatedAt: 1,
 }
+const adherenceRecord = ({ id, mealPlanId = mealPlan.id, date = '2026-11-08', updatedAt = 1, title = mealPlan.title } = {}) => ({
+  id, athleteId: 'u_athlete', mealPlanId, date, mealsChecked: ['m_1'], waterDrunkMl: 2000, notes: '', updatedAt,
+  planSnapshot: {
+    version: 1, nutritionContractVersion: 2, title, targetCalories: 2000,
+    targetMacros: { protein: 150, carbs: 250, fats: 65, fiber: 30, waterMl: 2500 },
+    meals: [{ id: 'm_1', name: 'Dia', time: '08:00', items: [] }, { id: 'm_2', name: 'Noite', time: '20:00', items: [] }], notes: '',
+  },
+})
 
 it('uses the shared nutrition boundary matrix and rejects non-finite editor values', () => {
   const base = {
@@ -274,6 +283,142 @@ describe('nutrition phase 4 views', () => {
     expect(host.textContent).toContain('1/2 (50%)')
     expect(host.textContent).toContain('3000 / 4000 ml (75%)')
     expect(host.querySelector('.nutrition-adherence-day .ds-badge.success')).toBeNull()
+  })
+
+  it('loads every adherence page so page-two plans and tombstones remain represented', async () => {
+    const plansRoute = '/api/coach/athletes/u_athlete/meal-plans'
+    const adherenceRoute = '/api/coach/athletes/u_athlete/meal-adherence'
+    const archivedPlan = { ...mealPlan, id: 'mp_page_two', title: 'Plano arquivado da página 2', status: 'archived' }
+    mocks.answers[plansRoute] = { mealPlans: [mealPlan, archivedPlan] }
+    const firstPage = Array.from({ length: 50 }, (_, index) => adherenceRecord({
+      id: `adh_${String(index).padStart(2, '0')}`,
+      updatedAt: 1000 - index,
+    }))
+    mocks.answers[adherenceRoute] = (_body, _opts, path) => {
+      const cursor = new URL(path, 'http://test').searchParams.get('cursor')
+      if (!cursor) return {
+        adherence: firstPage,
+        page: { limit: 50, hasMore: true, nextCursor: 'page-two' },
+        quota: { used: 52, limit: 1000, retentionDays: 730 },
+      }
+      expect(cursor).toBe('page-two')
+      return {
+        adherence: [
+          adherenceRecord({ id: 'adh_page_two', mealPlanId: archivedPlan.id, updatedAt: 950, title: archivedPlan.title }),
+          adherenceRecord({ id: 'adh_tombstone', mealPlanId: 'mp_deleted_late', updatedAt: 949, title: 'Tombstone posterior' }),
+        ],
+        page: { limit: 50, hasMore: false, nextCursor: null },
+        quota: { used: 52, limit: 1000, retentionDays: 730 },
+      }
+    }
+
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('Plano arquivado da página 2')
+    expect(host.textContent).toContain('Tombstone posterior')
+    expect(host.textContent).toContain('Deleted plan history')
+    const adherenceCalls = mocks.calls.filter(call => call.path.startsWith(adherenceRoute))
+    expect(adherenceCalls).toHaveLength(2)
+    expect(adherenceCalls[0].path).toContain('limit=50')
+    expect(adherenceCalls[1].path).toContain('cursor=page-two')
+  })
+
+  it('preserves page-one history and offers retry when page two fails', async () => {
+    const plansRoute = '/api/coach/athletes/u_athlete/meal-plans'
+    const adherenceRoute = '/api/coach/athletes/u_athlete/meal-adherence'
+    const pageTwoPlan = { ...mealPlan, id: 'mp_page_two', title: 'Plano sem página carregada', status: 'archived' }
+    mocks.answers[plansRoute] = { mealPlans: [mealPlan, pageTwoPlan] }
+    let failSecondPage = true
+    mocks.answers[adherenceRoute] = (_body, _opts, path) => {
+      const cursor = new URL(path, 'http://test').searchParams.get('cursor')
+      if (!cursor) return {
+        adherence: [adherenceRecord({ id: 'adh_recovered', updatedAt: 2 })],
+        page: { limit: 50, hasMore: true, nextCursor: 'second' },
+        quota: { used: 2, limit: 1000, retentionDays: 730 },
+      }
+      if (failSecondPage) throw new Error('page two offline')
+      return {
+        adherence: [adherenceRecord({ id: 'adh_second', mealPlanId: pageTwoPlan.id, updatedAt: 1, title: pageTwoPlan.title })],
+        page: { limit: 50, hasMore: false, nextCursor: null },
+        quota: { used: 2, limit: 1000, retentionDays: 730 },
+      }
+    }
+
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('Adherence history is incomplete. Showing 1 recovered check-ins.')
+    expect(host.textContent).toContain('08/11/2026')
+    expect(host.textContent).toContain('Full adherence history is unavailable.')
+    expect(host.textContent).not.toContain('No meal check-ins yet.')
+    failSecondPage = false
+    await click(button('Try again'))
+    await settle()
+    expect(host.textContent).toContain(pageTwoPlan.title)
+    expect(host.textContent).not.toContain('Adherence history is incomplete.')
+  })
+
+  it('stops repeated cursors without looping and keeps the valid pages already received', async () => {
+    const plansRoute = '/api/coach/athletes/u_athlete/meal-plans'
+    const adherenceRoute = '/api/coach/athletes/u_athlete/meal-adherence'
+    mocks.answers[plansRoute] = { mealPlans: [mealPlan] }
+    mocks.answers[adherenceRoute] = (_body, _opts, path) => {
+      const cursor = new URL(path, 'http://test').searchParams.get('cursor')
+      return cursor ? {
+        adherence: [adherenceRecord({ id: 'adh_loop_2', updatedAt: 1 })],
+        page: { limit: 50, hasMore: true, nextCursor: 'loop' },
+        quota: { used: 2, limit: 1000, retentionDays: 730 },
+      } : {
+        adherence: [adherenceRecord({ id: 'adh_loop_1', updatedAt: 2 })],
+        page: { limit: 50, hasMore: true, nextCursor: 'loop' },
+        quota: { used: 2, limit: 1000, retentionDays: 730 },
+      }
+    }
+
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('Adherence history is incomplete. Showing 2 recovered check-ins.')
+    expect(mocks.calls.filter(call => call.path.startsWith(adherenceRoute))).toHaveLength(2)
+  })
+
+  it('deduplicates adherence IDs across page boundaries', async () => {
+    const plansRoute = '/api/coach/athletes/u_athlete/meal-plans'
+    const adherenceRoute = '/api/coach/athletes/u_athlete/meal-adherence'
+    const duplicate = adherenceRecord({ id: 'adh_duplicate', updatedAt: 2 })
+    mocks.answers[plansRoute] = { mealPlans: [mealPlan] }
+    mocks.answers[adherenceRoute] = (_body, _opts, path) => new URL(path, 'http://test').searchParams.has('cursor') ? {
+      adherence: [duplicate, adherenceRecord({ id: 'adh_unique', updatedAt: 1 })],
+      page: { limit: 50, hasMore: false, nextCursor: null },
+      quota: { used: 2, limit: 1000, retentionDays: 730 },
+    } : {
+      adherence: [duplicate],
+      page: { limit: 50, hasMore: true, nextCursor: 'next' },
+      quota: { used: 2, limit: 1000, retentionDays: 730 },
+    }
+
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('2 registros')
+    expect(host.querySelectorAll('.nutrition-adherence-day')).toHaveLength(2)
+  })
+
+  it('rejects out-of-order later pages as partial instead of accepting a corrupt global history', async () => {
+    const plansRoute = '/api/coach/athletes/u_athlete/meal-plans'
+    const adherenceRoute = '/api/coach/athletes/u_athlete/meal-adherence'
+    mocks.answers[plansRoute] = { mealPlans: [mealPlan] }
+    mocks.answers[adherenceRoute] = (_body, _opts, path) => new URL(path, 'http://test').searchParams.has('cursor') ? {
+      adherence: [adherenceRecord({ id: 'adh_newer_late', updatedAt: 3 })],
+      page: { limit: 50, hasMore: false, nextCursor: null },
+      quota: { used: 2, limit: 1000, retentionDays: 730 },
+    } : {
+      adherence: [adherenceRecord({ id: 'adh_first', updatedAt: 2 })],
+      page: { limit: 50, hasMore: true, nextCursor: 'next' },
+      quota: { used: 2, limit: 1000, retentionDays: 730 },
+    }
+
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('Adherence history is incomplete. Showing 1 recovered check-ins.')
+    expect(host.querySelectorAll('.nutrition-adherence-day')).toHaveLength(1)
   })
 
   it('keeps valid plans visible when adherence is unavailable and retries only that state', async () => {

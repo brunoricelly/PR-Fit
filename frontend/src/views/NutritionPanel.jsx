@@ -4,7 +4,7 @@ import { professionalError, professionalText as p } from '../lib/professional-co
 import { useUI } from '../store/useUI.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
-import { Alert, Badge, EmptyState } from '../components/design-system.jsx'
+import { Alert, Badge, EmptyState, Skeleton } from '../components/design-system.jsx'
 import {
   NUTRITION_CONTRACT_VERSION, NUTRITION_TOLERANCES, nutritionPlanIssues, nutritionTotals,
 } from '../../../api/nutrition-contract.js'
@@ -119,6 +119,7 @@ const validAdherenceEnvelope = value => value && Array.isArray(value.adherence)
   && typeof value.page.hasMore === 'boolean' && (value.page.nextCursor === null || typeof value.page.nextCursor === 'string')
   && value.quota && Number.isInteger(value.quota.used) && value.quota.used >= 0
   && Number.isInteger(value.quota.limit) && value.quota.limit >= 1
+  && value.quota.used <= value.quota.limit
   && Number.isInteger(value.quota.retentionDays) && value.quota.retentionDays >= 1
   && value.adherence.every(item => (
     item && typeof item.id === 'string' && typeof item.athleteId === 'string' && typeof item.mealPlanId === 'string'
@@ -126,6 +127,55 @@ const validAdherenceEnvelope = value => value && Array.isArray(value.adherence)
     && Number.isFinite(item.waterDrunkMl) && typeof item.notes === 'string' && Number.isFinite(item.updatedAt)
     && validSnapshot(item.planSnapshot)
   ))
+const ADHERENCE_PAGE_LIMIT = 50
+const ADHERENCE_MAX_PAGES = 20
+const ADHERENCE_MAX_ITEMS = ADHERENCE_PAGE_LIMIT * ADHERENCE_MAX_PAGES
+const adherenceNewestFirst = (left, right) => right.date.localeCompare(left.date)
+  || right.updatedAt - left.updatedAt || String(right.id).localeCompare(String(left.id))
+const adherenceFailure = (error, data, quota) => Object.assign(new Error(error?.message || 'adherence history unavailable'), {
+  cause: error,
+  partialData: data,
+  quota,
+})
+const fetchAdherenceHistory = async (athleteId, signal) => {
+  const records = new Map()
+  const seenCursors = new Set()
+  let cursor = null
+  let quota = null
+  let previous = null
+  let pageCount = 0
+  try {
+    while (pageCount < ADHERENCE_MAX_PAGES) {
+      const query = new URLSearchParams({ limit: String(ADHERENCE_PAGE_LIMIT) })
+      if (cursor) query.set('cursor', cursor)
+      const result = await api(`/api/coach/athletes/${athleteId}/meal-adherence?${query}`, { signal })
+      if (!validAdherenceEnvelope(result) || result.page.limit !== ADHERENCE_PAGE_LIMIT
+          || result.adherence.length > ADHERENCE_PAGE_LIMIT
+          || result.adherence.some(item => item.athleteId !== athleteId)
+          || result.page.hasMore && (!result.page.nextCursor || result.adherence.length === 0)
+          || !result.page.hasMore && result.page.nextCursor !== null) {
+        throw new Error('invalid adherence envelope')
+      }
+      quota ||= result.quota
+      for (const item of result.adherence) {
+        if (previous && adherenceNewestFirst(previous, item) > 0) throw new Error('out-of-order adherence page')
+        previous = item
+        if (!records.has(item.id)) records.set(item.id, item)
+        if (records.size > ADHERENCE_MAX_ITEMS) throw new Error('adherence history item limit exceeded')
+      }
+      pageCount += 1
+      if (!result.page.hasMore) return { data: [...records.values()], quota }
+      const nextCursor = result.page.nextCursor
+      if (nextCursor === cursor || seenCursors.has(nextCursor)) throw new Error('repeated adherence cursor')
+      seenCursors.add(nextCursor)
+      cursor = nextCursor
+    }
+    throw new Error('adherence history page limit exceeded')
+  } catch (error) {
+    if (signal?.aborted) throw error
+    throw adherenceFailure(error, [...records.values()], quota)
+  }
+}
 
 const CONTEXTUAL_RECOMMENDATIONS = [
   'Meal timing: 4-5 meals spaced every 3-4 hours',
@@ -331,6 +381,7 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
 
 function PlanSummary({ plan, adherenceState, onEdit, onStatus, onDelete, historyOnly = false }) {
   const checked = adherenceState.data.filter(item => item.mealPlanId === plan.id)
+  const incomplete = adherenceState.status === 'partial' || adherenceState.status === 'loading' && adherenceState.data.length > 0
   return <article className="card nutrition-plan-summary" data-status={plan.status}>
     <div className="nutrition-editor-head"><div><h3>{plan.title}</h3><span className="pro-meta">{historyOnly ? p('Deleted plan history') : p('By {0}', plan.coach?.name || p('Unavailable account'))} · {plan.targetCalories} kcal · {plan.meals.length} {p('meals')}</span></div><span className={`pro-status ${plan.status}`}>{p(plan.status === 'active' ? 'Active' : plan.status === 'draft' ? 'Draft' : 'Archived')}</span></div>
     <MacroSummary plan={plan} />
@@ -340,9 +391,9 @@ function PlanSummary({ plan, adherenceState, onEdit, onStatus, onDelete, history
         <strong>{p('Recent adherence')}</strong>
         {checked.length > 0 && <span className="pro-meta">{checked.length} {checked.length === 1 ? 'registro' : 'registros'}</span>}
       </div>
-      {adherenceState.status === 'loading' ? <span>{p('Loading adherence…')}</span>
+      {adherenceState.status === 'loading' && adherenceState.data.length === 0 ? <span>{p('Loading adherence…')}</span>
         : adherenceState.status === 'error' ? <span>{p('Adherence unavailable now')}</span>
-          : checked.length === 0 ? <span>{p('No meal check-ins yet.')}</span> : (
+          : checked.length === 0 ? <span>{incomplete ? p('Full adherence history is unavailable.') : p('No meal check-ins yet.')}</span> : (
         <div className="nutrition-adherence-card-grid">
           {checked.slice(0, 7).map(item => {
             const snapshot = item.planSnapshot
@@ -404,41 +455,63 @@ function PlanSummary({ plan, adherenceState, onEdit, onStatus, onDelete, history
   </article>
 }
 
-export default function NutritionPanel({ athleteId }) {
+function NutritionPanelContent({ athleteId }) {
   const toast = useUI(state => state.toast)
   const [plans, setPlans] = useState(null)
   const [adherenceState, setAdherenceState] = useState({ status: 'loading', data: [], error: null })
   const [editing, setEditing] = useState(null)
   const [plansError, setPlansError] = useState(null)
   const [quota, setQuota] = useState({ plans: null, adherence: null })
+  const mountedRef = useRef(false)
+  const plansRequestRef = useRef({ generation: 0, controller: null })
+  const adherenceRequestRef = useRef({ generation: 0, controller: null })
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      plansRequestRef.current.controller?.abort()
+      adherenceRequestRef.current.controller?.abort()
+    }
+  }, [])
+  const beginRequest = requestRef => {
+    requestRef.current.controller?.abort()
+    const controller = new AbortController()
+    const generation = requestRef.current.generation + 1
+    requestRef.current = { generation, controller }
+    return { controller, generation }
+  }
+  const requestIsCurrent = (requestRef, request) => mountedRef.current
+    && requestRef.current.generation === request.generation && !request.controller.signal.aborted
   const loadAdherence = useCallback(async () => {
+    const request = beginRequest(adherenceRequestRef)
     setAdherenceState(current => ({ ...current, status: 'loading', error: null }))
     try {
-      const result = await api(`/api/coach/athletes/${athleteId}/meal-adherence`)
-      if (!validAdherenceEnvelope(result)) throw new Error('invalid adherence envelope')
-      setAdherenceState({ status: result.adherence.length ? 'ok' : 'empty', data: result.adherence, error: null })
+      const result = await fetchAdherenceHistory(athleteId, request.controller.signal)
+      if (!requestIsCurrent(adherenceRequestRef, request)) return
+      setAdherenceState({ status: result.data.length ? 'ok' : 'empty', data: result.data, error: null })
       setQuota(current => ({ ...current, adherence: result.quota || null }))
     } catch (error) {
-      setAdherenceState(current => ({ ...current, status: 'error', error }))
+      if (!requestIsCurrent(adherenceRequestRef, request)) return
+      const partialData = Array.isArray(error.partialData) ? error.partialData : []
+      setAdherenceState({ status: partialData.length ? 'partial' : 'error', data: partialData, error })
+      if (error.quota) setQuota(current => ({ ...current, adherence: error.quota }))
     }
   }, [athleteId])
-  const load = useCallback(async () => {
+  const loadPlans = useCallback(async () => {
+    const request = beginRequest(plansRequestRef)
     setPlansError(null)
-    setAdherenceState(current => ({ ...current, status: 'loading', error: null }))
-    const [plansResult, adherenceResult] = await Promise.allSettled([
-      api(`/api/coach/athletes/${athleteId}/meal-plans`), api(`/api/coach/athletes/${athleteId}/meal-adherence`),
-    ])
-    if (plansResult.status === 'fulfilled' && Array.isArray(plansResult.value?.mealPlans)) {
-      setPlans(plansResult.value.mealPlans)
-      setQuota(current => ({ ...current, plans: plansResult.value.quota || null }))
-    } else setPlansError(plansResult.status === 'rejected' ? plansResult.reason : new Error('invalid meal plan envelope'))
-    if (adherenceResult.status === 'fulfilled' && validAdherenceEnvelope(adherenceResult.value)) {
-      setAdherenceState({ status: adherenceResult.value.adherence.length ? 'ok' : 'empty', data: adherenceResult.value.adherence, error: null })
-      setQuota(current => ({ ...current, adherence: adherenceResult.value.quota || null }))
-    } else {
-      setAdherenceState(current => ({ ...current, status: 'error', error: adherenceResult.status === 'rejected' ? adherenceResult.reason : new Error('invalid adherence envelope') }))
+    try {
+      const result = await api(`/api/coach/athletes/${athleteId}/meal-plans`, { signal: request.controller.signal })
+      if (!Array.isArray(result?.mealPlans)) throw new Error('invalid meal plan envelope')
+      if (!requestIsCurrent(plansRequestRef, request)) return
+      setPlans(result.mealPlans)
+      setQuota(current => ({ ...current, plans: result.quota || null }))
+    } catch (error) {
+      if (!requestIsCurrent(plansRequestRef, request)) return
+      setPlansError(error)
     }
   }, [athleteId])
+  const load = useCallback(() => { loadPlans(); loadAdherence() }, [loadAdherence, loadPlans])
   useEffect(() => { load() }, [load])
   const saveStatus = async (plan, status) => {
     try {
@@ -459,25 +532,32 @@ export default function NutritionPanel({ athleteId }) {
     })
     return groups
   }, new Map()).values()]
+  const adherenceIncomplete = adherenceState.status === 'partial'
   return <section className="nutrition-panel" aria-labelledby={`nutrition-panel-${athleteId}`}>
     <div className="pro-panel-head"><strong id={`nutrition-panel-${athleteId}`}>{p('Nutrition')}</strong>
-      {!editing && <Button size="sm" icon="plus" onClick={() => setEditing(true)}>{p('New meal plan')}</Button>}</div>
+      {plans !== null && !editing && <Button size="sm" icon="plus" onClick={() => setEditing(true)}>{p('New meal plan')}</Button>}</div>
     {quota?.plans && <p className="nutrition-quota">{p('{0} of {1} meal-plan slots used. Delete obsolete plans to free a slot.', quota.plans.used, quota.plans.limit)}</p>}
     {quota?.adherence && <p className="nutrition-quota">{p('{0} of {1} check-ins stored; entries older than {2} days are removed automatically.', quota.adherence.used, quota.adherence.limit, quota.adherence.retentionDays)}</p>}
     {adherenceState.status === 'error' && <div className="pro-load-inline" role="alert"><span>{p('Adherence unavailable now')}</span><Button size="sm" onClick={loadAdherence}>{p('Try again')}</Button></div>}
+    {adherenceIncomplete && <div className="pro-load-inline" role="alert"><span>{p('Adherence history is incomplete. Showing {0} recovered check-ins.', adherenceState.data.length)}</span><Button size="sm" onClick={loadAdherence}>{p('Try again')}</Button></div>}
     {editing && <MealPlanEditor athleteId={athleteId} initial={editing === true ? null : editing} onCancel={() => setEditing(null)} onSaved={(saved, previous) => {
       setPlans(current => previous ? current.map(item => item.id === saved.id ? saved : saved.status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item)
         : [saved, ...(current || []).map(item => saved.status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item)])
       setEditing(null)
     }} />}
     {plansError ? <div className="pro-load-inline" role="alert"><span>{professionalError(plansError)}</span><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
-      : plans === null ? <div className="pro-loading">{p('Loading…')}</div>
-        : plans.length === 0 && retainedHistoryPlans.length === 0 ? <p className="pro-empty-inline">{p('No meal plans yet.')}</p>
+      : plans === null ? <div className="nutrition-panel-skeleton" aria-busy="true" aria-label={p('Loading nutrition for selected athlete')}><Skeleton width="45%" height="1rem" /><Skeleton height="8rem" /></div>
+        : plans.length === 0 && retainedHistoryPlans.length === 0 && !adherenceIncomplete && adherenceState.status !== 'error' ? <p className="pro-empty-inline">{p('No meal plans yet.')}</p>
+          : plans.length === 0 && retainedHistoryPlans.length === 0 ? <p className="pro-empty-inline">{p('Meal plan history may be incomplete.')}</p>
           : <div className="nutrition-plan-list">
             {plans.map(plan => <PlanSummary key={plan.id} plan={plan} adherenceState={adherenceState} onEdit={setEditing} onStatus={saveStatus} onDelete={remove} />)}
             {retainedHistoryPlans.map(plan => <PlanSummary key={plan.id} plan={plan} adherenceState={adherenceState} historyOnly />)}
           </div>}
   </section>
+}
+
+export default function NutritionPanel({ athleteId }) {
+  return <NutritionPanelContent key={athleteId} athleteId={athleteId} />
 }
 
 function SubstituteDialog({ item, trigger, onClose }) {

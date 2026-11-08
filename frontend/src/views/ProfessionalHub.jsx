@@ -800,6 +800,7 @@ function CoachNutritionWorkspace({ user }) {
         </div>
       )}
       <div
+        key={selectedLink.athlete.id}
         className="pro-athlete-active-nutrition"
         id={`nutrition-athlete-panel-${selectedLink.athlete.id}`}
         role="tabpanel"

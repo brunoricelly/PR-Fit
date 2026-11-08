@@ -28,7 +28,7 @@ vi.mock('../lib/api.js', () => ({
     mocks.calls.push({ path, method: opts?.method || 'GET', body })
     const answer = mocks.answers[path] ?? mocks.answers[path.split('?')[0]]
     if (answer instanceof Error) throw answer
-    return typeof answer === 'function' ? answer(body) : answer ?? {}
+    return typeof answer === 'function' ? answer(body, opts, path) : answer ?? {}
   }),
 }))
 vi.mock('../lib/clipboard.js', () => ({ copyText: vi.fn(async value => { mocks.copied.push(value); return true }) }))
@@ -36,16 +36,20 @@ vi.mock('../sheets.jsx', () => ({ confirmSheet: options => mocks.confirms.push(o
 
 import ProfessionalHub from './ProfessionalHub.jsx'
 
-let host, root
+let host, root, consoleError
 beforeEach(() => {
   Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
+  consoleError = vi.spyOn(console, 'error')
 })
-afterEach(() => {
-  act(() => root.unmount())
+afterEach(async () => {
+  await act(async () => root.unmount())
+  const reactWarnings = consoleError.mock.calls.filter(args => args.some(value => /act\(|unique "key"/i.test(String(value))))
+  consoleError.mockRestore()
   host.remove()
+  expect(reactWarnings).toEqual([])
 })
 
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -55,6 +59,7 @@ const mount = async entry => {
 }
 const button = label => [...host.querySelectorAll('button')].find(item => item.textContent.trim() === label)
 const card = label => [...host.querySelectorAll('.pro-link')].find(item => item.textContent.includes(label))
+const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done }); return { promise, resolve } }
 const adherenceEnvelope = adherence => ({
   adherence,
   page: { limit: 50, hasMore: false, nextCursor: null },
@@ -535,4 +540,61 @@ describe('ProfessionalHub', () => {
     expect(document.activeElement).toBe(tabs[1])
     expect(tabs[1].getAttribute('aria-selected')).toBe('true')
     expect(mocks.calls.filter(call => call.path === '/api/coach/athletes')).toHaveLength(1)
+  })
+
+  it('isolates A→B immediately and ignores athlete A responses that arrive late', async () => {
+    const athleteA = { id: 'u_nutri_a', name: 'Ana', email: 'ana@example.test' }
+    const athleteB = { id: 'u_nutri_b', name: 'Bia', email: 'bia@example.test' }
+    const biaPlan = {
+      id: 'mp_b', title: 'Plano exclusivo da Bia', status: 'active', targetCalories: 2200,
+      targetMacros: { protein: 150, carbs: 260, fats: 70, fiber: 30, waterMl: 2800 },
+      meals: [{ id: 'm_b', name: 'Café', time: '08:00', items: [] }], notes: '', coach: { name: 'Coach' }, athlete: athleteB,
+    }
+    const plansA = deferred()
+    const adherenceA = deferred()
+    const plansB = deferred()
+    const adherenceB = deferred()
+    const athleteASignals = []
+    mocks.user = { id: 'u_coach_nutri_switch', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['nutrition'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [
+      { id: 'link_a', status: 'active', scopes: ['nutrition'], athlete: athleteA },
+      { id: 'link_b', status: 'active', scopes: ['nutrition'], athlete: athleteB },
+    ] }
+    mocks.answers[`/api/coach/athletes/${athleteA.id}/meal-plans`] = (_body, options) => {
+      athleteASignals.push(options.signal)
+      return plansA.promise
+    }
+    mocks.answers[`/api/coach/athletes/${athleteA.id}/meal-adherence`] = (_body, options) => {
+      athleteASignals.push(options.signal)
+      return adherenceA.promise
+    }
+    mocks.answers[`/api/coach/athletes/${athleteB.id}/meal-plans`] = () => plansB.promise
+    mocks.answers[`/api/coach/athletes/${athleteB.id}/meal-adherence`] = () => adherenceB.promise
+
+    await mount('/professionals?tab=nutrition')
+    expect(host.textContent).toContain('Ana')
+    expect(host.querySelector('.nutrition-panel-skeleton')).toBeTruthy()
+
+    await act(async () => { button('Bia').click() })
+    expect(host.textContent).toContain('Bia')
+    expect(host.textContent).not.toContain('Plano tardio da Ana')
+    expect(host.querySelector('.nutrition-panel-skeleton')).toBeTruthy()
+    expect(athleteASignals).toHaveLength(2)
+    expect(athleteASignals.every(signal => signal.aborted)).toBe(true)
+    await act(async () => {
+      plansB.resolve({ mealPlans: [biaPlan] })
+      adherenceB.resolve(adherenceEnvelope([]))
+    })
+    await settle()
+    expect(host.textContent).toContain('Plano exclusivo da Bia')
+
+    await act(async () => {
+      plansA.resolve({ mealPlans: [{ ...biaPlan, id: 'mp_a', title: 'Plano tardio da Ana', athlete: athleteA }] })
+      adherenceA.resolve(adherenceEnvelope([]))
+    })
+    await settle()
+
+    expect(host.textContent).toContain('Plano exclusivo da Bia')
+    expect(host.textContent).not.toContain('Plano tardio da Ana')
+    expect(host.textContent).not.toContain('ana@example.test')
   })
