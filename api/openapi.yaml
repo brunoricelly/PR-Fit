@@ -2422,6 +2422,9 @@ paths:
       operationId: listCoachGroups
       summary: List coach groups
       description: Returns all groups owned by the authenticated coach.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
       responses:
         '200':
           description: List of groups.
@@ -2429,11 +2432,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [groups]
+                additionalProperties: false
+                required: [groups, page]
                 properties:
                   groups:
                     type: array
                     items: { $ref: '#/components/schemas/CoachGroup' }
+                  page: { $ref: '#/components/schemas/PageOutput' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
 
@@ -2445,6 +2450,9 @@ paths:
       operationId: getCoachGroup
       summary: Get coach group details and members
       description: Returns group details and member list for group owned by the coach.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
       responses:
         '200':
           description: Group details.
@@ -2452,12 +2460,14 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [group, members]
+                additionalProperties: false
+                required: [group, members, page]
                 properties:
                   group: { $ref: '#/components/schemas/CoachGroup' }
                   members:
                     type: array
                     items: { $ref: '#/components/schemas/GroupMember' }
+                  page: { $ref: '#/components/schemas/PageOutput' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
         '404': { $ref: '#/components/responses/ChallengeNotFound' }
@@ -2596,6 +2606,9 @@ paths:
       operationId: listCoachChallenges
       summary: List coach challenges
       description: Returns challenges created by the authenticated coach.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
       responses:
         '200':
           description: List of challenges.
@@ -2603,11 +2616,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [challenges]
+                additionalProperties: false
+                required: [challenges, page]
                 properties:
                   challenges:
                     type: array
                     items: { $ref: '#/components/schemas/Challenge' }
+                  page: { $ref: '#/components/schemas/PageOutput' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
 
@@ -2686,6 +2701,11 @@ paths:
       operationId: getCoachChallengeLeaderboard
       summary: Get challenge leaderboard
       description: Calculates real-time rankings and returns leaderboard with activity feed.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/FeedCursorOptional'
+        - $ref: '#/components/parameters/FeedLimit'
       responses:
         '200':
           description: Challenge leaderboard and activity feed.
@@ -2702,6 +2722,9 @@ paths:
       operationId: listAthleteGroups
       summary: List groups athlete belongs to
       description: Returns all groups where athlete is an active member.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
       responses:
         '200':
           description: Athlete groups.
@@ -2709,11 +2732,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [groups]
+                additionalProperties: false
+                required: [groups, page]
                 properties:
                   groups:
                     type: array
                     items: { $ref: '#/components/schemas/CoachGroup' }
+                  page: { $ref: '#/components/schemas/PageOutput' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
 
@@ -2772,12 +2797,44 @@ paths:
         '404': { $ref: '#/components/responses/ChallengeNotFound' }
         '503': { $ref: '#/components/responses/Busy' }
 
+  /api/athlete/groups/{groupId}:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [professionals]
+      operationId: getAthleteGroup
+      summary: Read an active group membership and privacy-safe roster
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Group detail for an active member.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [group, myMembership, members, page]
+                properties:
+                  group: { $ref: '#/components/schemas/CoachGroup' }
+                  myMembership: { $ref: '#/components/schemas/GroupMember' }
+                  members: { type: array, items: { $ref: '#/components/schemas/GroupMember' } }
+                  page: { $ref: '#/components/schemas/PageOutput' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+
   /api/athlete/challenges:
     get:
       tags: [professionals]
       operationId: listAthleteChallenges
       summary: List challenges athlete participates in
       description: Returns active challenges available to the athlete.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
       responses:
         '200':
           description: Athlete challenges.
@@ -2785,11 +2842,13 @@ paths:
             application/json:
               schema:
                 type: object
-                required: [challenges]
+                additionalProperties: false
+                required: [challenges, page]
                 properties:
                   challenges:
                     type: array
                     items: { $ref: '#/components/schemas/Challenge' }
+                  page: { $ref: '#/components/schemas/PageOutput' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
 
@@ -2823,6 +2882,11 @@ paths:
       operationId: getAthleteChallengeLeaderboard
       summary: Get challenge leaderboard for athlete
       description: Returns real-time challenge leaderboard and activity feed for participant athlete.
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+        - $ref: '#/components/parameters/FeedCursorOptional'
+        - $ref: '#/components/parameters/FeedLimit'
       responses:
         '200':
           description: Leaderboard and activity feed.
@@ -2832,6 +2896,309 @@ paths:
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }
         '404': { $ref: '#/components/responses/ChallengeNotFound' }
+
+  /api/coach/groups/{groupId}/invite:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    get:
+      tags: [professionals]
+      operationId: getCoachGroupInvite
+      summary: Read the owner-only group invite
+      responses:
+        '200':
+          description: Active invite or null. This is the only endpoint that returns the invite code.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invite]
+                properties:
+                  invite: { oneOf: [{ $ref: '#/components/schemas/GroupInvite' }, { type: 'null' }] }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+    post:
+      tags: [professionals]
+      operationId: rotateCoachGroupInvite
+      summary: Rotate the owner-only group invite
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                expiresInDays: { type: integer, minimum: 1, maximum: 365 }
+      responses:
+        '200':
+          description: New invite; the previous code is revoked.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [invite]
+                properties: { invite: { $ref: '#/components/schemas/GroupInvite' } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+    delete:
+      tags: [professionals]
+      operationId: revokeCoachGroupInvite
+      summary: Revoke the active group invite
+      responses:
+        '200':
+          description: Invite revoked.
+          content: { application/json: { schema: { $ref: '#/components/schemas/Ok' } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/groups/{groupId}/accept:
+    parameters:
+      - $ref: '#/components/parameters/GroupId'
+    post:
+      tags: [professionals]
+      operationId: acceptAthleteGroupMembership
+      summary: Accept a pending coach-created membership
+      responses:
+        '200':
+          description: Membership activated after transactional relationship revalidation.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupJoinResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/challenges/{challengeId}/points:
+    parameters:
+      - $ref: '#/components/parameters/ChallengeId'
+    post:
+      tags: [professionals]
+      operationId: adjustCoachChallengePoints
+      summary: Add an audited custom-points adjustment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: true
+          schema: { type: string, minLength: 8, maxLength: 120 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CustomPointsAdjustmentRequest' }
+      responses:
+        '200':
+          description: Adjustment applied once or replayed idempotently.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CustomPointsAdjustmentResponse' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '422': { $ref: '#/components/responses/ChallengeUnprocessable' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/group-programs:
+    get:
+      tags: [professionals]
+      operationId: listCoachGroupPrograms
+      summary: List collective program versions owned by the coach
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Program versions.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [programs, page]
+                properties:
+                  programs: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/GroupProgram' } }
+                  page: { $ref: '#/components/schemas/PageOutput' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+    post:
+      tags: [professionals]
+      operationId: createCoachGroupProgram
+      summary: Create a draft collective program
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateGroupProgramRequest' } } }
+      responses:
+        '201':
+          description: Draft created.
+          content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/group-programs/{programId}:
+    parameters:
+      - $ref: '#/components/parameters/ProgramId'
+    get:
+      tags: [professionals]
+      operationId: getCoachGroupProgram
+      summary: Read a collective program version
+      responses:
+        '200': { description: Program version., content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+    put:
+      tags: [professionals]
+      operationId: updateCoachGroupProgram
+      summary: Edit a draft collective program
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/UpdateGroupProgramRequest' } } }
+      responses:
+        '200': { description: Draft updated., content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/group-programs/{programId}/publish:
+    parameters: [{ $ref: '#/components/parameters/ProgramId' }]
+    post:
+      tags: [professionals]
+      operationId: publishCoachGroupProgram
+      summary: Publish an immutable collective program version
+      responses:
+        '200': { description: Version published., content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/group-programs/{programId}/versions:
+    parameters: [{ $ref: '#/components/parameters/ProgramId' }]
+    post:
+      tags: [professionals]
+      operationId: versionCoachGroupProgram
+      summary: Create the next draft from a published version
+      responses:
+        '201': { description: Draft version created., content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/group-programs/{programId}/archive:
+    parameters: [{ $ref: '#/components/parameters/ProgramId' }]
+    post:
+      tags: [professionals]
+      operationId: archiveCoachGroupProgram
+      summary: Archive a program version without deleting adoption history
+      responses:
+        '200': { description: Version archived., content: { application/json: { schema: { $ref: '#/components/schemas/GroupProgramResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/group-programs:
+    get:
+      tags: [professionals]
+      operationId: listAthleteGroupPrograms
+      summary: List published programs available through active membership and training scope
+      parameters:
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Available programs.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [programs, page]
+                properties:
+                  programs: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/AthleteGroupProgram' } }
+                  page: { $ref: '#/components/schemas/PageOutput' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+
+  /api/athlete/group-programs/{programId}:
+    parameters: [{ $ref: '#/components/parameters/ProgramId' }]
+    get:
+      tags: [professionals]
+      operationId: getAthleteGroupProgram
+      summary: Read an eligible published program
+      responses:
+        '200': { description: Available program., content: { application/json: { schema: { $ref: '#/components/schemas/AthleteGroupProgramResponse' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+
+  /api/athlete/group-programs/{programId}/adopt:
+    parameters: [{ $ref: '#/components/parameters/ProgramId' }]
+    post:
+      tags: [professionals]
+      operationId: adoptAthleteGroupProgram
+      summary: Atomically adopt a published collective program version
+      description: A durable journal recovers a crash between the athlete state write and database write exactly once.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties: { confirmExistingPlan: { type: boolean } }
+      responses:
+        '200':
+          description: Adopted once; retries are idempotent.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GroupProgramAdoptionResponse' }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '410': { $ref: '#/components/responses/ChallengeGone' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
 
   /api/register/options:
     post:
@@ -6421,6 +6788,11 @@ components:
       name: challengeId
       required: true
       schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    ProgramId:
+      in: path
+      name: programId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
     AthleteId:
       in: path
       name: athleteId
@@ -6460,7 +6832,17 @@ components:
     PageLimit:
       in: query
       name: limit
-      description: Page size for messages and check-ins.
+      description: Page size for cursor-paginated collections.
+      schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
+    FeedCursorOptional:
+      in: query
+      name: feedcursor
+      description: Opaque tenant-bound cursor returned as `feedPage.nextCursor`.
+      schema: { type: string }
+    FeedLimit:
+      in: query
+      name: feedlimit
+      description: Activity feed page size.
       schema: { type: integer, minimum: 1, maximum: 100, default: 50 }
     InboxLimit:
       in: query
@@ -6634,6 +7016,16 @@ components:
           schema: { $ref: '#/components/schemas/Error' }
     ChallengeConflict:
       description: Group full, already member, or limit reached.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ChallengeGone:
+      description: Invite revoked or expired, group archived, challenge ended, or program archived.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ChallengeUnprocessable:
+      description: The request is syntactically valid but violates scoring policy or correction semantics.
       content:
         application/json:
           schema: { $ref: '#/components/schemas/Error' }
@@ -6947,16 +7339,14 @@ components:
     CoachGroup:
       type: object
       additionalProperties: false
-      required: [id, coachId, name, maxMembers, isPrivate, inviteCode, memberCount, createdAt, updatedAt]
+      required: [id, name, description, category, maxMembers, isPrivate, memberCount, createdAt, updatedAt, archivedAt]
       properties:
         id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
         name: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 1000 }
-        category: { type: string, maxLength: 50 }
+        category: { type: string, minLength: 1, maxLength: 50 }
         maxMembers: { type: integer, minimum: 1, maximum: 500 }
         isPrivate: { type: boolean }
-        inviteCode: { type: string, maxLength: 30 }
         memberCount: { type: integer, minimum: 0 }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
@@ -6966,27 +7356,66 @@ components:
     GroupMember:
       type: object
       additionalProperties: false
-      required: [id, groupId, coachId, athleteId, joinedAt, role, status]
+      required: [id, displayName, joinedAt, acceptedAt, updatedAt, role, status]
       properties:
         id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-        groupId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$', description: Included only in owner administration responses. }
+        displayName: { type: string }
         joinedAt: { type: string, format: date-time }
+        acceptedAt: { type: ['string', 'null'], format: date-time }
+        updatedAt: { type: string, format: date-time }
         role: { type: string, enum: [member, moderator] }
-        status: { type: string, enum: [active, removed, left] }
-        athleteName: { type: string }
+        status: { type: string, enum: [pending, active, removed, left] }
+
+    GroupInvite:
+      type: object
+      additionalProperties: false
+      required: [code, expiresAt, status]
+      properties:
+        code: { type: string, pattern: '^GRP-[A-F0-9]{16}$' }
+        expiresAt: { type: string, format: date-time }
+        status: { type: string, enum: [active] }
+
+    GroupJoinResponse:
+      type: object
+      additionalProperties: false
+      required: [ok, group, member]
+      properties:
+        ok: { type: boolean, const: true }
+        group: { $ref: '#/components/schemas/CoachGroup' }
+        member: { $ref: '#/components/schemas/GroupMember' }
+
+    ChallengeRules:
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [pointsPerWorkout]
+          properties: { pointsPerWorkout: { type: number, exclusiveMinimum: 0, maximum: 1000 } }
+        - type: object
+          additionalProperties: false
+          required: [pointsPer1000]
+          properties: { pointsPer1000: { type: number, exclusiveMinimum: 0, maximum: 1000 } }
+        - type: object
+          additionalProperties: false
+          required: [pointsPerCheckin, habitIds]
+          properties:
+            pointsPerCheckin: { type: number, exclusiveMinimum: 0, maximum: 1000 }
+            habitIds: { type: array, minItems: 1, maxItems: 50, uniqueItems: true, items: { type: string } }
+        - type: object
+          additionalProperties: false
+          required: [maxPointsPerAdjustment]
+          properties:
+            maxPointsPerAdjustment: { type: integer, minimum: 1, maximum: 10000 }
+            maxAbsoluteScore: { type: integer, minimum: 1, maximum: 1000000 }
 
     Challenge:
       type: object
       additionalProperties: false
-      required: [id, coachId, scope, name, type, startAt, endAt, timeZone, status, createdAt, updatedAt]
+      required: [id, groupId, scope, title, description, type, startAt, endAt, timeZone, status, rules, createdAt, updatedAt]
       properties:
         id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
-        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
         groupId: { type: ['string', 'null'] }
         scope: { type: string, enum: [group, coach_students] }
-        name: { type: string, minLength: 1, maxLength: 100 }
         title: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 2000 }
         type: { type: string, enum: [workouts_count, habits_consistency, volume_load, custom_points] }
@@ -6994,17 +7423,18 @@ components:
         endAt: { type: string, format: date-time }
         timeZone: { type: string }
         status: { type: string, enum: [draft, active, completed, archived] }
-        rules: { type: object }
+        rules: { $ref: '#/components/schemas/ChallengeRules' }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
 
     ChallengeLeaderboardEntry:
       type: object
       additionalProperties: false
-      required: [athleteId, athleteName, rank, score]
+      required: [participantKey, displayName, isMe, rank, score, workoutsCount, volumeLoad, habitCheckinsCount, lastActivityAt]
       properties:
-        athleteId: { type: string }
-        athleteName: { type: string }
+        participantKey: { type: string }
+        displayName: { type: string }
+        isMe: { type: boolean }
         rank: { type: integer, minimum: 1 }
         score: { type: number }
         workoutsCount: { type: integer }
@@ -7015,13 +7445,13 @@ components:
     ChallengeActivityFeedEntry:
       type: object
       additionalProperties: false
-      required: [id, challengeId, athleteId, timestamp, pointsAwarded]
+      required: [id, participantKey, displayName, isMe, activityType, description, timestamp, pointsAwarded]
       properties:
         id: { type: string }
-        challengeId: { type: string }
-        athleteId: { type: string }
-        athleteName: { type: string }
-        activityType: { type: string }
+        participantKey: { type: string }
+        displayName: { type: string }
+        isMe: { type: boolean }
+        activityType: { type: string, enum: [workout_completed, habit_checkin, custom_adjustment] }
         description: { type: string }
         pointsAwarded: { type: number }
         timestamp: { type: string, format: date-time }
@@ -7029,15 +7459,13 @@ components:
     ChallengeLeaderboardResponse:
       type: object
       additionalProperties: false
-      required: [challenge, leaderboard, activityFeed]
+      required: [challenge, leaderboard, activityFeed, page, feedPage]
       properties:
         challenge: { $ref: '#/components/schemas/Challenge' }
-        leaderboard:
-          type: array
-          items: { $ref: '#/components/schemas/ChallengeLeaderboardEntry' }
-        activityFeed:
-          type: array
-          items: { $ref: '#/components/schemas/ChallengeActivityFeedEntry' }
+        leaderboard: { type: array, items: { $ref: '#/components/schemas/ChallengeLeaderboardEntry' } }
+        activityFeed: { type: array, items: { $ref: '#/components/schemas/ChallengeActivityFeedEntry' } }
+        page: { $ref: '#/components/schemas/PageOutput' }
+        feedPage: { $ref: '#/components/schemas/PageOutput' }
 
     CreateCoachGroupRequest:
       type: object
@@ -7060,6 +7488,7 @@ components:
         maxMembers: { type: integer, minimum: 1, maximum: 500 }
         isPrivate: { type: boolean }
         archived: { type: boolean }
+        expectedUpdatedAt: { type: string, format: date-time, description: Optional optimistic-concurrency precondition. }
 
     AddGroupMemberRequest:
       type: object
@@ -7079,10 +7508,9 @@ components:
     CreateCoachChallengeRequest:
       type: object
       additionalProperties: false
-      required: [type, scope, startAt, endAt]
+      required: [title, type, scope, startAt, endAt, timeZone, rules]
       properties:
-        name: { type: string, maxLength: 100 }
-        title: { type: string, maxLength: 100 }
+        title: { type: string, minLength: 1, maxLength: 100 }
         description: { type: string, maxLength: 2000 }
         type: { type: string, enum: [workouts_count, habits_consistency, volume_load, custom_points] }
         scope: { type: string, enum: [group, coach_students] }
@@ -7090,21 +7518,112 @@ components:
         startAt: { type: string, format: date-time }
         endAt: { type: string, format: date-time }
         timeZone: { type: string }
-        status: { type: string, enum: [draft, active, completed, archived] }
-        rules: { type: object }
+        status: { type: string, enum: [draft, active], default: draft }
+        rules: { $ref: '#/components/schemas/ChallengeRules' }
 
     UpdateCoachChallengeRequest:
       type: object
       additionalProperties: false
       properties:
-        name: { type: string, maxLength: 100 }
         title: { type: string, maxLength: 100 }
         description: { type: string, maxLength: 2000 }
         startAt: { type: string, format: date-time }
         endAt: { type: string, format: date-time }
         timeZone: { type: string }
         status: { type: string, enum: [draft, active, completed, archived] }
-        rules: { type: object }
+        rules: { $ref: '#/components/schemas/ChallengeRules' }
+
+    CustomPointsAdjustmentRequest:
+      type: object
+      additionalProperties: false
+      required: [athleteId, points, reason]
+      properties:
+        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        points: { type: number, minimum: -10000, maximum: 10000, not: { const: 0 } }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        correctionOf: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+
+    CustomPointsAdjustmentResponse:
+      type: object
+      additionalProperties: false
+      required: [adjustment, score, idempotent]
+      properties:
+        adjustment:
+          type: object
+          additionalProperties: false
+          required: [id, points, timestamp]
+          properties:
+            id: { type: string }
+            points: { type: number }
+            timestamp: { type: string, format: date-time }
+        score: { type: number }
+        idempotent: { type: boolean }
+
+    GroupProgram:
+      type: object
+      additionalProperties: false
+      required: [id, seriesId, groupId, templateId, title, version, status, routine, createdAt, updatedAt, publishedAt, archivedAt]
+      properties:
+        id: { type: string }
+        seriesId: { type: string }
+        groupId: { type: string }
+        templateId: { type: ['string', 'null'] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        version: { type: integer, minimum: 1 }
+        status: { type: string, enum: [draft, published, archived] }
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        publishedAt: { type: ['string', 'null'], format: date-time }
+        archivedAt: { type: ['string', 'null'], format: date-time }
+
+    AthleteGroupProgram:
+      allOf:
+        - $ref: '#/components/schemas/GroupProgram'
+        - type: object
+          required: [adopted]
+          properties: { adopted: { type: boolean } }
+
+    GroupProgramResponse:
+      type: object
+      additionalProperties: false
+      required: [program]
+      properties: { program: { $ref: '#/components/schemas/GroupProgram' } }
+
+    AthleteGroupProgramResponse:
+      type: object
+      additionalProperties: false
+      required: [program]
+      properties: { program: { $ref: '#/components/schemas/AthleteGroupProgram' } }
+
+    CreateGroupProgramRequest:
+      type: object
+      additionalProperties: false
+      required: [groupId, title, routine]
+      properties:
+        groupId: { type: string }
+        templateId: { type: string }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+
+    UpdateGroupProgramRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        templateId: { type: ['string', 'null'] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+
+    GroupProgramAdoptionResponse:
+      type: object
+      additionalProperties: false
+      required: [programId, routineIds, adoptedAt, idempotent]
+      properties:
+        programId: { type: string }
+        routineIds: { type: array, minItems: 1, items: { type: string } }
+        adoptedAt: { type: string, format: date-time }
+        idempotent: { type: boolean }
+
     RelationshipHistoryState:
       type: object
       additionalProperties: false

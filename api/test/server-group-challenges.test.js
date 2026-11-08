@@ -8,19 +8,13 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import { migrateB2B2C, B2B2C_SCHEMA_VERSION } from '../b2b2c.js';
-import { validateChallengesState, removeChallengesUser } from '../challenges.js';
+import { validateChallengesState } from '../challenges.js';
+import { validateGroupProgramsState } from '../group-programs.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
-
-const IDS = {
-  coachA: 'u_coach_a',
-  coachB: 'u_coach_b',
-  athleteA: 'u_athlete_a',
-  athleteB: 'u_athlete_b',
-  athleteC: 'u_athlete_c',
-};
+const IDS = { coachA: 'u_coach_a', coachB: 'u_coach_b', training: 'u_training', nutrition: 'u_nutrition', pending: 'u_pending', suspended: 'u_suspended', ended: 'u_ended', extra: 'u_extra' };
 
 function mintSession(uid) {
   const payload = `${uid}:${Date.now() + 86400000}:0:c`;
@@ -28,581 +22,214 @@ function mintSession(uid) {
 }
 
 function baseDb() {
-  const now = new Date().toISOString();
+  const stamp = '2026-11-01T00:00:00.000Z';
+  const athlete = id => ({ id, name: id.replace('u_', ''), profile: { kind: 'athlete' } });
   return {
     schemaVersion: 9,
     users: [
       { id: IDS.coachA, name: 'Coach A', admin: true, profile: { kind: 'coach', coachSpecialties: ['training', 'nutrition'] } },
       { id: IDS.coachB, name: 'Coach B', profile: { kind: 'coach', coachSpecialties: ['training'] } },
-      { id: IDS.athleteA, name: 'Athlete A', profile: { kind: 'athlete' } },
-      { id: IDS.athleteB, name: 'Athlete B', profile: { kind: 'athlete' } },
-      { id: IDS.athleteC, name: 'Athlete C', profile: { kind: 'athlete' } },
+      ...[IDS.training, IDS.nutrition, IDS.pending, IDS.suspended, IDS.ended, IDS.extra].map(athlete),
     ],
-    creds: [], subs: [], invites: [], deviceLinks: [], watchLinks: [],
-    coachInvites: [], coachPrescriptions: [], coachAssessments: [],
-    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [],
-    progressGoals: [], progressReports: [], accountCleanupJobs: [],
+    creds: [], subs: [], invites: [], deviceLinks: [], watchLinks: [], coachInvites: [], coachPrescriptions: [], coachAssessments: [],
+    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [], progressGoals: [], progressReports: [], accountCleanupJobs: [],
     coachAvailability: [], coachAppointments: [],
     coachAthleteLinks: [
-      { id: 'cal_aa', coachId: IDS.coachA, athleteId: IDS.athleteA, scopes: ['training', 'nutrition'], status: 'active', createdAt: now, updatedAt: now },
-      { id: 'cal_ab', coachId: IDS.coachA, athleteId: IDS.athleteB, scopes: ['training'], status: 'active', createdAt: now, updatedAt: now },
-      { id: 'cal_bb', coachId: IDS.coachB, athleteId: IDS.athleteB, scopes: ['training'], status: 'active', createdAt: now, updatedAt: now },
+      { id: 'cal_training', coachId: IDS.coachA, athleteId: IDS.training, scopes: ['training'], status: 'active', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_extra', coachId: IDS.coachA, athleteId: IDS.extra, scopes: ['training'], status: 'active', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_cross', coachId: IDS.coachB, athleteId: IDS.training, scopes: ['training'], status: 'active', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_nutrition', coachId: IDS.coachA, athleteId: IDS.nutrition, scopes: ['nutrition'], status: 'active', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_pending', coachId: IDS.coachA, athleteId: IDS.pending, scopes: ['training'], status: 'pending', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_suspended', coachId: IDS.coachA, athleteId: IDS.suspended, scopes: ['training'], status: 'suspended', createdAt: stamp, updatedAt: stamp },
+      { id: 'cal_ended', coachId: IDS.coachA, athleteId: IDS.ended, scopes: ['training'], status: 'ended', createdAt: stamp, updatedAt: stamp },
     ],
-    coachGroups: [],
-    groupMembers: [],
-    challenges: [],
-    challengeScores: [],
-    challengeActivityFeed: [],
+    coachGroups: [], groupMembers: [], groupInvites: [], challenges: [], challengeScores: [], challengeActivityFeed: [], groupPrograms: [], groupProgramAdoptions: [],
   };
 }
 
-function seed(dataDir, customDb = null) {
+function seed(dataDir, db = baseDb()) {
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
-  fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify(customDb || baseDb(), null, 2));
-
-  // Seed athlete state files for workout scoring
-  fs.writeFileSync(path.join(dataDir, `state-${IDS.athleteA}.json`), JSON.stringify({
-    unit: 'kg',
-    workouts: [
-      { id: 'w_a1', d: '2026-11-02', vol: 1500, start: Date.parse('2026-11-02T10:00:00Z') },
-      { id: 'w_a2', d: '2026-11-04', vol: 1500, start: Date.parse('2026-11-04T10:00:00Z') },
-    ],
-  }, null, 2));
-
-  fs.writeFileSync(path.join(dataDir, `state-${IDS.athleteB}.json`), JSON.stringify({
-    unit: 'kg',
-    workouts: [
-      { id: 'w_b1', d: '2026-11-02', vol: 1000, start: Date.parse('2026-11-02T12:00:00Z') },
-    ],
-  }, null, 2));
-
-  fs.writeFileSync(path.join(dataDir, `state-${IDS.athleteC}.json`), JSON.stringify({
-    unit: 'kg',
-    workouts: [],
-  }, null, 2));
+  fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify(db, null, 2));
+  fs.writeFileSync(path.join(dataDir, `state-${IDS.training}.json`), JSON.stringify({ workouts: [
+    { id: 'workout_1', d: '2026-11-02', start: Date.parse('2026-11-02T10:00:00Z'), vol: 2500 },
+    { id: 'workout_2', d: '2026-11-03', start: Date.parse('2026-11-03T10:00:00Z'), vol: 1500 },
+  ], routines: [], customEx: [] }));
+  fs.writeFileSync(path.join(dataDir, `state-${IDS.extra}.json`), JSON.stringify({ workouts: [{ id: 'workout_3', d: '2026-11-02', start: Date.parse('2026-11-02T12:00:00Z'), vol: 1000 }], routines: [], customEx: [] }));
 }
 
 async function launch(dataDir, env = {}) {
-  const child = spawn(process.execPath, ['server.js'], {
-    cwd: API,
-    stdio: ['ignore', 'pipe', 'pipe'],
-    env: {
-      ...process.env,
-      PORT: '0',
-      DATA_DIR: dataDir,
-      ORIGIN,
-      RP_ID: 'localhost',
-      AUDIT_LOG: '1',
-      PASSWORD_LOGIN: '1',
-      B2B2C_DB_FAIL_FILE: path.join(dataDir, 'fail-db-write'),
-      ...env,
-    },
-  });
-  let log = '';
-  child.stdout.on('data', chunk => log += chunk);
-  child.stderr.on('data', chunk => log += chunk);
+  const child = spawn(process.execPath, ['server.js'], { cwd: API, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', AUDIT_LOG: '1', PASSWORD_LOGIN: '1', ...env } });
+  let log = ''; child.stdout.on('data', chunk => log += chunk); child.stderr.on('data', chunk => log += chunk);
   const port = await boundPort(child, () => log);
   return { child, api: `http://127.0.0.1:${port}`, log: () => log };
 }
 
 async function stop(server) {
-  if (server.child.exitCode !== null) return;
+  if (server.child.exitCode !== null || server.child.signalCode !== null) return;
   server.child.kill('SIGTERM');
   await new Promise(resolve => server.child.once('exit', resolve));
 }
 
-async function request(server, uid, method, route, body) {
-  const response = await fetch(server.api + route, {
-    method,
-    headers: {
-      Cookie: `gymsid=${mintSession(uid)}`,
-      Origin: ORIGIN,
-      'Content-Type': 'application/json',
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
+async function request(server, uid, method, route, body, headers = {}) {
+  const response = await fetch(server.api + route, { method, headers: { Cookie: `gymsid=${mintSession(uid)}`, Origin: ORIGIN, 'Content-Type': 'application/json', ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const text = await response.text();
-  const contentType = response.headers.get('content-type') || '';
-  return {
-    status: response.status,
-    headers: response.headers,
-    text,
-    body: text && contentType.includes('application/json') ? JSON.parse(text) : null,
-  };
+  return { status: response.status, headers: response.headers, body: text ? JSON.parse(text) : null };
 }
 
-test('1. Criação de grupos e limites de membros (maxMembers)', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-groups-'));
-  seed(dataDir);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
+async function createGroup(server, maxMembers = 10) {
+  const response = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Grupo', maxMembers, isPrivate: true });
+  assert.equal(response.status, 201, JSON.stringify(response.body));
+  return response.body.group;
+}
 
-  // Athlete cannot create groups
-  let res = await request(server, IDS.athleteA, 'POST', '/api/coach/groups', { name: 'Atleta Grupo' });
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'role_forbidden');
+async function activeInvite(server, groupId) {
+  const response = await request(server, IDS.coachA, 'GET', `/api/coach/groups/${groupId}/invite`);
+  assert.equal(response.status, 200); return response.body.invite.code;
+}
 
-  // Coach A creates valid group
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', {
-    name: 'Grupo Hipertrofia Elite',
-    description: 'Desafios de hipertrofia para atletas avançados',
-    category: 'hipertrofia',
-    maxMembers: 2,
-    isPrivate: true,
-  });
-  assert.equal(res.status, 201);
-  const group = res.body.group;
-  assert.equal(group.coachId, IDS.coachA);
-  assert.equal(group.name, 'Grupo Hipertrofia Elite');
-  assert.equal(group.category, 'hipertrofia');
-  assert.equal(group.maxMembers, 2);
-  assert.equal(group.memberCount, 0);
-  assert.ok(group.inviteCode.startsWith('GRP-'));
+async function addAndAccept(server, groupId, athleteId) {
+  let response = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${groupId}/members`, { athleteId });
+  assert.equal(response.status, 201, JSON.stringify(response.body)); assert.equal(response.body.member.status, 'pending');
+  response = await request(server, athleteId, 'POST', `/api/athlete/groups/${groupId}/accept`, {});
+  assert.equal(response.status, 200, JSON.stringify(response.body)); return response.body.member;
+}
 
-  // Validation: empty name rejected
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: '   ' });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.code, 'invalid_name');
-
-  // Coach lists their groups
-  res = await request(server, IDS.coachA, 'GET', '/api/coach/groups');
-  assert.equal(res.status, 200);
-  assert.equal(res.body.groups.length, 1);
-  assert.equal(res.body.groups[0].id, group.id);
-
-  // Coach adds Athlete A to group
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.athleteA,
-    role: 'member',
-  });
-  assert.equal(res.status, 201);
-  assert.equal(res.body.member.athleteId, IDS.athleteA);
-  assert.equal(res.body.member.status, 'active');
-
-  // Duplicate active member rejected
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.athleteA,
-  });
-  assert.equal(res.status, 409);
-  assert.equal(res.body.code, 'already_member');
-
-  // Adding another coach as member rejected
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.coachB,
-  });
-  assert.equal(res.status, 400);
-  assert.equal(res.body.code, 'invalid_athlete');
-
-  // Coach adds Athlete B (reaches maxMembers: 2)
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.athleteB,
-  });
-  assert.equal(res.status, 201);
-
-  // Third member rejected because capacity is 2
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.athleteC,
-  });
-  assert.equal(res.status, 409);
-  assert.equal(res.body.code, 'group_full');
-
-  // Coach removes Athlete A from group
-  res = await request(server, IDS.coachA, 'DELETE', `/api/coach/groups/${group.id}/members/${IDS.athleteA}`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.status, 'removed');
-
-  // Group member count is now 1, so Athlete C can now be added
-  res = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, {
-    athleteId: IDS.athleteC,
-  });
-  assert.equal(res.status, 201);
+test('anti-IDOR, exact active training scope, pending consent, privacy and invite 410 contracts', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-auth-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = await launch(dir); t.after(() => stop(server)); const group = await createGroup(server, 3);
+  assert.equal('inviteCode' in group, false); assert.equal('coachId' in group, false);
+  for (const athleteId of [IDS.nutrition, IDS.pending, IDS.suspended, IDS.ended]) {
+    const response = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, { athleteId });
+    assert.equal(response.status, 403, athleteId); assert.equal(response.body.code, 'scope_forbidden');
+  }
+  let response = await request(server, IDS.coachB, 'POST', `/api/coach/groups/${group.id}/members`, { athleteId: IDS.training });
+  assert.equal(response.status, 403); assert.equal(response.body.code, 'access_denied');
+  await addAndAccept(server, group.id, IDS.training);
+  response = await request(server, IDS.training, 'GET', '/api/athlete/groups');
+  assert.equal(response.status, 200); assert.equal(JSON.stringify(response.body).includes('inviteCode'), false); assert.equal(JSON.stringify(response.body).includes(IDS.training), false);
+  response = await request(server, IDS.coachA, 'PUT', `/api/coach/groups/${group.id}`, { expectedUpdatedAt: '2026-01-01T00:00:00.000Z', name: 'stale' }); assert.equal(response.status, 409); assert.equal(response.body.code, 'edit_conflict');
+  response = await request(server, IDS.training, 'POST', '/api/profile', { kind: 'coach', coachSpecialties: ['training'] }); assert.equal(response.status, 200);
+  response = await request(server, IDS.training, 'GET', `/api/athlete/groups/${group.id}?limit=1`); assert.equal(response.status, 200); assert.equal(response.body.page.limit, 1); assert.equal(JSON.stringify(response.body).includes('athleteId'), false);
+  const oldCode = await activeInvite(server, group.id);
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/invite`, { expiresInDays: 10 }); assert.equal(response.status, 200);
+  response = await request(server, IDS.extra, 'POST', '/api/athlete/groups/join', { inviteCode: oldCode }); assert.equal(response.status, 410); assert.equal(response.body.code, 'invite_revoked');
+  response = await request(server, IDS.coachA, 'PUT', `/api/coach/groups/${group.id}`, { archived: true }); assert.equal(response.status, 200);
+  response = await request(server, IDS.extra, 'POST', '/api/athlete/groups/join', { inviteCode: response.body.inviteCode || (await activeInvite(server, group.id)) }); assert.equal(response.status, 410);
 });
 
-test('2. Entrada por inviteCode e saída voluntária (leave)', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-invite-'));
-  seed(dataDir);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
-
-  // Coach creates group
-  let res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', {
-    name: 'Grupo Aberto',
-    maxMembers: 10,
-  });
-  const group = res.body.group;
-  const inviteCode = group.inviteCode;
-
-  // Invalid invite code rejected
-  res = await request(server, IDS.athleteA, 'POST', '/api/athlete/groups/join', {
-    inviteCode: 'GRP-NONEXISTENT',
-  });
-  assert.equal(res.status, 404);
-  assert.equal(res.body.code, 'group_not_found');
-
-  // Athlete A joins using inviteCode
-  res = await request(server, IDS.athleteA, 'POST', '/api/athlete/groups/join', {
-    inviteCode,
-  });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.ok, true);
-  assert.equal(res.body.group.id, group.id);
-  assert.equal(res.body.member.athleteId, IDS.athleteA);
-  assert.equal(res.body.member.status, 'active');
-
-  // Athlete lists their groups
-  res = await request(server, IDS.athleteA, 'GET', '/api/athlete/groups');
-  assert.equal(res.status, 200);
-  assert.equal(res.body.groups.length, 1);
-  assert.equal(res.body.groups[0].id, group.id);
-
-  // Athlete leaves group
-  res = await request(server, IDS.athleteA, 'POST', `/api/athlete/groups/${group.id}/leave`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.status, 'left');
-
-  // Athlete groups list is now empty
-  res = await request(server, IDS.athleteA, 'GET', '/api/athlete/groups');
-  assert.equal(res.status, 200);
-  assert.equal(res.body.groups.length, 0);
-
-  // Leaving again returns 404 not_member
-  res = await request(server, IDS.athleteA, 'POST', `/api/athlete/groups/${group.id}/leave`);
-  assert.equal(res.status, 404);
-  assert.equal(res.body.code, 'not_member');
+test('two concurrent joins cannot exceed the last slot', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-capacity-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const a = await launch(dir), b = await launch(dir); t.after(() => Promise.all([stop(a), stop(b)])); const group = await createGroup(a, 1), code = await activeInvite(a, group.id);
+  const results = await Promise.all([request(a, IDS.training, 'POST', '/api/athlete/groups/join', { inviteCode: code }), request(b, IDS.extra, 'POST', '/api/athlete/groups/join', { inviteCode: code })]);
+  assert.deepEqual(results.map(row => row.status).sort(), [200, 409]);
+  const disk = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))); assert.equal(disk.coachGroups[0].memberCount, 1); assert.equal(disk.groupMembers.filter(row => row.status === 'active').length, 1);
 });
 
-test('3. Isolamento anti-IDOR entre coaches distintos', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-idor-'));
-  seed(dataDir);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
-
-  // Coach A creates group and challenge
-  let res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Grupo Coach A' });
-  const groupA = res.body.group;
-
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', {
-    name: 'Desafio Coach A',
-    type: 'workouts_count',
-    scope: 'group',
-    groupId: groupA.id,
-    startAt: '2026-11-01T00:00:00.000Z',
-    endAt: '2026-11-30T23:59:59.000Z',
-    timeZone: 'UTC',
-  });
-  const challengeA = res.body.challenge;
-
-  // Coach B cannot view Coach A's group
-  res = await request(server, IDS.coachB, 'GET', `/api/coach/groups/${groupA.id}`);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Coach B cannot modify Coach A's group
-  res = await request(server, IDS.coachB, 'PUT', `/api/coach/groups/${groupA.id}`, { name: 'Hacked' });
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Coach B cannot delete Coach A's group
-  res = await request(server, IDS.coachB, 'DELETE', `/api/coach/groups/${groupA.id}`);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Coach B cannot view Coach A's challenge
-  res = await request(server, IDS.coachB, 'GET', `/api/coach/challenges/${challengeA.id}`);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Coach B cannot modify Coach A's challenge
-  res = await request(server, IDS.coachB, 'PUT', `/api/coach/challenges/${challengeA.id}`, { name: 'Hacked Challenge' });
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Coach B cannot delete Coach A's challenge
-  res = await request(server, IDS.coachB, 'DELETE', `/api/coach/challenges/${challengeA.id}`);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
-
-  // Athlete C (not in group) cannot view challenge leaderboard
-  res = await request(server, IDS.athleteC, 'GET', `/api/athlete/challenges/${challengeA.id}/leaderboard`);
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'access_denied');
+test('legacy saveDb on a server started earlier preserves group and challenge writes from another process', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-lost-update-')), servers = []; seed(dir);
+  t.after(async () => { await Promise.all(servers.map(stop)); fs.rmSync(dir, { recursive: true, force: true }); });
+  const a = await launch(dir), b = await launch(dir); servers.push(a, b); const group = await createGroup(a); await addAndAccept(a, group.id, IDS.training);
+  let response = await request(a, IDS.coachA, 'POST', '/api/coach/challenges', { title: 'Persistente', type: 'workouts_count', scope: 'group', groupId: group.id, startAt: '2026-11-01T00:00:00Z', endAt: '2026-11-30T00:00:00Z', timeZone: 'UTC', status: 'active', rules: { pointsPerWorkout: 10 } });
+  assert.equal(response.status, 201, JSON.stringify(response.body)); const challengeId = response.body.challenge.id;
+  response = await request(b, IDS.extra, 'POST', '/api/logout/all', {}); assert.equal(response.status, 200, JSON.stringify(response.body));
+  await stop(a); await stop(b); const restarted = await launch(dir); servers.push(restarted);
+  const disk = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))); assert.ok(disk.coachGroups.some(row => row.id === group.id)); assert.ok(disk.challenges.some(row => row.id === challengeId));
 });
 
-test('4. Ciclo de vida de desafios (rascunho draft, ativo active, encerrado archived)', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-lifecycle-'));
-  seed(dataDir);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
-
-  // Coach creates group and adds Athlete A
-  let res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Grupo Ciclo' });
-  const group = res.body.group;
-  await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, { athleteId: IDS.athleteA });
-
-  // Coach creates challenge in draft status
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', {
-    name: 'Desafio Rascunho',
-    type: 'workouts_count',
-    scope: 'group',
-    groupId: group.id,
-    startAt: '2026-11-01T00:00:00.000Z',
-    endAt: '2026-11-30T23:59:59.000Z',
-    status: 'draft',
-  });
-  assert.equal(res.status, 201);
-  const challenge = res.body.challenge;
-  assert.equal(challenge.status, 'draft');
-
-  // Athlete cannot see draft challenge
-  res = await request(server, IDS.athleteA, 'GET', `/api/athlete/challenges/${challenge.id}`);
-  assert.equal(res.status, 404);
-
-  // Coach activates challenge
-  res = await request(server, IDS.coachA, 'PUT', `/api/coach/challenges/${challenge.id}`, {
-    status: 'active',
-  });
-  assert.equal(res.status, 200);
-  assert.equal(res.body.challenge.status, 'active');
-
-  // Athlete can now see active challenge
-  res = await request(server, IDS.athleteA, 'GET', `/api/athlete/challenges/${challenge.id}`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.challenge.id, challenge.id);
-
-  // Coach archives challenge
-  res = await request(server, IDS.coachA, 'PUT', `/api/coach/challenges/${challenge.id}`, {
-    status: 'archived',
-  });
-  assert.equal(res.status, 200);
-
-  // Athlete challenge list does not show archived challenges
-  res = await request(server, IDS.athleteA, 'GET', '/api/athlete/challenges');
-  assert.equal(res.status, 200);
-  assert.equal(res.body.challenges.some(c => c.id === challenge.id), false);
+test('lifecycle is one-way, scoring uses real workouts, feed is private, deterministic and GET is pure', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-score-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = await launch(dir); t.after(() => stop(server)); const group = await createGroup(server); await addAndAccept(server, group.id, IDS.training); await addAndAccept(server, group.id, IDS.extra);
+  let response = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', { title: 'Treinos', type: 'workouts_count', scope: 'group', groupId: group.id, startAt: '2026-11-01T00:00:00Z', endAt: '2026-11-30T00:00:00Z', timeZone: 'UTC', status: 'active', rules: { pointsPerWorkout: 10 } });
+  assert.equal(response.status, 201); const id = response.body.challenge.id, before = fs.readFileSync(path.join(dir, 'db.json'), 'utf8');
+  response = await request(server, IDS.training, 'GET', `/api/athlete/challenges/${id}/leaderboard?limit=1&feedlimit=1`); assert.equal(response.status, 200); assert.equal(response.body.leaderboard[0].score, 20);
+  const serialized = JSON.stringify(response.body); assert.equal(serialized.includes('athleteId'), false); assert.equal(serialized.includes('@'), false); assert.ok(response.body.activityFeed.every(row => row.activityType === 'workout_completed'));
+  assert.equal(fs.readFileSync(path.join(dir, 'db.json'), 'utf8'), before, 'leaderboard GET must not persist');
+  response = await request(server, IDS.coachA, 'PUT', `/api/coach/challenges/${id}`, { status: 'completed' }); assert.equal(response.status, 200);
+  response = await request(server, IDS.coachA, 'PUT', `/api/coach/challenges/${id}`, { status: 'active' }); assert.equal(response.status, 409); assert.equal(response.body.code, 'invalid_transition');
+  await request(server, IDS.training, 'POST', `/api/athlete/groups/${group.id}/leave`, {});
+  response = await request(server, IDS.coachA, 'GET', `/api/coach/challenges/${id}/leaderboard`); assert.equal(response.status, 200); assert.equal(response.body.leaderboard.length, 2, 'historical ranking remains frozen');
 });
 
-test('5. Atualização de pontuação do Leaderboard e desempate determinístico', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-scoring-'));
-  seed(dataDir);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
-
-  // Coach A creates group and adds Athlete A and Athlete B
-  let res = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Grupo Desafio Treinos' });
-  const group = res.body.group;
-  await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, { athleteId: IDS.athleteA });
-  await request(server, IDS.coachA, 'POST', `/api/coach/groups/${group.id}/members`, { athleteId: IDS.athleteB });
-
-  // 1. workouts_count challenge
-  // Athlete A has 2 workouts, Athlete B has 1 workout
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', {
-    name: 'Desafio Maior Frequência',
-    type: 'workouts_count',
-    scope: 'group',
-    groupId: group.id,
-    startAt: '2026-11-01T00:00:00.000Z',
-    endAt: '2026-11-30T23:59:59.000Z',
-    timeZone: 'UTC',
-    rules: { pointsPerWorkout: 10 },
-  });
-  const chalWorkouts = res.body.challenge;
-
-  res = await request(server, IDS.coachA, 'GET', `/api/coach/challenges/${chalWorkouts.id}/leaderboard`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.leaderboard.length, 2);
-  assert.equal(res.body.leaderboard[0].athleteId, IDS.athleteA);
-  assert.equal(res.body.leaderboard[0].rank, 1);
-  assert.equal(res.body.leaderboard[0].score, 20); // 2 * 10
-  assert.equal(res.body.leaderboard[1].athleteId, IDS.athleteB);
-  assert.equal(res.body.leaderboard[1].rank, 2);
-  assert.equal(res.body.leaderboard[1].score, 10); // 1 * 10
-
-  // 2. volume_load challenge
-  // Athlete A has vol: 1500 + 1500 = 3000 kg, Athlete B has vol: 1000 kg
-  res = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', {
-    name: 'Desafio Volume Total',
-    type: 'volume_load',
-    scope: 'group',
-    groupId: group.id,
-    startAt: '2026-11-01T00:00:00.000Z',
-    endAt: '2026-11-30T23:59:59.000Z',
-  });
-  const chalVolume = res.body.challenge;
-
-  res = await request(server, IDS.athleteA, 'GET', `/api/athlete/challenges/${chalVolume.id}/leaderboard`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.leaderboard[0].athleteId, IDS.athleteA);
-  assert.equal(res.body.leaderboard[0].score, 3000);
-  assert.equal(res.body.leaderboard[1].athleteId, IDS.athleteB);
-  assert.equal(res.body.leaderboard[1].score, 1000);
-
-  // 3. Tie-breaker verification: two athletes with same score
-  // Update state-u_athlete_b to also have 2 workouts totaling 3000 kg, but logged LATER than A
-  fs.writeFileSync(path.join(dataDir, `state-${IDS.athleteB}.json`), JSON.stringify({
-    unit: 'kg',
-    workouts: [
-      { id: 'w_b1', d: '2026-11-02', vol: 1500, start: Date.parse('2026-11-02T12:00:00Z') },
-      { id: 'w_b2', d: '2026-11-05', vol: 1500, start: Date.parse('2026-11-05T15:00:00Z') }, // later than A's 2026-11-04
-    ],
-  }, null, 2));
-
-  res = await request(server, IDS.coachA, 'GET', `/api/coach/challenges/${chalVolume.id}/leaderboard`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.leaderboard[0].score, 3000);
-  assert.equal(res.body.leaderboard[1].score, 3000);
-  // Athlete A achieved their last workout on 2026-11-04, before Athlete B on 2026-11-05
-  // Deterministic tie-breaker awards rank 1 to Athlete A (earliest completion)
-  assert.equal(res.body.leaderboard[0].athleteId, IDS.athleteA);
-  assert.equal(res.body.leaderboard[0].rank, 1);
-  assert.equal(res.body.leaderboard[1].athleteId, IDS.athleteB);
-  assert.equal(res.body.leaderboard[1].rank, 2);
+test('custom points is idempotent, bounded, auditable and corrected by compensation', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-custom-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = await launch(dir); t.after(() => stop(server)); const group = await createGroup(server); await addAndAccept(server, group.id, IDS.training);
+  let response = await request(server, IDS.coachA, 'POST', '/api/coach/challenges', { title: 'Pontos', type: 'custom_points', scope: 'group', groupId: group.id, startAt: '2026-11-01T00:00:00Z', endAt: '2026-11-30T00:00:00Z', timeZone: 'UTC', status: 'active', rules: { maxPointsPerAdjustment: 50, maxAbsoluteScore: 100 } });
+  const id = response.body.challenge.id, headers = { 'Idempotency-Key': 'points-0001' };
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: 20, reason: 'Bônus validado' }, headers); assert.equal(response.status, 200); const adjustmentId = response.body.adjustment.id;
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: 20, reason: 'Bônus validado' }, headers); assert.equal(response.body.idempotent, true); assert.equal(response.body.score, 20);
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: 10, reason: 'Outro uso' }, headers); assert.equal(response.status, 409); assert.equal(response.body.code, 'idempotency_conflict');
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: -20, reason: 'Correção', correctionOf: adjustmentId }, { 'Idempotency-Key': 'points-0002' }); assert.equal(response.status, 200); assert.equal(response.body.score, 0);
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: -20, reason: 'Correção repetida', correctionOf: adjustmentId }, { 'Idempotency-Key': 'points-0004' }); assert.equal(response.status, 422); assert.equal(response.body.code, 'invalid_correction');
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/challenges/${id}/points`, { athleteId: IDS.training, points: 51, reason: 'Excesso' }, { 'Idempotency-Key': 'points-0003' }); assert.equal(response.status, 422);
 });
 
-test('6. Feed de atividades recentes do desafio', async t => {
-  const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-test-feed-'));
-  const db = baseDb();
-  const group = {
-    id: 'cgrp_feed_test', coachId: IDS.coachA, name: 'Feed Group', description: '',
-    category: 'geral', maxMembers: 10, isPrivate: false, inviteCode: 'GRP-FEED',
-    memberCount: 1, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', archivedAt: null,
-  };
-  const member = {
-    id: 'gmem_feed_test', groupId: group.id, coachId: IDS.coachA, athleteId: IDS.athleteA,
-    joinedAt: '2026-11-01T00:00:00.000Z', role: 'member', status: 'active',
-  };
-  const challenge = {
-    id: 'chal_feed_test', coachId: IDS.coachA, groupId: group.id, scope: 'group',
-    name: 'Feed Challenge', title: 'Feed Challenge', description: '', type: 'workouts_count',
-    startAt: '2026-11-01T00:00:00.000Z', endAt: '2026-11-30T23:59:59.000Z', timeZone: 'UTC',
-    status: 'active', rules: {}, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
-  };
-  const feed1 = {
-    id: 'caft_1', challengeId: challenge.id, athleteId: IDS.athleteA, athleteName: 'Athlete A',
-    activityType: 'workout', description: 'Completou Treino de Pernas', pointsAwarded: 1, timestamp: '2026-11-02T10:00:00.000Z',
-  };
-  const feed2 = {
-    id: 'caft_2', challengeId: challenge.id, athleteId: IDS.athleteA, athleteName: 'Athlete A',
-    activityType: 'workout', description: 'Completou Treino de Peito', pointsAwarded: 1, timestamp: '2026-11-04T10:00:00.000Z',
-  };
-  db.coachGroups = [group];
-  db.groupMembers = [member];
-  db.challenges = [challenge];
-  db.challengeActivityFeed = [feed1, feed2];
+const routine = { name: 'Coletivo A', notes: '', divisions: [{ name: 'A', exercises: [{ name: 'Agachamento', sets: 3, reps: '8-12', load: '', restSeconds: 60, notes: '' }] }] };
 
-  seed(dataDir, db);
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
-  const server = await launch(dataDir);
-  t.after(async () => stop(server));
-
-  const res = await request(server, IDS.coachA, 'GET', `/api/coach/challenges/${challenge.id}/leaderboard`);
-  assert.equal(res.status, 200);
-  assert.equal(res.body.activityFeed.length, 2);
-  // Ordered newest first
-  assert.equal(res.body.activityFeed[0].id, 'caft_2');
-  assert.equal(res.body.activityFeed[1].id, 'caft_1');
+test('collective programs publish immutable versions and adopt atomically without duplicates', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-program-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = await launch(dir); t.after(() => stop(server)); const group = await createGroup(server); await addAndAccept(server, group.id, IDS.training);
+  let response = await request(server, IDS.coachA, 'POST', '/api/coach/group-programs', { groupId: group.id, title: 'Programa coletivo', routine }); assert.equal(response.status, 201, JSON.stringify(response.body)); const id = response.body.program.id;
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/group-programs/${id}/publish`, {}); assert.equal(response.status, 200); assert.equal(response.body.program.status, 'published');
+  response = await request(server, IDS.coachA, 'PUT', `/api/coach/group-programs/${id}`, { title: 'Mutação proibida' }); assert.equal(response.status, 409);
+  response = await request(server, IDS.training, 'POST', `/api/athlete/group-programs/${id}/adopt`, {}); assert.equal(response.status, 200, JSON.stringify(response.body)); assert.equal(response.body.idempotent, false);
+  const routineIds = response.body.routineIds;
+  response = await request(server, IDS.training, 'POST', `/api/athlete/group-programs/${id}/adopt`, {}); assert.equal(response.status, 200); assert.equal(response.body.idempotent, true); assert.deepEqual(response.body.routineIds, routineIds);
+  const state = JSON.parse(fs.readFileSync(path.join(dir, `state-${IDS.training}.json`))); assert.equal(state.routines.filter(row => row.prescriptionId).length, 1);
+  response = await request(server, IDS.coachA, 'POST', `/api/coach/group-programs/${id}/versions`, {}); assert.equal(response.status, 201); assert.equal(response.body.program.version, 2);
+  response = await request(server, IDS.coachA, 'GET', '/api/coach/group-programs?limit=1'); assert.equal(response.status, 200); assert.equal(response.body.programs.length, 1); assert.equal(response.body.page.hasMore, true);
+  await request(server, IDS.coachA, 'POST', `/api/coach/group-programs/${id}/archive`, {}); await request(server, IDS.training, 'POST', `/api/athlete/groups/${group.id}/leave`, {});
+  const disk = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))); assert.equal(disk.groupProgramAdoptions.length, 1, 'leaving and archiving preserve adoption history');
 });
 
-test('7. Fail-closed no removeAccount() para coach e atleta', async t => {
-  const db = baseDb();
-  const group = {
-    id: 'cgrp_del_coach', coachId: IDS.coachA, name: 'Coach A Group', description: '',
-    category: 'geral', maxMembers: 10, isPrivate: false, inviteCode: 'GRP-COACH',
-    memberCount: 2, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z', archivedAt: null,
-  };
-  const memberA = {
-    id: 'gmem_del_a', groupId: group.id, coachId: IDS.coachA, athleteId: IDS.athleteA,
-    joinedAt: '2026-11-01T00:00:00.000Z', role: 'member', status: 'active',
-  };
-  const memberB = {
-    id: 'gmem_del_b', groupId: group.id, coachId: IDS.coachA, athleteId: IDS.athleteB,
-    joinedAt: '2026-11-01T00:00:00.000Z', role: 'member', status: 'active',
-  };
-  const challenge = {
-    id: 'chal_del_test', coachId: IDS.coachA, groupId: group.id, scope: 'group',
-    name: 'Delete Challenge', title: 'Delete Challenge', description: '', type: 'workouts_count',
-    startAt: '2026-11-01T00:00:00.000Z', endAt: '2026-11-30T23:59:59.000Z', timeZone: 'UTC',
-    status: 'active', rules: {}, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
-  };
-  const score = { id: 'cscr_del', challengeId: challenge.id, athleteId: IDS.athleteA, score: 10 };
-  const feed = {
-    id: 'caft_del', challengeId: challenge.id, athleteId: IDS.athleteA, athleteName: 'Athlete A',
-    activityType: 'workout', description: 'Log', pointsAwarded: 1, timestamp: '2026-11-02T10:00:00.000Z',
-  };
-
-  db.coachGroups = [group];
-  db.groupMembers = [memberA, memberB];
-  db.challenges = [challenge];
-  db.challengeScores = [score];
-  db.challengeActivityFeed = [feed];
-
-  // Test removing Athlete A: memberA removed, memberB remains, group memberCount becomes 1
-  removeChallengesUser(db, IDS.athleteA);
-  assert.equal(db.coachGroups.length, 1);
-  assert.equal(db.coachGroups[0].memberCount, 1);
-  assert.equal(db.groupMembers.length, 1);
-  assert.equal(db.groupMembers[0].athleteId, IDS.athleteB);
-  assert.equal(db.challengeScores.length, 0); // Athlete A's score removed
-  assert.equal(db.challengeActivityFeed.length, 0); // Athlete A's feed removed
-
-  // Test removing Coach A: group, challenges, and all remaining members deleted
-  removeChallengesUser(db, IDS.coachA);
-  assert.equal(db.coachGroups.length, 0);
-  assert.equal(db.groupMembers.length, 0);
-  assert.equal(db.challenges.length, 0);
+test('collective program adoption journal recovers the state-to-db failure exactly once', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-program-journal-')), barriers = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-program-journal-fault-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true })); t.after(() => fs.rmSync(barriers, { recursive: true, force: true }));
+  fs.writeFileSync(path.join(barriers, `group-adoption-after-state-${IDS.training}.fail-once`), '');
+  let server = await launch(dir, { STATE_WRITE_TEST_DIR: barriers }); t.after(() => stop(server)); const group = await createGroup(server); await addAndAccept(server, group.id, IDS.training);
+  let response = await request(server, IDS.coachA, 'POST', '/api/coach/group-programs', { groupId: group.id, title: 'Programa recuperável', routine }); const id = response.body.program.id;
+  await request(server, IDS.coachA, 'POST', `/api/coach/group-programs/${id}/publish`, {});
+  response = await request(server, IDS.training, 'POST', `/api/athlete/group-programs/${id}/adopt`, {}); assert.equal(response.status, 503); assert.equal(response.body.code, 'adoption_pending');
+  assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))).groupProgramAdoptions.length, 0); assert.equal(fs.readdirSync(dir).filter(name => name.startsWith('group-program-adoption-')).length, 1);
+  await stop(server); server = await launch(dir, { STATE_WRITE_TEST_DIR: barriers });
+  assert.equal(fs.readdirSync(dir).filter(name => name.startsWith('group-program-adoption-')).length, 0); assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))).groupProgramAdoptions.length, 1);
+  response = await request(server, IDS.training, 'POST', `/api/athlete/group-programs/${id}/adopt`, {}); assert.equal(response.status, 200); assert.equal(response.body.idempotent, true);
+  const state = JSON.parse(fs.readFileSync(path.join(dir, `state-${IDS.training}.json`))); assert.equal(state.routines.filter(row => row.prescriptionId).length, 1);
+  const audit = fs.readFileSync(path.join(dir, 'audit.log'), 'utf8').trim().split('\n').map(line => JSON.parse(line)); assert.equal(audit.filter(row => row.ev === 'athlete.group-program.adopt' && row.msg === id).length, 1);
 });
 
-test('8. Migração fail-closed de schema v8 para v9 e validação de integridade', async t => {
-  // 1. Clean migration from v8
-  const legacyV8 = {
-    schemaVersion: 8,
-    users: [], creds: [], subs: [], invites: [],
-    coachInvites: [], coachAthleteLinks: [], coachPrescriptions: [], coachAssessments: [],
-    mealPlans: [], mealAdherence: [], coachMessages: [], coachHabits: [], habitCheckins: [],
-    progressGoals: [], progressReports: [], coachAvailability: [], coachAppointments: [],
-  };
-  const changed = migrateB2B2C(legacyV8);
-  assert.equal(changed, true);
-  assert.equal(legacyV8.schemaVersion, B2B2C_SCHEMA_VERSION);
-  assert.equal(B2B2C_SCHEMA_VERSION, 9);
-  assert.deepEqual(legacyV8.coachGroups, []);
-  assert.deepEqual(legacyV8.groupMembers, []);
-  assert.deepEqual(legacyV8.challenges, []);
-  assert.deepEqual(legacyV8.challengeScores, []);
-  assert.deepEqual(legacyV8.challengeActivityFeed, []);
+test('rate limits return 429 and Retry-After', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-rate-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const server = await launch(dir, { B2B2C_CHALLENGE_MUTATION_ACCOUNT_MAX: '1', B2B2C_CHALLENGE_MUTATION_IP_MAX: '100' }); t.after(() => stop(server));
+  assert.equal((await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Um' })).status, 201);
+  const response = await request(server, IDS.coachA, 'POST', '/api/coach/groups', { name: 'Dois' }); assert.equal(response.status, 429); assert.ok(Number(response.headers.get('retry-after')) >= 1);
+});
 
-  // 2. Corrupt group record causes fail-closed validation error
-  const corruptDb = {
-    ...legacyV8,
-    coachGroups: [{ id: 'cgrp_corrupt', coachId: 'invalid' }],
-  };
-  assert.throws(() => validateChallengesState(corruptDb), /coachGroups/);
+test('schema v9 validation is fail-closed for count, invite, score, eligibility, scope, rules and unknown fields', () => {
+  const db = baseDb(); const stamp = '2026-11-01T00:00:00.000Z';
+  db.coachGroups.push({ id: 'cgrp_schema', coachId: IDS.coachA, name: 'G', description: '', category: 'geral', maxMembers: 2, isPrivate: true, memberCount: 1, createdAt: stamp, updatedAt: stamp, archivedAt: null });
+  assert.throws(() => validateChallengesState(structuredClone(db)), /memberCount mismatch/);
+  db.coachGroups[0].memberCount = 0;
+  db.groupInvites.push({ id: 'ginv_1', groupId: 'cgrp_schema', coachId: IDS.coachA, code: 'GRP-AAAAAAAAAAAAAAAA', status: 'active', createdAt: stamp, updatedAt: stamp, expiresAt: '2027-01-01T00:00:00.000Z', revokedAt: null });
+  db.groupInvites.push({ ...db.groupInvites[0], id: 'ginv_2', code: 'grp-aaaaaaaaaaaaaaaa', status: 'revoked', revokedAt: stamp });
+  assert.throws(() => validateChallengesState(structuredClone(db)), /groupInvites/); db.groupInvites.pop();
+  const challenge = { id: 'chal_schema', coachId: IDS.coachA, groupId: null, scope: 'coach_students', title: 'C', description: '', type: 'workouts_count', startAt: stamp, endAt: '2026-12-01T00:00:00.000Z', timeZone: 'UTC', status: 'active', rules: { pointsPerWorkout: 10 }, participantIds: [IDS.training], createdAt: stamp, updatedAt: stamp, activatedAt: stamp, completedAt: null, archivedAt: null };
+  db.challenges.push(challenge); db.challengeScores.push({ id: 'cscr_1', challengeId: challenge.id, athleteId: IDS.training, score: 1, workoutsCount: 0, volumeLoad: 0, habitCheckinsCount: 0, lastActivityAt: null, updatedAt: stamp, finalized: false }, { id: 'cscr_2', challengeId: challenge.id, athleteId: IDS.training, score: 2, workoutsCount: 0, volumeLoad: 0, habitCheckinsCount: 0, lastActivityAt: null, updatedAt: stamp, finalized: false });
+  assert.throws(() => validateChallengesState(structuredClone(db)), /challengeScores/); db.challengeScores.pop();
+  db.challengeScores[0].athleteId = IDS.nutrition; assert.throws(() => validateChallengesState(structuredClone(db)), /challengeScores/); db.challengeScores = [];
+  db.challenges[0].groupId = 'cgrp_schema'; assert.throws(() => validateChallengesState(structuredClone(db)), /challenges/); db.challenges[0].groupId = null;
+  db.challenges[0].rules = { pointsPerWorkout: -1 }; assert.throws(() => validateChallengesState(structuredClone(db)), /challenges/); db.challenges[0].rules = { pointsPerWorkout: 10 };
+  db.challenges[0].unexpected = true; assert.throws(() => validateChallengesState(structuredClone(db)), /challenges/);
+  delete db.challenges[0].unexpected; db.challenges = [];
+  const normalizedRoutine = { name: 'R', notes: '', divisions: [{ id: 'division_1', name: 'A', exercises: [{ id: 'exercise_1_1', name: 'Agachamento', sets: 3, reps: '10', load: '', restSeconds: 60, notes: '' }] }] };
+  db.groupPrograms.push({ id: 'gprg_schema', seriesId: 'gprs_schema', coachId: IDS.coachA, groupId: 'cgrp_schema', templateId: null, prescriptionId: 'gprx_schema', title: 'P', version: 1, status: 'draft', routine: normalizedRoutine, createdAt: stamp, updatedAt: stamp, publishedAt: null, archivedAt: null });
+  assert.equal(validateGroupProgramsState(structuredClone(db)), true); db.groupPrograms[0].routine.extra = true; assert.throws(() => validateGroupProgramsState(structuredClone(db)), /groupPrograms/);
+});
 
-  // 3. Orphan challenge groupId causes fail-closed validation error
-  const orphanChallengeDb = {
-    ...legacyV8,
-    challenges: [{
-      id: 'chal_orphan', coachId: 'u_coach', scope: 'group', groupId: 'cgrp_nonexistent',
-      type: 'workouts_count', name: 'Orphan', description: '',
-      startAt: '2026-11-01T00:00:00.000Z', endAt: '2026-11-30T00:00:00.000Z', timeZone: 'UTC',
-      status: 'active', rules: {}, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
-    }],
-  };
-  assert.throws(() => validateChallengesState(orphanChallengeDb), /groupId/);
-
-  // 4. Inverted dates in challenge cause fail-closed validation error
-  const invertedDatesDb = {
-    ...legacyV8,
-    challenges: [{
-      id: 'chal_bad_dates', coachId: 'u_coach', scope: 'coach_students', groupId: null,
-      type: 'workouts_count', name: 'Bad Dates', description: '',
-      startAt: '2026-11-30T00:00:00.000Z', endAt: '2026-11-01T00:00:00.000Z', timeZone: 'UTC',
-      status: 'active', rules: {}, createdAt: '2026-11-01T00:00:00.000Z', updatedAt: '2026-11-01T00:00:00.000Z',
-    }],
-  };
-  assert.throws(() => validateChallengesState(invertedDatesDb), /endAt must be after startAt/);
+test('v8 migration initializes all phase-8 collections and invalid v9 boot changes neither db.json nor backup', async t => {
+  const legacy = { ...baseDb(), schemaVersion: 8 }; for (const key of ['coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions']) delete legacy[key];
+  assert.equal(migrateB2B2C(legacy), true); assert.equal(legacy.schemaVersion, B2B2C_SCHEMA_VERSION); for (const key of ['coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions']) assert.deepEqual(legacy[key], []);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-invalid-')); t.after(() => fs.rmSync(dir, { recursive: true, force: true })); const invalid = baseDb(), stamp = '2026-11-01T00:00:00.000Z';
+  invalid.coachGroups.push({ id: 'cgrp_invalid', coachId: IDS.coachA, name: 'G', description: '', category: 'geral', maxMembers: 2, isPrivate: true, memberCount: 1, createdAt: stamp, updatedAt: stamp, archivedAt: null }); seed(dir, invalid); fs.writeFileSync(path.join(dir, 'db.json.bak'), 'sentinel-backup');
+  const before = fs.readFileSync(path.join(dir, 'db.json')), backup = fs.readFileSync(path.join(dir, 'db.json.bak'));
+  const child = spawn(process.execPath, ['server.js'], { cwd: API, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: '0', DATA_DIR: dir, ORIGIN, RP_ID: 'localhost' } }); let log = ''; child.stderr.on('data', chunk => log += chunk); child.stdout.on('data', chunk => log += chunk); await new Promise(resolve => child.once('exit', resolve));
+  assert.equal(child.exitCode, 1, log); assert.deepEqual(fs.readFileSync(path.join(dir, 'db.json')), before); assert.deepEqual(fs.readFileSync(path.join(dir, 'db.json.bak')), backup);
 });

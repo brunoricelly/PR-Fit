@@ -2,1162 +2,623 @@ import crypto from 'node:crypto';
 import { createWindow } from './rate-limit.js';
 
 const ID_RE = /^[A-Za-z0-9_-]{1,120}$/;
-const CHALLENGE_TYPES = new Set(['workouts_count', 'habits_consistency', 'volume_load', 'custom_points']);
-const CHALLENGE_SCOPES = new Set(['group', 'coach_students']);
-const CHALLENGE_STATUSES = new Set(['draft', 'active', 'completed', 'archived']);
-const MEMBER_ROLES = new Set(['member', 'moderator']);
-const MEMBER_STATUSES = new Set(['active', 'removed', 'left']);
+const TYPES = new Set(['workouts_count', 'habits_consistency', 'volume_load', 'custom_points']);
+const SCOPES = new Set(['group', 'coach_students']);
+const STATUSES = new Set(['draft', 'active', 'completed', 'archived']);
+const ROLES = new Set(['member', 'moderator']);
+const MEMBER_STATUSES = new Set(['pending', 'active', 'removed', 'left']);
+const GROUP_KEYS = new Set(['id', 'coachId', 'name', 'description', 'category', 'maxMembers', 'isPrivate', 'memberCount', 'createdAt', 'updatedAt', 'archivedAt']);
+const MEMBER_KEYS = new Set(['id', 'groupId', 'coachId', 'athleteId', 'joinedAt', 'acceptedAt', 'role', 'status', 'updatedAt']);
+const INVITE_KEYS = new Set(['id', 'groupId', 'coachId', 'code', 'status', 'createdAt', 'updatedAt', 'expiresAt', 'revokedAt']);
+const CHALLENGE_KEYS = new Set(['id', 'coachId', 'groupId', 'scope', 'title', 'description', 'type', 'startAt', 'endAt', 'timeZone', 'status', 'rules', 'participantIds', 'createdAt', 'updatedAt', 'activatedAt', 'completedAt', 'archivedAt']);
+const SCORE_KEYS = new Set(['id', 'challengeId', 'athleteId', 'score', 'workoutsCount', 'volumeLoad', 'habitCheckinsCount', 'lastActivityAt', 'updatedAt', 'finalized']);
+const FEED_KEYS = new Set(['id', 'challengeId', 'athleteId', 'activityType', 'sourceId', 'description', 'pointsAwarded', 'timestamp', 'reason', 'idempotencyKey', 'createdAt', 'finalized']);
 
 export const CHALLENGE_LIMITS = Object.freeze({
-  maxGroupsPerCoach: 50,
-  maxGroups: 5000,
-  maxMembersPerGroup: 500,
-  maxChallengesPerCoach: 100,
-  maxChallenges: 5000,
-  maxScoresPerChallenge: 2000,
-  maxActivityFeedPerChallenge: 1000,
-  maxActivityFeed: 50000,
+  maxGroupsPerCoach: 50, maxGroups: 5000, maxMembersPerGroup: 500, maxGroupMemberships: 100000,
+  maxGroupInvites: 20000, maxChallengesPerCoach: 100, maxChallenges: 5000,
+  maxScoresPerChallenge: 2000, maxActivityFeedPerChallenge: 1000, maxActivityFeed: 50000,
 });
 
 const record = value => !!value && typeof value === 'object' && !Array.isArray(value);
+const exact = (value, keys) => record(value) && Object.keys(value).every(key => keys.has(key));
+const date = value => typeof value === 'string'
+  && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+  && Number.isFinite(Date.parse(value));
+const nullableDate = value => value === null || date(value);
+const number = (value, min, max) => typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max;
+const clean = (value, max, required = false) => {
+  if (value === undefined && !required) return '';
+  if (typeof value !== 'string') return null;
+  const out = value.trim();
+  return (required && !out) || out.length > max ? null : out;
+};
 
 export function validTimeZone(value) {
   if (typeof value !== 'string' || !value) return false;
-  try {
-    Intl.DateTimeFormat(undefined, { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
+  try { Intl.DateTimeFormat(undefined, { timeZone: value }); return true; } catch { return false; }
 }
 
-function makeEntityId(prefix, rows = []) {
+function entityId(prefix, rows) {
+  const used = new Set(rows.map(row => row?.id));
   let id;
-  const existing = new Set(rows.map(r => r?.id));
-  do {
-    id = `${prefix}_${crypto.randomBytes(12).toString('base64url')}`;
-  } while (existing.has(id));
+  do { id = `${prefix}_${crypto.randomBytes(12).toString('base64url')}`; } while (used.has(id));
   return id;
 }
 
-function generateInviteCode(existingGroups = []) {
-  const existing = new Set(existingGroups.map(g => (g?.inviteCode || '').toUpperCase()));
+function newInviteCode(rows) {
+  const used = new Set(rows.map(row => String(row?.code || '').toUpperCase()));
   let code;
-  do {
-    code = `GRP-${crypto.randomBytes(3).toString('hex').toUpperCase()}`;
-  } while (existing.has(code));
+  do { code = `GRP-${crypto.randomBytes(8).toString('hex').toUpperCase()}`; } while (used.has(code));
   return code;
 }
 
+function rulesFor(type, rules) {
+  if (!record(rules)) return null;
+  if (type === 'workouts_count') return exact(rules, new Set(['pointsPerWorkout'])) && number(rules.pointsPerWorkout, 0.01, 1000) ? { pointsPerWorkout: rules.pointsPerWorkout } : null;
+  if (type === 'volume_load') return exact(rules, new Set(['pointsPer1000'])) && number(rules.pointsPer1000, 0.01, 1000) ? { pointsPer1000: rules.pointsPer1000 } : null;
+  if (type === 'habits_consistency') {
+    return exact(rules, new Set(['pointsPerCheckin', 'habitIds'])) && number(rules.pointsPerCheckin, 0.01, 1000)
+      && Array.isArray(rules.habitIds) && rules.habitIds.length >= 1 && rules.habitIds.length <= 50
+      && rules.habitIds.every(id => typeof id === 'string' && ID_RE.test(id)) && new Set(rules.habitIds).size === rules.habitIds.length
+      ? { pointsPerCheckin: rules.pointsPerCheckin, habitIds: [...rules.habitIds] } : null;
+  }
+  if (type === 'custom_points') {
+    return exact(rules, new Set(['maxPointsPerAdjustment', 'maxAbsoluteScore']))
+      && Number.isInteger(rules.maxPointsPerAdjustment) && rules.maxPointsPerAdjustment >= 1 && rules.maxPointsPerAdjustment <= 10000
+      && (rules.maxAbsoluteScore === undefined || Number.isInteger(rules.maxAbsoluteScore) && rules.maxAbsoluteScore >= rules.maxPointsPerAdjustment && rules.maxAbsoluteScore <= 1000000)
+      ? { maxPointsPerAdjustment: rules.maxPointsPerAdjustment, ...(rules.maxAbsoluteScore === undefined ? {} : { maxAbsoluteScore: rules.maxAbsoluteScore }) } : null;
+  }
+  return null;
+}
+
+export function activeTrainingLink(db, coachId, athleteId) {
+  return (db.coachAthleteLinks || []).find(link => link.coachId === coachId && link.athleteId === athleteId
+    && link.status === 'active' && Array.isArray(link.scopes) && link.scopes.includes('training')) || null;
+}
+
+function currentEligibleIds(db, challenge) {
+  if (challenge.scope === 'group') {
+    return [...new Set(db.groupMembers.filter(member => member.groupId === challenge.groupId && member.status === 'active'
+      && activeTrainingLink(db, challenge.coachId, member.athleteId)).map(member => member.athleteId))].sort();
+  }
+  return [...new Set(db.coachAthleteLinks.filter(link => link.coachId === challenge.coachId && link.status === 'active'
+    && link.scopes.includes('training')).map(link => link.athleteId))].sort();
+}
+
+export const challengeAllowsAthlete = (db, challenge, athleteId) => challenge.participantIds.includes(athleteId);
+
+function participantValid(db, challenge, athleteId, historical) {
+  const user = db.users.find(row => row.id === athleteId);
+  if (!user) return false;
+  if (historical) return true;
+  if (challenge.scope === 'group') {
+    return db.groupMembers.some(row => row.groupId === challenge.groupId && row.athleteId === athleteId && row.status === 'active')
+      && !!activeTrainingLink(db, challenge.coachId, athleteId);
+  }
+  return !!activeTrainingLink(db, challenge.coachId, athleteId);
+}
+
 export function validateChallengesState(db, limits = CHALLENGE_LIMITS) {
-  for (const key of ['coachGroups', 'groupMembers', 'challenges', 'challengeScores', 'challengeActivityFeed']) {
-    if (db[key] === undefined) db[key] = [];
+  for (const key of ['coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed']) {
     if (!Array.isArray(db[key])) throw new Error(`${key} must be an array`);
   }
-
-  const usersMap = Array.isArray(db.users) && db.users.length > 0 ? new Map(db.users.map(u => [u.id, u])) : null;
-  const groupsMap = new Map();
-  const activeMembersByGroup = new Map();
-
+  if (db.coachGroups.length > (limits.maxGroups ?? 5000) || db.groupMembers.length > (limits.maxGroupMemberships ?? 100000)
+      || db.groupInvites.length > (limits.maxGroupInvites ?? 20000) || db.challenges.length > (limits.maxChallenges ?? 5000)) throw new Error('challenge collection quota exceeded');
+  const users = new Map(db.users.map(user => [user.id, user]));
+  const groups = new Map();
+  const perCoachGroups = new Map();
   for (const group of db.coachGroups) {
-    if (!record(group)) throw new Error('coachGroups contains an invalid record');
-    if (typeof group.id !== 'string' || !ID_RE.test(group.id)) throw new Error('coachGroups contains an invalid id');
-    if (groupsMap.has(group.id)) throw new Error(`duplicate coachGroups id ${group.id}`);
-    groupsMap.set(group.id, group);
-
-    if (typeof group.coachId !== 'string' || !ID_RE.test(group.coachId)) throw new Error('coachGroups contains an invalid coachId');
-    if (usersMap) {
-      const coach = usersMap.get(group.coachId);
-      if (!coach || coach.profile?.kind !== 'coach') throw new Error(`coachGroups coachId ${group.coachId} is not a valid coach`);
-    }
-
-    if (typeof group.name !== 'string' || !group.name.trim() || group.name.length > 100) {
-      throw new Error('coachGroups contains an invalid name');
-    }
-    if (typeof group.description !== 'string' || group.description.length > 1000) {
-      throw new Error('coachGroups contains an invalid description');
-    }
-    if (typeof group.category !== 'string' || !group.category.trim() || group.category.length > 50) {
-      throw new Error('coachGroups contains an invalid category');
-    }
-    if (!Number.isInteger(group.maxMembers) || group.maxMembers < 1 || group.maxMembers > (limits.maxMembersPerGroup ?? 500)) {
-      throw new Error('coachGroups contains an invalid maxMembers');
-    }
-    if (typeof group.isPrivate !== 'boolean') {
-      throw new Error('coachGroups contains an invalid isPrivate');
-    }
-    if (typeof group.inviteCode !== 'string' || !group.inviteCode.trim() || group.inviteCode.length > 30) {
-      throw new Error('coachGroups contains an invalid inviteCode');
-    }
-    if (!Number.isInteger(group.memberCount) || group.memberCount < 0) {
-      throw new Error('coachGroups contains an invalid memberCount');
-    }
-    if (!Number.isFinite(Date.parse(group.createdAt)) || !Number.isFinite(Date.parse(group.updatedAt))) {
-      throw new Error('coachGroups contains an invalid timestamp');
-    }
-    if (group.archivedAt !== null && !Number.isFinite(Date.parse(group.archivedAt))) {
-      throw new Error('coachGroups contains an invalid archivedAt');
-    }
+    if (!exact(group, GROUP_KEYS) || !ID_RE.test(group.id) || groups.has(group.id) || users.get(group.coachId)?.profile?.kind !== 'coach'
+        || !clean(group.name, 100, true) || clean(group.description, 1000) === null || !clean(group.category, 50, true)
+        || !Number.isInteger(group.maxMembers) || group.maxMembers < 1 || group.maxMembers > (limits.maxMembersPerGroup ?? 500)
+        || typeof group.isPrivate !== 'boolean' || !Number.isInteger(group.memberCount) || group.memberCount < 0
+        || !date(group.createdAt) || !date(group.updatedAt) || !nullableDate(group.archivedAt)) throw new Error('coachGroups contains invalid data');
+    groups.set(group.id, group); perCoachGroups.set(group.coachId, (perCoachGroups.get(group.coachId) || 0) + 1);
   }
-
-  const memberIds = new Set();
-  const activePairSet = new Set();
-
+  if ([...perCoachGroups.values()].some(count => count > (limits.maxGroupsPerCoach ?? 50))) throw new Error('coach group quota exceeded');
+  const memberIds = new Set(), memberPairs = new Set(), activeCounts = new Map();
   for (const member of db.groupMembers) {
-    if (!record(member)) throw new Error('groupMembers contains an invalid record');
-    if (typeof member.id !== 'string' || !ID_RE.test(member.id)) throw new Error('groupMembers contains an invalid id');
-    if (memberIds.has(member.id)) throw new Error(`duplicate groupMembers id ${member.id}`);
-    memberIds.add(member.id);
-
-    if (typeof member.groupId !== 'string' || !groupsMap.has(member.groupId)) {
-      throw new Error(`groupMembers groupId ${member.groupId} does not exist`);
-    }
-    const group = groupsMap.get(member.groupId);
-    if (member.coachId !== group.coachId) {
-      throw new Error(`groupMembers coachId ${member.coachId} does not match group owner ${group.coachId}`);
-    }
-    if (typeof member.athleteId !== 'string' || !ID_RE.test(member.athleteId)) {
-      throw new Error('groupMembers contains an invalid athleteId');
-    }
-    if (usersMap) {
-      const athlete = usersMap.get(member.athleteId);
-      if (!athlete || athlete.profile?.kind === 'coach') {
-        throw new Error(`groupMembers athleteId ${member.athleteId} is not a valid athlete`);
-      }
-    }
-    if (!MEMBER_ROLES.has(member.role)) throw new Error(`groupMembers invalid role ${member.role}`);
-    if (!MEMBER_STATUSES.has(member.status)) throw new Error(`groupMembers invalid status ${member.status}`);
-    if (!Number.isFinite(Date.parse(member.joinedAt))) throw new Error('groupMembers contains an invalid joinedAt');
-
+    const group = groups.get(member.groupId), athlete = users.get(member.athleteId), pair = `${member.groupId}\0${member.athleteId}`;
+    if (!exact(member, MEMBER_KEYS) || !ID_RE.test(member.id) || memberIds.has(member.id) || !group || group.coachId !== member.coachId
+        || !athlete || memberPairs.has(pair) || !ROLES.has(member.role) || !MEMBER_STATUSES.has(member.status)
+        || !date(member.joinedAt) || !date(member.updatedAt) || !nullableDate(member.acceptedAt)) throw new Error('groupMembers contains invalid data');
+    if (member.status === 'pending' && member.acceptedAt !== null || member.status === 'active' && !date(member.acceptedAt)) throw new Error('groupMembers contains invalid lifecycle data');
+    memberIds.add(member.id); memberPairs.add(pair);
     if (member.status === 'active') {
-      const pair = `${member.groupId}:${member.athleteId}`;
-      if (activePairSet.has(pair)) throw new Error(`duplicate active membership for ${pair}`);
-      activePairSet.add(pair);
-      activeMembersByGroup.set(member.groupId, (activeMembersByGroup.get(member.groupId) || 0) + 1);
+      activeCounts.set(member.groupId, (activeCounts.get(member.groupId) || 0) + 1);
     }
   }
-
-  for (const [groupId, count] of activeMembersByGroup.entries()) {
-    const group = groupsMap.get(groupId);
-    if (group && count > group.maxMembers) {
-      throw new Error(`active groupMembers count ${count} exceeds group maxMembers ${group.maxMembers}`);
-    }
+  for (const group of groups.values()) {
+    const count = activeCounts.get(group.id) || 0;
+    if (group.memberCount !== count) throw new Error(`memberCount mismatch for ${group.id}`);
+    if (count > group.maxMembers) throw new Error(`group capacity exceeded for ${group.id}`);
   }
-
-  const challengesMap = new Map();
+  const inviteIds = new Set(), inviteCodes = new Set(), activeInvites = new Set();
+  for (const invite of db.groupInvites) {
+    const group = groups.get(invite.groupId), code = typeof invite.code === 'string' ? invite.code.toUpperCase() : '';
+    if (!exact(invite, INVITE_KEYS) || !ID_RE.test(invite.id) || inviteIds.has(invite.id) || !group || group.coachId !== invite.coachId
+        || !/^GRP-[A-F0-9]{16}$/.test(code) || inviteCodes.has(code) || !['active', 'revoked'].includes(invite.status)
+        || !date(invite.createdAt) || !date(invite.updatedAt) || !date(invite.expiresAt) || !nullableDate(invite.revokedAt)
+        || invite.status === 'active' && invite.revokedAt !== null || invite.status === 'revoked' && !date(invite.revokedAt)) throw new Error('groupInvites contains invalid data');
+    if (invite.status === 'active' && activeInvites.has(invite.groupId)) throw new Error('multiple active invites for group');
+    inviteIds.add(invite.id); inviteCodes.add(code); if (invite.status === 'active') activeInvites.add(invite.groupId);
+  }
+  const challenges = new Map(), perCoachChallenges = new Map();
   for (const challenge of db.challenges) {
-    if (!record(challenge)) throw new Error('challenges contains an invalid record');
-    if (typeof challenge.id !== 'string' || !ID_RE.test(challenge.id)) throw new Error('challenges contains an invalid id');
-    if (challengesMap.has(challenge.id)) throw new Error(`duplicate challenges id ${challenge.id}`);
-    challengesMap.set(challenge.id, challenge);
-
-    if (typeof challenge.coachId !== 'string' || !ID_RE.test(challenge.coachId)) throw new Error('challenges contains an invalid coachId');
-    if (usersMap) {
-      const coach = usersMap.get(challenge.coachId);
-      if (!coach || coach.profile?.kind !== 'coach') throw new Error(`challenges coachId ${challenge.coachId} is not a valid coach`);
-    }
-
-    if (!CHALLENGE_TYPES.has(challenge.type)) throw new Error(`challenges invalid type ${challenge.type}`);
-    if (!CHALLENGE_SCOPES.has(challenge.scope)) throw new Error(`challenges invalid scope ${challenge.scope}`);
-
-    if (challenge.scope === 'group') {
-      if (typeof challenge.groupId !== 'string' || !groupsMap.has(challenge.groupId)) {
-        throw new Error(`challenges scope is group but groupId ${challenge.groupId} does not exist`);
-      }
-      const group = groupsMap.get(challenge.groupId);
-      if (group.coachId !== challenge.coachId) {
-        throw new Error(`challenges coachId ${challenge.coachId} does not match group owner ${group.coachId}`);
-      }
-    } else if (challenge.groupId !== null && challenge.groupId !== undefined && typeof challenge.groupId !== 'string') {
-      throw new Error('challenges groupId must be a string or null');
-    }
-
-    const title = challenge.name || challenge.title;
-    if (typeof title !== 'string' || !title.trim() || title.length > 100) {
-      throw new Error('challenges contains an invalid name/title');
-    }
-    if (typeof challenge.description !== 'string' || challenge.description.length > 2000) {
-      throw new Error('challenges contains an invalid description');
-    }
-
-    const startMs = Date.parse(challenge.startAt);
-    const endMs = Date.parse(challenge.endAt);
-    if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) throw new Error('challenges contains an invalid date range');
-    if (endMs <= startMs) throw new Error('challenges endAt must be after startAt');
-
-    if (!validTimeZone(challenge.timeZone)) throw new Error(`challenges invalid timeZone ${challenge.timeZone}`);
-    if (!CHALLENGE_STATUSES.has(challenge.status)) throw new Error(`challenges invalid status ${challenge.status}`);
-    if (!record(challenge.rules)) throw new Error('challenges rules must be an object');
-
-    if (!Number.isFinite(Date.parse(challenge.createdAt)) || !Number.isFinite(Date.parse(challenge.updatedAt))) {
-      throw new Error('challenges contains an invalid timestamp');
-    }
+    const group = challenge.scope === 'group' ? groups.get(challenge.groupId) : null;
+    if (!exact(challenge, CHALLENGE_KEYS) || !ID_RE.test(challenge.id) || challenges.has(challenge.id)
+        || users.get(challenge.coachId)?.profile?.kind !== 'coach' || !TYPES.has(challenge.type) || !SCOPES.has(challenge.scope)
+        || challenge.scope === 'group' && (!group || group.coachId !== challenge.coachId) || challenge.scope === 'coach_students' && challenge.groupId !== null
+        || !clean(challenge.title, 100, true) || clean(challenge.description, 2000) === null || !date(challenge.startAt) || !date(challenge.endAt)
+        || Date.parse(challenge.endAt) <= Date.parse(challenge.startAt) || !validTimeZone(challenge.timeZone) || !STATUSES.has(challenge.status)
+        || !rulesFor(challenge.type, challenge.rules) || !Array.isArray(challenge.participantIds) || new Set(challenge.participantIds).size !== challenge.participantIds.length
+        || challenge.participantIds.some(id => typeof id !== 'string' || !ID_RE.test(id)) || !date(challenge.createdAt) || !date(challenge.updatedAt)
+        || !nullableDate(challenge.activatedAt) || !nullableDate(challenge.completedAt) || !nullableDate(challenge.archivedAt)) throw new Error('challenges contains invalid data');
+    if (challenge.status === 'draft' && (challenge.participantIds.length || challenge.activatedAt || challenge.completedAt || challenge.archivedAt)) throw new Error('invalid draft lifecycle');
+    if (challenge.status === 'active' && (!challenge.activatedAt || challenge.completedAt || challenge.archivedAt)) throw new Error('invalid active lifecycle');
+    if (challenge.status === 'completed' && (!challenge.activatedAt || !challenge.completedAt || challenge.archivedAt)) throw new Error('invalid completed lifecycle');
+    if (challenge.status === 'archived' && !challenge.archivedAt) throw new Error('invalid archived lifecycle');
+    const historical = ['completed', 'archived'].includes(challenge.status);
+    if (challenge.participantIds.some(id => !participantValid(db, challenge, id, historical))) throw new Error('challenge participant is ineligible');
+    challenges.set(challenge.id, challenge); perCoachChallenges.set(challenge.coachId, (perCoachChallenges.get(challenge.coachId) || 0) + 1);
   }
-
-  const scoreIds = new Set();
+  if ([...perCoachChallenges.values()].some(count => count > (limits.maxChallengesPerCoach ?? 100))) throw new Error('coach challenge quota exceeded');
+  const scoreIds = new Set(), scorePairs = new Set(), scoreCounts = new Map();
   for (const score of db.challengeScores) {
-    if (!record(score)) throw new Error('challengeScores contains an invalid record');
-    if (typeof score.id !== 'string' || !ID_RE.test(score.id)) throw new Error('challengeScores contains an invalid id');
-    if (scoreIds.has(score.id)) throw new Error(`duplicate challengeScores id ${score.id}`);
-    scoreIds.add(score.id);
-
-    if (typeof score.challengeId !== 'string' || !challengesMap.has(score.challengeId)) {
-      throw new Error(`challengeScores challengeId ${score.challengeId} does not exist`);
-    }
-    if (typeof score.athleteId !== 'string' || !ID_RE.test(score.athleteId)) {
-      throw new Error('challengeScores contains an invalid athleteId');
-    }
-    if (typeof score.score !== 'number' || !Number.isFinite(score.score)) {
-      throw new Error('challengeScores score must be a finite number');
-    }
+    const challenge = challenges.get(score.challengeId), pair = `${score.challengeId}\0${score.athleteId}`;
+    if (!exact(score, SCORE_KEYS) || !ID_RE.test(score.id) || scoreIds.has(score.id) || scorePairs.has(pair) || !challenge || !challengeAllowsAthlete(db, challenge, score.athleteId)
+        || !number(score.score, -1000000, 1000000) || !Number.isInteger(score.workoutsCount) || score.workoutsCount < 0 || !number(score.volumeLoad, 0, 1e12)
+        || !Number.isInteger(score.habitCheckinsCount) || score.habitCheckinsCount < 0 || !nullableDate(score.lastActivityAt) || !date(score.updatedAt) || typeof score.finalized !== 'boolean'
+        || ['completed', 'archived'].includes(challenge.status) !== score.finalized) throw new Error('challengeScores contains invalid or duplicate data');
+    scoreIds.add(score.id); scorePairs.add(pair); scoreCounts.set(score.challengeId, (scoreCounts.get(score.challengeId) || 0) + 1);
   }
-
-  const feedIds = new Set();
+  if ([...scoreCounts.values()].some(count => count > (limits.maxScoresPerChallenge ?? 2000))) throw new Error('score quota exceeded');
+  const feedIds = new Set(), feedSources = new Set(), idempotencyKeys = new Set(), correctedTargets = new Set(), feedCounts = new Map();
   for (const feed of db.challengeActivityFeed) {
-    if (!record(feed)) throw new Error('challengeActivityFeed contains an invalid record');
-    if (typeof feed.id !== 'string' || !ID_RE.test(feed.id)) throw new Error('challengeActivityFeed contains an invalid id');
-    if (feedIds.has(feed.id)) throw new Error(`duplicate challengeActivityFeed id ${feed.id}`);
-    feedIds.add(feed.id);
-
-    if (typeof feed.challengeId !== 'string' || !challengesMap.has(feed.challengeId)) {
-      throw new Error(`challengeActivityFeed challengeId ${feed.challengeId} does not exist`);
+    const challenge = challenges.get(feed.challengeId), source = `${feed.challengeId}\0${feed.activityType}\0${feed.sourceId}`;
+    const idempotency = feed.idempotencyKey === null ? null : `${feed.challengeId}\0${feed.idempotencyKey}`;
+    if (!exact(feed, FEED_KEYS) || !ID_RE.test(feed.id) || feedIds.has(feed.id) || feedSources.has(source) || !challenge || !challengeAllowsAthlete(db, challenge, feed.athleteId)
+        || !['workout_completed', 'habit_checkin', 'custom_adjustment'].includes(feed.activityType) || typeof feed.sourceId !== 'string' || !ID_RE.test(feed.sourceId)
+        || !clean(feed.description, 160, true) || !number(feed.pointsAwarded, -10000, 1e9) || !date(feed.timestamp) || !date(feed.createdAt)
+        || !(feed.reason === null || typeof feed.reason === 'string' && clean(feed.reason, 500, true))
+        || !(feed.idempotencyKey === null || typeof feed.idempotencyKey === 'string' && /^[A-Za-z0-9._:-]{8,120}$/.test(feed.idempotencyKey)) || idempotency !== null && idempotencyKeys.has(idempotency)
+        || typeof feed.finalized !== 'boolean' || ['completed', 'archived'].includes(challenge.status) !== feed.finalized) throw new Error('challengeActivityFeed contains invalid or duplicate data');
+    if (feed.activityType === 'custom_adjustment' && (challenge.type !== 'custom_points' || !feed.reason || !feed.idempotencyKey)) throw new Error('invalid custom points event');
+    if (feed.activityType !== 'custom_adjustment' && (feed.reason !== null || feed.idempotencyKey !== null)) throw new Error('real event has custom fields');
+    if (feed.activityType === 'workout_completed' && !['workouts_count', 'volume_load'].includes(challenge.type)
+        || feed.activityType === 'habit_checkin' && challenge.type !== 'habits_consistency') throw new Error('challenge activity type does not match challenge');
+    if (feed.activityType === 'custom_adjustment') {
+      const target = db.challengeActivityFeed.find(row => row.id === feed.sourceId && row.challengeId === feed.challengeId);
+      if (target) {
+        if (target.activityType !== 'custom_adjustment' || target.athleteId !== feed.athleteId || feed.pointsAwarded !== -target.pointsAwarded || correctedTargets.has(target.id)) throw new Error('invalid custom points correction');
+        correctedTargets.add(target.id);
+      }
     }
-    if (typeof feed.athleteId !== 'string' || !ID_RE.test(feed.athleteId)) {
-      throw new Error('challengeActivityFeed contains an invalid athleteId');
-    }
-    if (!Number.isFinite(Date.parse(feed.timestamp))) {
-      throw new Error('challengeActivityFeed contains an invalid timestamp');
-    }
-    if (typeof feed.pointsAwarded !== 'number' || !Number.isFinite(feed.pointsAwarded)) {
-      throw new Error('challengeActivityFeed pointsAwarded must be a finite number');
-    }
+    feedIds.add(feed.id); feedSources.add(source); if (idempotency !== null) idempotencyKeys.add(idempotency); feedCounts.set(feed.challengeId, (feedCounts.get(feed.challengeId) || 0) + 1);
   }
-
+  if (db.challengeActivityFeed.length > (limits.maxActivityFeed ?? 50000) || [...feedCounts.values()].some(count => count > (limits.maxActivityFeedPerChallenge ?? 1000))) throw new Error('feed quota exceeded');
   return true;
 }
 
-export function compactChallengesState(db, limits = CHALLENGE_LIMITS, nowMs = Date.now()) {
-  db.coachGroups ||= [];
-  db.groupMembers ||= [];
-  db.challenges ||= [];
-  db.challengeScores ||= [];
-  db.challengeActivityFeed ||= [];
-
-  let changed = false;
-  const beforeCounts = [
-    db.coachGroups.length, db.groupMembers.length, db.challenges.length,
-    db.challengeScores.length, db.challengeActivityFeed.length,
-  ];
-
-  // Reconcile group memberCounts
-  for (const group of db.coachGroups) {
-    const activeCount = db.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-    if (group.memberCount !== activeCount) {
-      group.memberCount = activeCount;
-      changed = true;
-    }
-  }
-
-  // Cap activity feed per challenge
-  const maxFeedPerChallenge = limits.maxActivityFeedPerChallenge ?? 1000;
-  const maxFeedOverall = limits.maxActivityFeed ?? 50000;
-  const feedByChallenge = new Map();
-  for (const feed of db.challengeActivityFeed) {
-    const list = feedByChallenge.get(feed.challengeId) || [];
-    list.push(feed);
-    feedByChallenge.set(feed.challengeId, list);
-  }
-
-  const keptFeeds = [];
-  for (const list of feedByChallenge.values()) {
-    list.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || String(a.id).localeCompare(String(b.id)));
-    keptFeeds.push(...list.slice(0, maxFeedPerChallenge));
-  }
-
-  keptFeeds.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || String(a.id).localeCompare(String(b.id)));
-  db.challengeActivityFeed = keptFeeds.slice(0, maxFeedOverall);
-
-  // Check capacity limits
-  const activeGroups = db.coachGroups.filter(g => !g.archivedAt);
-  if (activeGroups.length > (limits.maxGroups ?? 5000)) {
-    throw new Error(`coachGroups exceed configured limit ${limits.maxGroups ?? 5000}`);
-  }
-  const activeChallenges = db.challenges.filter(c => c.status !== 'archived');
-  if (activeChallenges.length > (limits.maxChallenges ?? 5000)) {
-    throw new Error(`challenges exceed configured limit ${limits.maxChallenges ?? 5000}`);
-  }
-
-  changed = changed || beforeCounts.some((cnt, i) => cnt !== [
-    db.coachGroups.length, db.groupMembers.length, db.challenges.length,
-    db.challengeScores.length, db.challengeActivityFeed.length,
-  ][i]);
-
+export function compactChallengesState(db, limits = CHALLENGE_LIMITS) {
+  const groups = new Map();
+  for (const row of db.challengeActivityFeed) { const list = groups.get(row.challengeId) || []; list.push(row); groups.set(row.challengeId, list); }
+  const kept = [];
+  for (const list of groups.values()) kept.push(...list.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || a.id.localeCompare(b.id)).slice(0, limits.maxActivityFeedPerChallenge ?? 1000));
+  kept.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || a.id.localeCompare(b.id));
+  kept.splice(limits.maxActivityFeed ?? 50000);
+  const changed = kept.length !== db.challengeActivityFeed.length;
+  if (changed) db.challengeActivityFeed = kept;
   return { changed };
 }
 
 export function removeChallengesUser(db, userId) {
-  db.coachGroups ||= [];
-  db.groupMembers ||= [];
-  db.challenges ||= [];
-  db.challengeScores ||= [];
-  db.challengeActivityFeed ||= [];
-
-  const coachGroupIds = new Set(db.coachGroups.filter(g => g.coachId === userId).map(g => g.id));
-  const coachChallengeIds = new Set(db.challenges.filter(c => c.coachId === userId).map(c => c.id));
-
-  // If athlete was member of groups, track groups to recompute memberCounts
-  const athleteMemberships = db.groupMembers.filter(m => m.athleteId === userId && m.status === 'active');
-  const affectedGroupIds = new Set(athleteMemberships.map(m => m.groupId));
-
-  // Purge group memberships
-  db.groupMembers = db.groupMembers.filter(m =>
-    !coachGroupIds.has(m.groupId) && m.coachId !== userId && m.athleteId !== userId
-  );
-
-  // Update memberCount for affected groups
-  for (const group of db.coachGroups) {
-    if (affectedGroupIds.has(group.id)) {
-      group.memberCount = db.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-    }
-  }
-
-  // Purge challenges
-  db.challenges = db.challenges.filter(c => c.coachId !== userId && !coachGroupIds.has(c.groupId));
-
-  // Purge coach groups
-  db.coachGroups = db.coachGroups.filter(g => g.coachId !== userId);
-
-  // Purge challenge scores & feeds
-  db.challengeScores = db.challengeScores.filter(s =>
-    !coachChallengeIds.has(s.challengeId) && s.athleteId !== userId
-  );
-  db.challengeActivityFeed = db.challengeActivityFeed.filter(f =>
-    !coachChallengeIds.has(f.challengeId) && f.athleteId !== userId
-  );
+  db.coachGroups ||= []; db.groupMembers ||= []; db.groupInvites ||= []; db.challenges ||= []; db.challengeScores ||= []; db.challengeActivityFeed ||= [];
+  const groupIds = new Set(db.coachGroups.filter(row => row.coachId === userId).map(row => row.id));
+  const challengeIds = new Set(db.challenges.filter(row => row.coachId === userId || groupIds.has(row.groupId)).map(row => row.id));
+  db.coachGroups = db.coachGroups.filter(row => !groupIds.has(row.id));
+  db.groupMembers = db.groupMembers.filter(row => !groupIds.has(row.groupId) && row.athleteId !== userId);
+  db.groupInvites = db.groupInvites.filter(row => !groupIds.has(row.groupId));
+  db.challenges = db.challenges.filter(row => !challengeIds.has(row.id)).map(row => ({ ...row, participantIds: (row.participantIds || []).filter(id => id !== userId) }));
+  db.challengeScores = db.challengeScores.filter(row => !challengeIds.has(row.challengeId) && row.athleteId !== userId);
+  db.challengeActivityFeed = db.challengeActivityFeed.filter(row => !challengeIds.has(row.challengeId) && row.athleteId !== userId);
+  for (const group of db.coachGroups) group.memberCount = db.groupMembers.filter(row => row.groupId === group.id && row.status === 'active').length;
 }
+
+function activityTime(row) {
+  if (typeof row?.start === 'number' && Number.isFinite(row.start)) return row.start;
+  for (const value of [row?.completedAt, row?.updatedAt, row?.timestamp, row?.d && `${row.d}T12:00:00.000Z`, row?.date && `${row.date}T12:00:00.000Z`]) {
+    const parsed = Date.parse(value); if (Number.isFinite(parsed)) return parsed;
+  }
+  return NaN;
+}
+
+function derivedScore(challenge, athleteId, db, readState) {
+  const start = Date.parse(challenge.startAt), end = Date.parse(challenge.endAt), state = readState(athleteId) || {};
+  const workouts = (Array.isArray(state.workouts) ? state.workouts : []).filter(row => activityTime(row) >= start && activityTime(row) <= end);
+  const habits = new Set(challenge.type === 'habits_consistency' ? challenge.rules.habitIds : []);
+  const checkins = db.habitCheckins.filter(row => row.athleteId === athleteId && row.completed === true && habits.has(row.habitId) && activityTime(row) >= start && activityTime(row) <= end);
+  const volumeLoad = workouts.reduce((sum, row) => sum + (number(row.vol, 0, 1e12) ? row.vol : 0), 0);
+  let score = 0;
+  if (challenge.type === 'workouts_count') score = workouts.length * challenge.rules.pointsPerWorkout;
+  if (challenge.type === 'volume_load') score = volumeLoad / 1000 * challenge.rules.pointsPer1000;
+  if (challenge.type === 'habits_consistency') score = checkins.length * challenge.rules.pointsPerCheckin;
+  const events = [];
+  for (const workout of ['workouts_count', 'volume_load'].includes(challenge.type) ? workouts : []) {
+    const points = challenge.type === 'workouts_count' ? challenge.rules.pointsPerWorkout : (number(workout.vol, 0, 1e12) ? workout.vol : 0) / 1000 * challenge.rules.pointsPer1000;
+    const stamp = new Date(activityTime(workout)).toISOString();
+    events.push({ id: `evt_${crypto.createHash('sha256').update(`${challenge.id}\0w\0${athleteId}\0${workout.id}`).digest('hex').slice(0, 24)}`, challengeId: challenge.id, athleteId,
+      activityType: 'workout_completed', sourceId: String(workout.id), description: 'Treino concluído', pointsAwarded: Math.round(points * 1000) / 1000,
+      timestamp: stamp, reason: null, idempotencyKey: null, createdAt: stamp, finalized: false });
+  }
+  for (const checkin of challenge.type === 'habits_consistency' ? checkins : []) {
+    const stamp = new Date(activityTime(checkin)).toISOString();
+    events.push({ id: `evt_${crypto.createHash('sha256').update(`${challenge.id}\0h\0${athleteId}\0${checkin.id}`).digest('hex').slice(0, 24)}`, challengeId: challenge.id, athleteId,
+      activityType: 'habit_checkin', sourceId: String(checkin.id), description: 'Hábito concluído', pointsAwarded: challenge.rules.pointsPerCheckin,
+      timestamp: stamp, reason: null, idempotencyKey: null, createdAt: stamp, finalized: false });
+  }
+  const times = [...workouts, ...checkins].map(activityTime).filter(Number.isFinite);
+  return { score: Math.round(score * 1000) / 1000, workoutsCount: workouts.length, volumeLoad: Math.round(volumeLoad * 1000) / 1000,
+    habitCheckinsCount: checkins.length, lastActivityAt: times.length ? new Date(Math.max(...times)).toISOString() : null, events };
+}
+
+const effectiveStatus = (challenge, nowMs) => challenge.status === 'active' && nowMs >= Date.parse(challenge.endAt) ? 'completed' : challenge.status;
+const publicChallenge = (challenge, nowMs) => ({ id: challenge.id, groupId: challenge.groupId, scope: challenge.scope, title: challenge.title,
+  description: challenge.description, type: challenge.type, startAt: challenge.startAt, endAt: challenge.endAt, timeZone: challenge.timeZone,
+  status: effectiveStatus(challenge, nowMs), rules: structuredClone(challenge.rules), createdAt: challenge.createdAt, updatedAt: challenge.updatedAt });
+const nameOf = user => clean(user?.profile?.publicDisplayName, 60) || clean(user?.name, 80)?.split(/\s+/)[0] || 'Atleta';
+const participantKey = (challengeId, athleteId) => crypto.createHash('sha256').update(`${challengeId}\0${athleteId}`).digest('base64url').slice(0, 16);
 
 export function calculateChallengeLeaderboard(challenge, { db, readState = () => null, nowMs = Date.now() }) {
-  const usersMap = Array.isArray(db.users) ? new Map(db.users.map(u => [u.id, u])) : new Map();
-
-  let athleteIds = [];
-  if (challenge.scope === 'group') {
-    athleteIds = (db.groupMembers || [])
-      .filter(m => m.groupId === challenge.groupId && m.status === 'active')
-      .map(m => m.athleteId);
-  } else {
-    // coach_students
-    const studentIds = (db.coachAthleteLinks || [])
-      .filter(l => l.coachId === challenge.coachId && l.status === 'active')
-      .map(l => l.athleteId);
-    const groupMemberIds = (db.groupMembers || [])
-      .filter(m => m.coachId === challenge.coachId && m.status === 'active')
-      .map(m => m.athleteId);
-    athleteIds = [...new Set([...studentIds, ...groupMemberIds])];
+  const final = ['completed', 'archived'].includes(challenge.status);
+  const scores = new Map(db.challengeScores.filter(row => row.challengeId === challenge.id && (!final || row.finalized)).map(row => [row.athleteId, row]));
+  const feed = db.challengeActivityFeed.filter(row => row.challengeId === challenge.id && (!final || row.finalized));
+  const leaderboard = [];
+  for (const athleteId of challenge.participantIds) {
+    let stats = scores.get(athleteId);
+    if (!stats && challenge.type !== 'custom_points') { stats = derivedScore(challenge, athleteId, db, readState); feed.push(...stats.events); }
+    stats ||= { score: 0, workoutsCount: 0, volumeLoad: 0, habitCheckinsCount: 0, lastActivityAt: null };
+    leaderboard.push({ athleteId, participantKey: participantKey(challenge.id, athleteId), displayName: nameOf(db.users.find(row => row.id === athleteId)),
+      score: stats.score, workoutsCount: stats.workoutsCount, volumeLoad: stats.volumeLoad, habitCheckinsCount: stats.habitCheckinsCount, lastActivityAt: stats.lastActivityAt });
   }
+  leaderboard.sort((a, b) => b.score - a.score || (a.lastActivityAt === null) - (b.lastActivityAt === null)
+    || String(a.lastActivityAt || '').localeCompare(String(b.lastActivityAt || '')) || a.participantKey.localeCompare(b.participantKey));
+  return { challenge: publicChallenge(challenge, nowMs), leaderboard: leaderboard.map((row, index) => ({ ...row, rank: index + 1 })),
+    activityFeed: feed.sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || a.id.localeCompare(b.id)) };
+}
 
-  const startMs = Date.parse(challenge.startAt);
-  const endMs = Date.parse(challenge.endAt);
-  const startDateStr = challenge.startAt.slice(0, 10);
-  const endDateStr = challenge.endAt.slice(0, 10);
+const publicGroup = group => ({ id: group.id, name: group.name, description: group.description, category: group.category, maxMembers: group.maxMembers,
+  isPrivate: group.isPrivate, memberCount: group.memberCount, createdAt: group.createdAt, updatedAt: group.updatedAt, archivedAt: group.archivedAt });
+const publicMember = (member, db, coach = false) => ({ id: member.id, ...(coach ? { athleteId: member.athleteId } : {}), displayName: nameOf(db.users.find(row => row.id === member.athleteId)),
+  role: member.role, status: member.status, joinedAt: member.joinedAt, acceptedAt: member.acceptedAt, updatedAt: member.updatedAt });
 
-  const leaderboardEntries = [];
-
-  for (const athleteId of athleteIds) {
-    const user = usersMap.get(athleteId);
-    const athleteName = user?.name || 'Atleta';
-    const state = readState(athleteId) || {};
-
-    const workouts = (Array.isArray(state.workouts) ? state.workouts : []).filter(w => {
-      if (!w) return false;
-      const wDate = typeof w.d === 'string' ? w.d : null;
-      const wStart = Number.isFinite(w.start) ? w.start : null;
-      if (wDate && (wDate < startDateStr || wDate > endDateStr)) return false;
-      if (wStart && (wStart < startMs || wStart > endMs)) return false;
-      return true;
-    });
-
-    const checkins = (Array.isArray(db.habitCheckins) ? db.habitCheckins : []).filter(c => {
-      if (!c || c.athleteId !== athleteId || !c.completed) return false;
-      const cDate = typeof c.date === 'string' ? c.date : null;
-      const cMs = Date.parse(c.updatedAt || c.date);
-      if (cDate && (cDate < startDateStr || cDate > endDateStr)) return false;
-      if (Number.isFinite(cMs) && (cMs < startMs || cMs > endMs)) return false;
-      return true;
-    });
-
-    let score = 0;
-    let workoutsCount = workouts.length;
-    let volumeLoad = workouts.reduce((sum, w) => sum + (Number(w.vol) || 0), 0);
-    let habitCheckinsCount = checkins.length;
-    let lastActivityAt = null;
-
-    if (challenge.type === 'workouts_count') {
-      const pointsPerWorkout = challenge.rules?.pointsPerWorkout || 1;
-      score = workoutsCount * pointsPerWorkout;
-      if (workouts.length) {
-        const sorted = [...workouts].sort((a, b) => {
-          const aTime = a.start || Date.parse(a.d + 'T12:00:00Z') || 0;
-          const bTime = b.start || Date.parse(b.d + 'T12:00:00Z') || 0;
-          return bTime - aTime;
-        });
-        const latest = sorted[0];
-        lastActivityAt = latest.start ? new Date(latest.start).toISOString() : (latest.d ? `${latest.d}T12:00:00.000Z` : null);
-      }
-    } else if (challenge.type === 'volume_load') {
-      score = Math.round(volumeLoad);
-      const withVol = workouts.filter(w => (Number(w.vol) || 0) > 0);
-      if (withVol.length) {
-        const sorted = [...withVol].sort((a, b) => {
-          const aTime = a.start || Date.parse(a.d + 'T12:00:00Z') || 0;
-          const bTime = b.start || Date.parse(b.d + 'T12:00:00Z') || 0;
-          return bTime - aTime;
-        });
-        const latest = sorted[0];
-        lastActivityAt = latest.start ? new Date(latest.start).toISOString() : (latest.d ? `${latest.d}T12:00:00.000Z` : null);
-      }
-    } else if (challenge.type === 'habits_consistency') {
-      const pointsPerHabit = challenge.rules?.pointsPerHabit || 1;
-      score = habitCheckinsCount * pointsPerHabit;
-      if (checkins.length) {
-        const sorted = [...checkins].sort((a, b) => Date.parse(b.updatedAt || b.date) - Date.parse(a.updatedAt || a.date));
-        lastActivityAt = sorted[0].updatedAt || `${sorted[0].date}T12:00:00.000Z`;
-      }
-    } else if (challenge.type === 'custom_points') {
-      const ptsWorkout = challenge.rules?.pointsPerWorkout ?? 10;
-      const ptsHabit = challenge.rules?.pointsPerHabit ?? 2;
-      const storedScore = (db.challengeScores || []).find(s => s.challengeId === challenge.id && s.athleteId === athleteId);
-      const manual = Number(storedScore?.customPoints || 0);
-      score = (workoutsCount * ptsWorkout) + (habitCheckinsCount * ptsHabit) + manual;
-
-      const timestamps = [];
-      for (const w of workouts) {
-        const t = w.start || (w.d ? Date.parse(w.d + 'T12:00:00Z') : null);
-        if (t) timestamps.push(t);
-      }
-      for (const c of checkins) {
-        const t = Date.parse(c.updatedAt || c.date);
-        if (t) timestamps.push(t);
-      }
-      if (timestamps.length) {
-        timestamps.sort((a, b) => b - a);
-        lastActivityAt = new Date(timestamps[0]).toISOString();
-      }
-    }
-
-    leaderboardEntries.push({
-      athleteId,
-      athleteName,
-      score,
-      workoutsCount,
-      volumeLoad: Math.round(volumeLoad),
-      habitCheckinsCount,
-      lastActivityAt,
-    });
-  }
-
-  // Deterministic sort:
-  // 1. Score descending
-  // 2. Earliest lastActivityAt first (who completed first). Active beats inactive (null).
-  // 3. athleteId ascending
-  leaderboardEntries.sort((a, b) => {
-    if (b.score !== a.score) return b.score - a.score;
-    if (a.lastActivityAt && !b.lastActivityAt) return -1;
-    if (!a.lastActivityAt && b.lastActivityAt) return 1;
-    if (a.lastActivityAt && b.lastActivityAt && a.lastActivityAt !== b.lastActivityAt) {
-      return a.lastActivityAt.localeCompare(b.lastActivityAt);
-    }
-    return a.athleteId.localeCompare(b.athleteId);
-  });
-
-  const rankedLeaderboard = leaderboardEntries.map((entry, idx) => ({
-    ...entry,
-    rank: idx + 1,
-  }));
-
-  const activityFeed = (db.challengeActivityFeed || [])
-    .filter(f => f.challengeId === challenge.id)
-    .sort((a, b) => Date.parse(b.timestamp) - Date.parse(a.timestamp) || String(a.id).localeCompare(String(b.id)))
-    .slice(0, 50);
-
+function cursorCodec(secret) {
+  const signature = text => crypto.createHmac('sha256', secret).update(text).digest('base64url');
   return {
-    challenge,
-    leaderboard: rankedLeaderboard,
-    activityFeed,
+    encode(payload) { const text = Buffer.from(JSON.stringify(payload)).toString('base64url'); return `${text}.${signature(text)}`; },
+    decode(value, tenant, kind) {
+      if (!value) return 0;
+      const [text, sig, extra] = String(value).split('.');
+      if (!text || !sig || extra || signature(text) !== sig) return null;
+      try { const payload = JSON.parse(Buffer.from(text, 'base64url')); return payload.tenant === tenant && payload.kind === kind && Number.isInteger(payload.offset) && payload.offset >= 0 ? payload.offset : null; } catch { return null; }
+    },
   };
 }
 
+function paginate(req, rows, codec, tenant, kind, prefix = '') {
+  const query = new URL(req.url, 'http://x').searchParams, raw = query.get(`${prefix}limit`), limit = raw === null ? 50 : Number(raw);
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) return { error: 'limit must be between 1 and 100' };
+  const offset = codec.decode(query.get(`${prefix}cursor`), tenant, kind); if (offset === null) return { error: 'invalid cursor' };
+  const items = rows.slice(offset, offset + limit), next = offset + items.length;
+  return { items, page: { limit, hasMore: next < rows.length, nextCursor: next < rows.length ? codec.encode({ tenant, kind, offset: next }) : null } };
+}
+
+const failure = (status, code, message, headers) => ({ status, code, message, headers });
+
 export function createChallengeRoutes(context) {
-  const {
-    audit, auditDenied, b2bError, db, json, limitAddress,
-    limits: configuredLimits = {}, makeEntityId: makeEntityIdCtx,
-    profileOf, readBody, readSession, readState = () => null,
-    rate = {}, saveDb, publishDb, commitCandidate,
-    now = () => Date.now(),
-  } = context;
+  const { audit, b2bError, db, json, limitAddress, limits = CHALLENGE_LIMITS, profileOf, readBody, readSession, readState = () => null,
+    transaction, cursorSecret = 'challenge-cursor', now = Date.now, rate = {}, inviteTtlMs = 30 * 86400000 } = context;
+  const codec = cursorCodec(cursorSecret);
+  const mutationAccount = createWindow({ max: rate.challengeMutationAccount ?? 120, windowMs: rate.windowMs ?? 3600000 });
+  const mutationIp = createWindow({ max: rate.challengeMutationIp ?? 600, windowMs: rate.windowMs ?? 3600000 });
+  const joinAccount = createWindow({ max: rate.groupJoinAccount ?? 60, windowMs: rate.windowMs ?? 3600000 });
+  const joinIp = createWindow({ max: rate.groupJoinIp ?? 300, windowMs: rate.windowMs ?? 3600000 });
+  const throttle = (req, res, actor, join = false) => {
+    const waits = [(join ? joinAccount : mutationAccount).take(actor.id), (join ? joinIp : mutationIp).take(limitAddress(req))].filter(Boolean);
+    if (!waits.length) return false;
+    const wait = Math.max(...waits); b2bError(res, 429, 'rate_limited', 'too many group or challenge requests', { 'Retry-After': String(wait) }); return true;
+  };
+  const coachOnly = (req, res) => { const user = readSession(req); if (!user) { b2bError(res, 401, 'not_signed_in', 'not signed in'); return null; } if (profileOf(user).kind !== 'coach') { b2bError(res, 403, 'role_forbidden', 'coach role required'); return null; } return user; };
+  const athleteOnly = (req, res) => { const user = readSession(req); if (!user) { b2bError(res, 401, 'not_signed_in', 'not signed in'); return null; } return user; };
+  const run = async (req, res, operation, success = 200) => {
+    try {
+      const result = await transaction(operation);
+      if (result.error) return b2bError(res, result.error.status, result.error.code, result.error.message, result.error.headers);
+      if (result.audit) audit?.(req, result.audit.event, result.audit.data);
+      json(res, success, result.value);
+    } catch (error) { b2bError(res, 503, 'storage_unavailable', error.message); }
+  };
+  const ownedGroup = (state, id, coachId) => { const group = state.coachGroups.find(row => row.id === id); return !group ? { error: failure(404, 'group_not_found', 'group not found') } : group.coachId !== coachId ? { error: failure(403, 'access_denied', 'access denied') } : { group }; };
 
-  const limits = { ...CHALLENGE_LIMITS, ...configuredLimits };
-  const genId = (prefix, rows) => makeEntityIdCtx ? makeEntityIdCtx(prefix, rows) : makeEntityId(prefix, rows);
+  const routes = {};
 
-  const commit = async (candidate, base = db) => {
-    validateChallengesState(candidate, limits);
-    if (typeof commitCandidate === 'function') {
-      await commitCandidate(candidate, base);
-    } else {
-      saveDb(candidate);
-      if (typeof publishDb === 'function') publishDb(candidate);
-    }
+  routes['POST /api/coach/groups'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return;
+    const body = await readBody(req);
+    if (!exact(body, new Set(['name', 'description', 'category', 'maxMembers', 'isPrivate']))) return b2bError(res, 400, 'invalid_request', 'unknown group field');
+    const name = clean(body.name, 100, true), description = clean(body.description, 1000), category = body.category === undefined ? 'geral' : clean(body.category, 50, true);
+    const maxMembers = body.maxMembers === undefined ? 50 : body.maxMembers, isPrivate = body.isPrivate === undefined ? true : body.isPrivate;
+    if (!name || description === null || !category || !Number.isInteger(maxMembers) || maxMembers < 1 || maxMembers > (limits.maxMembersPerGroup ?? 500) || typeof isPrivate !== 'boolean') return b2bError(res, 400, 'invalid_group', 'invalid group fields');
+    await run(req, res, state => {
+      if (state.coachGroups.length >= (limits.maxGroups ?? 5000) || state.coachGroups.filter(row => row.coachId === coach.id).length >= (limits.maxGroupsPerCoach ?? 50)) return { changed: false, error: failure(409, 'group_limit_reached', 'group quota reached') };
+      const stamp = new Date(now()).toISOString();
+      const group = { id: entityId('cgrp', state.coachGroups), coachId: coach.id, name, description, category, maxMembers, isPrivate, memberCount: 0, createdAt: stamp, updatedAt: stamp, archivedAt: null };
+      state.coachGroups.push(group);
+      state.groupInvites.push({ id: entityId('ginv', state.groupInvites), groupId: group.id, coachId: coach.id, code: newInviteCode(state.groupInvites), status: 'active', createdAt: stamp, updatedAt: stamp, expiresAt: new Date(now() + inviteTtlMs).toISOString(), revokedAt: null });
+      return { changed: true, value: { group: publicGroup(group) }, audit: { event: 'coach.group.create', data: { user: coach, groupId: group.id } } };
+    }, 201);
   };
 
-  const coachOnly = (req, res) => {
-    const user = readSession(req);
-    if (!user) { b2bError(res, 401, 'not_signed_in', 'not signed in'); return null; }
-    if (profileOf(user).kind !== 'coach') { b2bError(res, 403, 'role_forbidden', 'professional profile required'); return null; }
-    return user;
+  routes['GET /api/coach/groups'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach) return;
+    const result = paginate(req, db.coachGroups.filter(row => row.coachId === coach.id).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map(publicGroup), codec, coach.id, 'coach-groups');
+    if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error); json(res, 200, { groups: result.items, page: result.page });
   };
 
-  const athleteOnly = (req, res) => {
-    const user = readSession(req);
-    if (!user) { b2bError(res, 401, 'not_signed_in', 'not signed in'); return null; }
-    if (profileOf(user).kind === 'coach') { b2bError(res, 403, 'role_forbidden', 'athlete profile required'); return null; }
-    return user;
+  routes['GET /api/coach/groups/{groupId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach) return; const owned = ownedGroup(db, req.groupId, coach.id); if (owned.error) return b2bError(res, owned.error.status, owned.error.code, owned.error.message);
+    const result = paginate(req, db.groupMembers.filter(row => row.groupId === req.groupId).sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt)).map(row => publicMember(row, db, true)), codec, `${coach.id}:${req.groupId}`, 'group-members');
+    if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error); json(res, 200, { group: publicGroup(owned.group), members: result.items, page: result.page });
   };
 
-  return {
-    // -------------------------------------------------------------
-    // Coach Group Routes
-    // -------------------------------------------------------------
-
-    'POST /api/coach/groups': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const body = await readBody(req);
-
-      const name = typeof body.name === 'string' ? body.name.trim() : '';
-      if (!name || name.length > 100) {
-        return b2bError(res, 400, 'invalid_name', 'name is required and must be under 100 characters');
-      }
-
-      const description = typeof body.description === 'string' ? body.description.trim() : '';
-      if (description.length > 1000) {
-        return b2bError(res, 400, 'invalid_description', 'description must be under 1000 characters');
-      }
-
-      const category = typeof body.category === 'string' && body.category.trim() ? body.category.trim() : 'geral';
-      if (category.length > 50) {
-        return b2bError(res, 400, 'invalid_category', 'category must be under 50 characters');
-      }
-
-      const maxMembers = Number.isInteger(body.maxMembers) ? body.maxMembers : 50;
-      if (maxMembers < 1 || maxMembers > (limits.maxMembersPerGroup ?? 500)) {
-        return b2bError(res, 400, 'invalid_max_members', `maxMembers must be between 1 and ${limits.maxMembersPerGroup ?? 500}`);
-      }
-
-      const isPrivate = Boolean(body.isPrivate);
-
-      const coachGroupCount = db.coachGroups.filter(g => g.coachId === coach.id && !g.archivedAt).length;
-      if (coachGroupCount >= (limits.maxGroupsPerCoach ?? 50)) {
-        return b2bError(res, 409, 'group_limit_reached', 'maximum number of active groups reached for this coach');
-      }
-
-      const nowIso = new Date(now()).toISOString();
-      const group = {
-        id: genId('cgrp', db.coachGroups),
-        coachId: coach.id,
-        name,
-        description,
-        category,
-        maxMembers,
-        isPrivate,
-        inviteCode: generateInviteCode(db.coachGroups),
-        memberCount: 0,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-        archivedAt: null,
-      };
-
-      const candidate = structuredClone(db);
-      candidate.coachGroups ||= [];
-      candidate.coachGroups.push(group);
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.group.create', { user: coach, groupId: group.id });
-        json(res, 201, { group });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'GET /api/coach/groups': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const groups = (db.coachGroups || [])
-        .filter(g => g.coachId === coach.id)
-        .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-      json(res, 200, { groups });
-    },
-
-    'GET /api/coach/groups/{groupId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const group = (db.coachGroups || []).find(g => g.id === req.groupId);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'group not found');
-      if (group.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'group does not belong to this coach');
-
-      const usersMap = Array.isArray(db.users) ? new Map(db.users.map(u => [u.id, u])) : new Map();
-      const members = (db.groupMembers || [])
-        .filter(m => m.groupId === group.id)
-        .map(m => ({
-          ...m,
-          athleteName: usersMap.get(m.athleteId)?.name || 'Atleta',
-        }));
-
-      json(res, 200, { group, members });
-    },
-
-    'PUT /api/coach/groups/{groupId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const group = (db.coachGroups || []).find(g => g.id === req.groupId);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'group not found');
-      if (group.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const body = await readBody(req);
-      const updated = { ...group };
-
-      if (body.name !== undefined) {
-        const name = typeof body.name === 'string' ? body.name.trim() : '';
-        if (!name || name.length > 100) {
-          return b2bError(res, 400, 'invalid_name', 'name must be between 1 and 100 characters');
-        }
-        updated.name = name;
-      }
-
-      if (body.description !== undefined) {
-        const description = typeof body.description === 'string' ? body.description.trim() : '';
-        if (description.length > 1000) {
-          return b2bError(res, 400, 'invalid_description', 'description must be under 1000 characters');
-        }
-        updated.description = description;
-      }
-
-      if (body.category !== undefined) {
-        const category = typeof body.category === 'string' && body.category.trim() ? body.category.trim() : 'geral';
-        if (category.length > 50) {
-          return b2bError(res, 400, 'invalid_category', 'category must be under 50 characters');
-        }
-        updated.category = category;
-      }
-
-      if (body.maxMembers !== undefined) {
-        if (!Number.isInteger(body.maxMembers) || body.maxMembers < 1 || body.maxMembers > (limits.maxMembersPerGroup ?? 500)) {
-          return b2bError(res, 400, 'invalid_max_members', `maxMembers must be between 1 and ${limits.maxMembersPerGroup ?? 500}`);
-        }
-        if (body.maxMembers < group.memberCount) {
-          return b2bError(res, 409, 'max_members_below_current', 'maxMembers cannot be less than current active members');
-        }
-        updated.maxMembers = body.maxMembers;
-      }
-
-      if (body.isPrivate !== undefined) {
-        updated.isPrivate = Boolean(body.isPrivate);
-      }
-
-      if (body.archived !== undefined) {
-        updated.archivedAt = body.archived ? (group.archivedAt || new Date(now()).toISOString()) : null;
-      }
-
-      updated.updatedAt = new Date(now()).toISOString();
-
-      const candidate = structuredClone(db);
-      candidate.coachGroups = candidate.coachGroups.map(g => g.id === group.id ? updated : g);
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.group.update', { user: coach, groupId: group.id });
-        json(res, 200, { group: updated });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'DELETE /api/coach/groups/{groupId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const group = (db.coachGroups || []).find(g => g.id === req.groupId);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'group not found');
-      if (group.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const candidate = structuredClone(db);
-      candidate.coachGroups = candidate.coachGroups.filter(g => g.id !== group.id);
-      candidate.groupMembers = (candidate.groupMembers || []).filter(m => m.groupId !== group.id);
-
-      // Unlink or delete group challenges
-      const groupChallengeIds = new Set((candidate.challenges || []).filter(c => c.groupId === group.id).map(c => c.id));
-      candidate.challenges = (candidate.challenges || []).filter(c => c.groupId !== group.id);
-      candidate.challengeScores = (candidate.challengeScores || []).filter(s => !groupChallengeIds.has(s.challengeId));
-      candidate.challengeActivityFeed = (candidate.challengeActivityFeed || []).filter(f => !groupChallengeIds.has(f.challengeId));
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.group.delete', { user: coach, groupId: group.id });
-        json(res, 200, { ok: true, id: group.id });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'POST /api/coach/groups/{groupId}/members': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const group = (db.coachGroups || []).find(g => g.id === req.groupId);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'group not found');
-      if (group.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-      if (group.archivedAt) return b2bError(res, 409, 'group_archived', 'cannot add members to an archived group');
-
-      const body = await readBody(req);
-      const athleteId = typeof body.athleteId === 'string' ? body.athleteId : '';
-      if (!athleteId || !ID_RE.test(athleteId)) {
-        return b2bError(res, 400, 'invalid_athlete_id', 'valid athleteId is required');
-      }
-
-      const targetUser = (db.users || []).find(u => u.id === athleteId);
-      if (!targetUser) return b2bError(res, 404, 'athlete_not_found', 'athlete not found');
-      if (profileOf(targetUser).kind === 'coach') {
-        return b2bError(res, 400, 'invalid_athlete', 'coaches cannot be added as group members');
-      }
-
-      const role = body.role !== undefined ? body.role : 'member';
-      if (!MEMBER_ROLES.has(role)) {
-        return b2bError(res, 400, 'invalid_role', 'role must be member or moderator');
-      }
-
-      if (group.memberCount >= group.maxMembers) {
-        return b2bError(res, 409, 'group_full', 'group has reached maximum capacity');
-      }
-
-      const existingMember = (db.groupMembers || []).find(m => m.groupId === group.id && m.athleteId === athleteId);
-      if (existingMember && existingMember.status === 'active') {
-        return b2bError(res, 409, 'already_member', 'athlete is already an active member of this group');
-      }
-
-      const nowIso = new Date(now()).toISOString();
-      const candidate = structuredClone(db);
-      candidate.groupMembers ||= [];
-
-      let memberRecord;
-      if (existingMember) {
-        memberRecord = {
-          ...existingMember,
-          status: 'active',
-          role,
-          joinedAt: nowIso,
-        };
-        candidate.groupMembers = candidate.groupMembers.map(m => m.id === existingMember.id ? memberRecord : m);
-      } else {
-        memberRecord = {
-          id: genId('gmem', candidate.groupMembers),
-          groupId: group.id,
-          coachId: coach.id,
-          athleteId,
-          joinedAt: nowIso,
-          role,
-          status: 'active',
-        };
-        candidate.groupMembers.push(memberRecord);
-      }
-
-      const updatedGroup = candidate.coachGroups.find(g => g.id === group.id);
-      updatedGroup.memberCount = candidate.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-      updatedGroup.updatedAt = nowIso;
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.group.member.add', { user: coach, groupId: group.id, athleteId });
-        json(res, 201, { member: memberRecord });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'DELETE /api/coach/groups/{groupId}/members/{athleteId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const group = (db.coachGroups || []).find(g => g.id === req.groupId);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'group not found');
-      if (group.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const member = (db.groupMembers || []).find(m => m.groupId === group.id && m.athleteId === req.athleteId && m.status === 'active');
-      if (!member) return b2bError(res, 404, 'member_not_found', 'active member not found in group');
-
-      const nowIso = new Date(now()).toISOString();
-      const candidate = structuredClone(db);
-      candidate.groupMembers = candidate.groupMembers.map(m =>
-        m.id === member.id ? { ...m, status: 'removed' } : m
-      );
-
-      const updatedGroup = candidate.coachGroups.find(g => g.id === group.id);
-      updatedGroup.memberCount = candidate.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-      updatedGroup.updatedAt = nowIso;
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.group.member.remove', { user: coach, groupId: group.id, athleteId: req.athleteId });
-        json(res, 200, { ok: true, athleteId: req.athleteId, status: 'removed' });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    // -------------------------------------------------------------
-    // Coach Challenge Routes
-    // -------------------------------------------------------------
-
-    'POST /api/coach/challenges': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const body = await readBody(req);
-
-      const title = (body.name || body.title || '').trim();
-      if (!title || title.length > 100) {
-        return b2bError(res, 400, 'invalid_title', 'challenge name/title is required and must be under 100 characters');
-      }
-
-      const description = typeof body.description === 'string' ? body.description.trim() : '';
-      if (description.length > 2000) {
-        return b2bError(res, 400, 'invalid_description', 'description must be under 2000 characters');
-      }
-
-      if (!CHALLENGE_TYPES.has(body.type)) {
-        return b2bError(res, 400, 'invalid_type', 'type must be workouts_count, habits_consistency, volume_load, or custom_points');
-      }
-
-      if (!CHALLENGE_SCOPES.has(body.scope)) {
-        return b2bError(res, 400, 'invalid_scope', 'scope must be group or coach_students');
-      }
-
-      let groupId = null;
-      if (body.scope === 'group') {
-        groupId = typeof body.groupId === 'string' ? body.groupId : null;
-        if (!groupId) return b2bError(res, 400, 'missing_group_id', 'groupId is required when scope is group');
-        const grp = (db.coachGroups || []).find(g => g.id === groupId);
-        if (!grp) return b2bError(res, 404, 'group_not_found', 'specified group does not exist');
-        if (grp.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'group does not belong to you');
-      }
-
-      const startMs = Date.parse(body.startAt);
-      const endMs = Date.parse(body.endAt);
-      if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
-        return b2bError(res, 400, 'invalid_dates', 'startAt and endAt must be valid ISO date strings');
-      }
-      if (endMs <= startMs) {
-        return b2bError(res, 400, 'invalid_dates', 'endAt must be after startAt');
-      }
-
-      const timeZone = typeof body.timeZone === 'string' && validTimeZone(body.timeZone) ? body.timeZone : 'UTC';
-      const status = CHALLENGE_STATUSES.has(body.status) ? body.status : 'active';
-      const rules = record(body.rules) ? body.rules : {};
-
-      const coachChallengeCount = (db.challenges || []).filter(c => c.coachId === coach.id && c.status !== 'archived').length;
-      if (coachChallengeCount >= (limits.maxChallengesPerCoach ?? 100)) {
-        return b2bError(res, 409, 'challenge_limit_reached', 'maximum number of challenges reached for this coach');
-      }
-
-      const nowIso = new Date(now()).toISOString();
-      const challenge = {
-        id: genId('chal', db.challenges),
-        coachId: coach.id,
-        groupId,
-        scope: body.scope,
-        name: title,
-        title,
-        description,
-        type: body.type,
-        startAt: new Date(startMs).toISOString(),
-        endAt: new Date(endMs).toISOString(),
-        timeZone,
-        status,
-        rules,
-        createdAt: nowIso,
-        updatedAt: nowIso,
-      };
-
-      const candidate = structuredClone(db);
-      candidate.challenges ||= [];
-      candidate.challenges.push(challenge);
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.challenge.create', { user: coach, challengeId: challenge.id });
-        json(res, 201, { challenge });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'GET /api/coach/challenges': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      let challenges = (db.challenges || []).filter(c => c.coachId === coach.id);
-      challenges.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-      json(res, 200, { challenges });
-    },
-
-    'GET /api/coach/challenges/{challengeId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'challenge does not belong to this coach');
-      json(res, 200, { challenge });
-    },
-
-    'PUT /api/coach/challenges/{challengeId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const body = await readBody(req);
-      const updated = { ...challenge };
-
-      if (body.name !== undefined || body.title !== undefined) {
-        const title = (body.name || body.title || '').trim();
-        if (!title || title.length > 100) {
-          return b2bError(res, 400, 'invalid_title', 'name/title must be between 1 and 100 characters');
-        }
-        updated.name = title;
-        updated.title = title;
-      }
-
-      if (body.description !== undefined) {
-        const description = typeof body.description === 'string' ? body.description.trim() : '';
-        if (description.length > 2000) {
-          return b2bError(res, 400, 'invalid_description', 'description must be under 2000 characters');
-        }
-        updated.description = description;
-      }
-
-      if (body.startAt !== undefined || body.endAt !== undefined) {
-        const startMs = Date.parse(body.startAt !== undefined ? body.startAt : challenge.startAt);
-        const endMs = Date.parse(body.endAt !== undefined ? body.endAt : challenge.endAt);
-        if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) {
-          return b2bError(res, 400, 'invalid_dates', 'startAt and endAt must be valid ISO date strings');
-        }
-        if (endMs <= startMs) {
-          return b2bError(res, 400, 'invalid_dates', 'endAt must be after startAt');
-        }
-        updated.startAt = new Date(startMs).toISOString();
-        updated.endAt = new Date(endMs).toISOString();
-      }
-
-      if (body.timeZone !== undefined) {
-        if (!validTimeZone(body.timeZone)) return b2bError(res, 400, 'invalid_timezone', 'valid timeZone is required');
-        updated.timeZone = body.timeZone;
-      }
-
-      if (body.status !== undefined) {
-        if (!CHALLENGE_STATUSES.has(body.status)) return b2bError(res, 400, 'invalid_status', 'invalid challenge status');
-        updated.status = body.status;
-      }
-
-      if (body.rules !== undefined) {
-        if (!record(body.rules)) return b2bError(res, 400, 'invalid_rules', 'rules must be an object');
-        updated.rules = body.rules;
-      }
-
-      updated.updatedAt = new Date(now()).toISOString();
-
-      const candidate = structuredClone(db);
-      candidate.challenges = candidate.challenges.map(c => c.id === challenge.id ? updated : c);
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.challenge.update', { user: coach, challengeId: challenge.id });
-        json(res, 200, { challenge: updated });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'DELETE /api/coach/challenges/{challengeId}': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const candidate = structuredClone(db);
-      candidate.challenges = candidate.challenges.filter(c => c.id !== challenge.id);
-      candidate.challengeScores = (candidate.challengeScores || []).filter(s => s.challengeId !== challenge.id);
-      candidate.challengeActivityFeed = (candidate.challengeActivityFeed || []).filter(f => f.challengeId !== challenge.id);
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'coach.challenge.delete', { user: coach, challengeId: challenge.id });
-        json(res, 200, { ok: true, id: challenge.id });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'GET /api/coach/challenges/{challengeId}/leaderboard': async (req, res) => {
-      const coach = coachOnly(req, res); if (!coach) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
-
-      const result = calculateChallengeLeaderboard(challenge, { db, readState, nowMs: now() });
-      json(res, 200, result);
-    },
-
-    // -------------------------------------------------------------
-    // Athlete Group Routes
-    // -------------------------------------------------------------
-
-    'GET /api/athlete/groups': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const activeMemberships = (db.groupMembers || []).filter(m => m.athleteId === athlete.id && m.status === 'active');
-      const membershipMap = new Map(activeMemberships.map(m => [m.groupId, m]));
-      const groups = (db.coachGroups || [])
-        .filter(g => membershipMap.has(g.id))
-        .map(g => ({
-          ...g,
-          myMembership: membershipMap.get(g.id),
-        }));
-      json(res, 200, { groups });
-    },
-
-    'POST /api/athlete/groups/join': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const body = await readBody(req);
-      const code = typeof body.inviteCode === 'string' ? body.inviteCode.trim().toUpperCase() : '';
-      if (!code) return b2bError(res, 400, 'missing_invite_code', 'inviteCode is required');
-
-      const group = (db.coachGroups || []).find(g => (g.inviteCode || '').toUpperCase() === code);
-      if (!group) return b2bError(res, 404, 'group_not_found', 'invalid invite code');
-      if (group.archivedAt) return b2bError(res, 409, 'group_archived', 'cannot join an archived group');
-
-      const existingMember = (db.groupMembers || []).find(m => m.groupId === group.id && m.athleteId === athlete.id);
-      if (existingMember && existingMember.status === 'active') {
-        return b2bError(res, 409, 'already_member', 'already an active member of this group');
-      }
-
-      if (group.memberCount >= group.maxMembers) {
-        return b2bError(res, 409, 'group_full', 'group has reached maximum capacity');
-      }
-
-      const nowIso = new Date(now()).toISOString();
-      const candidate = structuredClone(db);
-      candidate.groupMembers ||= [];
-
-      let memberRecord;
-      if (existingMember) {
-        memberRecord = { ...existingMember, status: 'active', joinedAt: nowIso };
-        candidate.groupMembers = candidate.groupMembers.map(m => m.id === existingMember.id ? memberRecord : m);
-      } else {
-        memberRecord = {
-          id: genId('gmem', candidate.groupMembers),
-          groupId: group.id,
-          coachId: group.coachId,
-          athleteId: athlete.id,
-          joinedAt: nowIso,
-          role: 'member',
-          status: 'active',
-        };
-        candidate.groupMembers.push(memberRecord);
-      }
-
-      const updatedGroup = candidate.coachGroups.find(g => g.id === group.id);
-      updatedGroup.memberCount = candidate.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-      updatedGroup.updatedAt = nowIso;
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'athlete.group.join', { user: athlete, groupId: group.id });
-        json(res, 200, { ok: true, group: updatedGroup, member: memberRecord });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    'POST /api/athlete/groups/{groupId}/leave': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const member = (db.groupMembers || []).find(m => m.groupId === req.groupId && m.athleteId === athlete.id && m.status === 'active');
-      if (!member) return b2bError(res, 404, 'not_member', 'you are not an active member of this group');
-
-      const nowIso = new Date(now()).toISOString();
-      const candidate = structuredClone(db);
-      candidate.groupMembers = candidate.groupMembers.map(m =>
-        m.id === member.id ? { ...m, status: 'left' } : m
-      );
-
-      const group = candidate.coachGroups.find(g => g.id === req.groupId);
-      if (group) {
-        group.memberCount = candidate.groupMembers.filter(m => m.groupId === group.id && m.status === 'active').length;
-        group.updatedAt = nowIso;
-      }
-
-      try {
-        await commit(candidate);
-        audit?.(req, 'athlete.group.leave', { user: athlete, groupId: req.groupId });
-        json(res, 200, { ok: true, groupId: req.groupId, status: 'left' });
-      } catch (e) {
-        b2bError(res, 503, 'storage_unavailable', e.message);
-      }
-    },
-
-    // -------------------------------------------------------------
-    // Athlete Challenge Routes
-    // -------------------------------------------------------------
-
-    'GET /api/athlete/challenges': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const myGroupIds = new Set((db.groupMembers || []).filter(m => m.athleteId === athlete.id && m.status === 'active').map(m => m.groupId));
-      const myCoachIds = new Set((db.coachAthleteLinks || []).filter(l => l.athleteId === athlete.id && l.status === 'active').map(l => l.coachId));
-
-      const challenges = (db.challenges || [])
-        .filter(c => {
-          if (c.status === 'archived' || c.status === 'draft') return false;
-          if (c.scope === 'group') return myGroupIds.has(c.groupId);
-          if (c.scope === 'coach_students') return myCoachIds.has(c.coachId);
-          return false;
-        })
-        .sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt));
-
-      json(res, 200, { challenges });
-    },
-
-    'GET /api/athlete/challenges/{challengeId}': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge || challenge.status === 'draft') {
-        return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      }
-
-      let eligible = false;
-      if (challenge.scope === 'group') {
-        eligible = (db.groupMembers || []).some(m => m.groupId === challenge.groupId && m.athleteId === athlete.id && m.status === 'active');
-      } else if (challenge.scope === 'coach_students') {
-        eligible = (db.coachAthleteLinks || []).some(l => l.coachId === challenge.coachId && l.athleteId === athlete.id && l.status === 'active');
-      }
-
-      if (!eligible) {
-        return b2bError(res, 403, 'access_denied', 'you are not an active participant in this challenge');
-      }
-
-      json(res, 200, { challenge });
-    },
-
-    'GET /api/athlete/challenges/{challengeId}/leaderboard': async (req, res) => {
-      const athlete = athleteOnly(req, res); if (!athlete) return;
-      const challenge = (db.challenges || []).find(c => c.id === req.challengeId);
-      if (!challenge || challenge.status === 'draft') {
-        return b2bError(res, 404, 'challenge_not_found', 'challenge not found');
-      }
-
-      let eligible = false;
-      if (challenge.scope === 'group') {
-        eligible = (db.groupMembers || []).some(m => m.groupId === challenge.groupId && m.athleteId === athlete.id && m.status === 'active');
-      } else if (challenge.scope === 'coach_students') {
-        eligible = (db.coachAthleteLinks || []).some(l => l.coachId === challenge.coachId && l.athleteId === athlete.id && l.status === 'active');
-      }
-
-      if (!eligible) {
-        return b2bError(res, 403, 'access_denied', 'you are not an active participant in this challenge');
-      }
-
-      const result = calculateChallengeLeaderboard(challenge, { db, readState, nowMs: now() });
-      json(res, 200, result);
-    },
+  routes['PUT /api/coach/groups/{groupId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req);
+    if (!exact(body, new Set(['name', 'description', 'category', 'maxMembers', 'isPrivate', 'archived', 'expectedUpdatedAt']))) return b2bError(res, 400, 'invalid_request', 'unknown group field');
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error }; const group = owned.group;
+      if (body.expectedUpdatedAt !== undefined && body.expectedUpdatedAt !== group.updatedAt) return { changed: false, error: failure(409, 'edit_conflict', 'group was updated by another request') };
+      if (group.archivedAt) return { changed: false, error: failure(410, 'group_archived', 'archived group is terminal') };
+      if (body.name !== undefined) { const value = clean(body.name, 100, true); if (!value) return { changed: false, error: failure(400, 'invalid_name', 'invalid name') }; group.name = value; }
+      if (body.description !== undefined) { const value = clean(body.description, 1000); if (value === null) return { changed: false, error: failure(400, 'invalid_description', 'invalid description') }; group.description = value; }
+      if (body.category !== undefined) { const value = clean(body.category, 50, true); if (!value) return { changed: false, error: failure(400, 'invalid_category', 'invalid category') }; group.category = value; }
+      if (body.maxMembers !== undefined) { if (!Number.isInteger(body.maxMembers) || body.maxMembers < group.memberCount || body.maxMembers > (limits.maxMembersPerGroup ?? 500)) return { changed: false, error: failure(400, 'invalid_max_members', 'invalid maxMembers') }; group.maxMembers = body.maxMembers; }
+      if (body.isPrivate !== undefined) { if (typeof body.isPrivate !== 'boolean') return { changed: false, error: failure(400, 'invalid_privacy', 'isPrivate must be boolean') }; group.isPrivate = body.isPrivate; }
+      if (body.archived !== undefined) { if (body.archived !== true) return { changed: false, error: failure(400, 'invalid_archived', 'archived must be true') }; group.archivedAt = new Date(now()).toISOString(); }
+      group.updatedAt = new Date(now()).toISOString(); return { changed: true, value: { group: publicGroup(group) }, audit: { event: 'coach.group.update', data: { user: coach, groupId: group.id } } };
+    });
   };
+
+  routes['DELETE /api/coach/groups/{groupId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return;
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error };
+      if (state.challenges.some(row => row.groupId === req.groupId && row.status !== 'draft')
+          || state.groupPrograms.some(row => row.groupId === req.groupId && row.status !== 'draft')
+          || state.groupProgramAdoptions.some(row => row.groupId === req.groupId)) return { changed: false, error: failure(409, 'group_has_history', 'archive groups with published history') };
+      const ids = new Set(state.challenges.filter(row => row.groupId === req.groupId).map(row => row.id));
+      const programIds = new Set(state.groupPrograms.filter(row => row.groupId === req.groupId).map(row => row.id));
+      state.coachGroups = state.coachGroups.filter(row => row.id !== req.groupId); state.groupMembers = state.groupMembers.filter(row => row.groupId !== req.groupId); state.groupInvites = state.groupInvites.filter(row => row.groupId !== req.groupId);
+      state.challenges = state.challenges.filter(row => !ids.has(row.id)); state.challengeScores = state.challengeScores.filter(row => !ids.has(row.challengeId)); state.challengeActivityFeed = state.challengeActivityFeed.filter(row => !ids.has(row.challengeId));
+      state.groupPrograms = state.groupPrograms.filter(row => !programIds.has(row.id));
+      return { changed: true, value: { ok: true, id: req.groupId }, audit: { event: 'coach.group.delete', data: { user: coach, groupId: req.groupId } } };
+    });
+  };
+
+  routes['GET /api/coach/groups/{groupId}/invite'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach) return; const owned = ownedGroup(db, req.groupId, coach.id); if (owned.error) return b2bError(res, owned.error.status, owned.error.code, owned.error.message);
+    const invite = db.groupInvites.find(row => row.groupId === req.groupId && row.status === 'active'); json(res, 200, { invite: invite ? { code: invite.code, expiresAt: invite.expiresAt, status: invite.status } : null });
+  };
+
+  routes['POST /api/coach/groups/{groupId}/invite'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req);
+    if (!exact(body, new Set(['expiresInDays'])) || body.expiresInDays !== undefined && (!Number.isInteger(body.expiresInDays) || body.expiresInDays < 1 || body.expiresInDays > 365)) return b2bError(res, 400, 'invalid_invite', 'invalid invite expiration');
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error }; if (owned.group.archivedAt) return { changed: false, error: failure(410, 'group_archived', 'group is archived') };
+      const stamp = new Date(now()).toISOString(); for (const row of state.groupInvites.filter(item => item.groupId === req.groupId && item.status === 'active')) Object.assign(row, { status: 'revoked', revokedAt: stamp, updatedAt: stamp });
+      const invite = { id: entityId('ginv', state.groupInvites), groupId: req.groupId, coachId: coach.id, code: newInviteCode(state.groupInvites), status: 'active', createdAt: stamp, updatedAt: stamp, expiresAt: new Date(now() + (body.expiresInDays ?? Math.round(inviteTtlMs / 86400000)) * 86400000).toISOString(), revokedAt: null };
+      state.groupInvites.push(invite); return { changed: true, value: { invite: { code: invite.code, expiresAt: invite.expiresAt, status: invite.status } }, audit: { event: 'coach.group.invite.rotate', data: { user: coach, groupId: req.groupId } } };
+    });
+  };
+
+  routes['DELETE /api/coach/groups/{groupId}/invite'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return;
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error }; const invite = state.groupInvites.find(row => row.groupId === req.groupId && row.status === 'active');
+      if (!invite) return { changed: false, error: failure(410, 'invite_revoked', 'invite already revoked') }; const stamp = new Date(now()).toISOString(); Object.assign(invite, { status: 'revoked', revokedAt: stamp, updatedAt: stamp });
+      return { changed: true, value: { ok: true }, audit: { event: 'coach.group.invite.revoke', data: { user: coach, groupId: req.groupId } } };
+    });
+  };
+
+  routes['POST /api/coach/groups/{groupId}/members'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req);
+    if (!exact(body, new Set(['athleteId', 'role'])) || typeof body.athleteId !== 'string' || !ID_RE.test(body.athleteId) || body.role !== undefined && !ROLES.has(body.role)) return b2bError(res, 400, 'invalid_member', 'invalid member request');
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error }; if (owned.group.archivedAt) return { changed: false, error: failure(410, 'group_archived', 'group is archived') };
+      const athlete = state.users.find(row => row.id === body.athleteId); if (!athlete) return { changed: false, error: failure(404, 'athlete_not_found', 'athlete not found') };
+      if (!activeTrainingLink(state, coach.id, body.athleteId)) return { changed: false, error: failure(403, 'scope_forbidden', 'active training relationship required') };
+      const existing = state.groupMembers.find(row => row.groupId === req.groupId && row.athleteId === body.athleteId); if (existing && ['active', 'pending'].includes(existing.status)) return { changed: false, error: failure(409, 'already_member', 'membership already exists') };
+      const stamp = new Date(now()).toISOString(), member = existing || { id: entityId('gmem', state.groupMembers), groupId: req.groupId, coachId: coach.id, athleteId: body.athleteId, joinedAt: stamp };
+      Object.assign(member, { acceptedAt: null, role: body.role ?? 'member', status: 'pending', updatedAt: stamp }); if (!existing) state.groupMembers.push(member);
+      return { changed: true, value: { member: publicMember(member, state, true) }, audit: { event: 'coach.group.member.invite', data: { user: coach, groupId: req.groupId, athleteId: body.athleteId } } };
+    }, 201);
+  };
+
+  routes['DELETE /api/coach/groups/{groupId}/members/{athleteId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return;
+    await run(req, res, state => {
+      const owned = ownedGroup(state, req.groupId, coach.id); if (owned.error) return { changed: false, error: owned.error };
+      const member = state.groupMembers.find(row => row.groupId === req.groupId && row.athleteId === req.athleteId && ['active', 'pending'].includes(row.status)); if (!member) return { changed: false, error: failure(404, 'member_not_found', 'member not found') };
+      const stamp = new Date(now()).toISOString(); if (member.status === 'active') owned.group.memberCount--; member.status = 'removed'; member.updatedAt = stamp; owned.group.updatedAt = stamp;
+      return { changed: true, value: { ok: true, status: 'removed' }, audit: { event: 'coach.group.member.remove', data: { user: coach, groupId: req.groupId, athleteId: req.athleteId } } };
+    });
+  };
+
+  routes['GET /api/athlete/groups'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete) return;
+    const rows = db.groupMembers.filter(row => row.athleteId === athlete.id && ['active', 'pending'].includes(row.status)).map(member => { const group = db.coachGroups.find(row => row.id === member.groupId); return group && { ...publicGroup(group), myMembership: publicMember(member, db) }; }).filter(Boolean);
+    const result = paginate(req, rows, codec, athlete.id, 'athlete-groups'); if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error); json(res, 200, { groups: result.items, page: result.page });
+  };
+
+  routes['GET /api/athlete/groups/{groupId}'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete) return;
+    const member = db.groupMembers.find(row => row.groupId === req.groupId && row.athleteId === athlete.id && row.status === 'active');
+    if (!member) return b2bError(res, 404, 'membership_not_found', 'active membership not found');
+    const group = db.coachGroups.find(row => row.id === req.groupId); if (!group) return b2bError(res, 404, 'group_not_found', 'group not found'); if (group.archivedAt) return b2bError(res, 410, 'group_archived', 'group is archived');
+    const rows = db.groupMembers.filter(row => row.groupId === group.id && row.status === 'active').sort((a, b) => Date.parse(a.acceptedAt) - Date.parse(b.acceptedAt) || a.id.localeCompare(b.id)).map(row => publicMember(row, db));
+    const result = paginate(req, rows, codec, `${athlete.id}:${group.id}`, 'athlete-group-members'); if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error);
+    json(res, 200, { group: publicGroup(group), myMembership: publicMember(member, db), members: result.items, page: result.page });
+  };
+
+  const activateMembership = async (req, res, athlete, invite) => run(req, res, state => {
+    let group;
+    if (invite) {
+      const row = state.groupInvites.find(item => item.code.toUpperCase() === invite); if (!row) return { changed: false, error: failure(404, 'invite_not_found', 'invite not found') };
+      if (row.status === 'revoked') return { changed: false, error: failure(410, 'invite_revoked', 'invite was revoked') }; if (Date.parse(row.expiresAt) <= now()) return { changed: false, error: failure(410, 'invite_expired', 'invite expired') };
+      group = state.coachGroups.find(item => item.id === row.groupId);
+    } else group = state.coachGroups.find(item => item.id === req.groupId);
+    if (!group) return { changed: false, error: failure(404, 'group_not_found', 'group not found') }; if (group.archivedAt) return { changed: false, error: failure(410, 'group_archived', 'group is archived') };
+    if (!activeTrainingLink(state, group.coachId, athlete.id)) return { changed: false, error: failure(403, 'scope_forbidden', 'active training relationship required') };
+    const existing = state.groupMembers.find(row => row.groupId === group.id && row.athleteId === athlete.id); if (existing?.status === 'active') return { changed: false, error: failure(409, 'already_member', 'already a member') };
+    if (!invite && existing?.status !== 'pending') return { changed: false, error: failure(404, 'membership_not_found', 'pending membership not found') };
+    if (group.memberCount >= group.maxMembers) return { changed: false, error: failure(409, 'group_full', 'group is full') };
+    const stamp = new Date(now()).toISOString(), member = existing || { id: entityId('gmem', state.groupMembers), groupId: group.id, coachId: group.coachId, athleteId: athlete.id, joinedAt: stamp, role: 'member' };
+    Object.assign(member, { status: 'active', acceptedAt: stamp, updatedAt: stamp }); if (!existing) state.groupMembers.push(member); group.memberCount++; group.updatedAt = stamp;
+    return { changed: true, value: { ok: true, group: publicGroup(group), member: publicMember(member, state) }, audit: { event: invite ? 'athlete.group.join' : 'athlete.group.accept', data: { user: athlete, groupId: group.id } } };
+  });
+
+  routes['POST /api/athlete/groups/join'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete || throttle(req, res, athlete, true)) return; const body = await readBody(req);
+    if (!exact(body, new Set(['inviteCode'])) || typeof body.inviteCode !== 'string' || !body.inviteCode.trim()) return b2bError(res, 400, 'missing_invite_code', 'inviteCode is required');
+    await activateMembership(req, res, athlete, body.inviteCode.trim().toUpperCase());
+  };
+  routes['POST /api/athlete/groups/{groupId}/accept'] = async (req, res) => { const athlete = athleteOnly(req, res); if (!athlete || throttle(req, res, athlete, true)) return; await activateMembership(req, res, athlete, null); };
+  routes['POST /api/athlete/groups/{groupId}/leave'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete || throttle(req, res, athlete, true)) return;
+    await run(req, res, state => { const group = state.coachGroups.find(row => row.id === req.groupId); if (!group) return { changed: false, error: failure(404, 'group_not_found', 'group not found') };
+      const member = state.groupMembers.find(row => row.groupId === group.id && row.athleteId === athlete.id && ['active', 'pending'].includes(row.status)); if (!member) return { changed: false, error: failure(404, 'membership_not_found', 'membership not found') };
+      const stamp = new Date(now()).toISOString(); if (member.status === 'active') group.memberCount--; member.status = 'left'; member.updatedAt = stamp; group.updatedAt = stamp;
+      return { changed: true, value: { ok: true, groupId: group.id, status: 'left' }, audit: { event: 'athlete.group.leave', data: { user: athlete, groupId: group.id } } }; });
+  };
+
+  const parseChallenge = (body, state, coach, existing = null) => {
+    const allowed = existing ? new Set(['title', 'description', 'startAt', 'endAt', 'timeZone', 'status', 'rules']) : new Set(['title', 'description', 'type', 'scope', 'groupId', 'startAt', 'endAt', 'timeZone', 'status', 'rules']);
+    if (!exact(body, allowed)) return { error: failure(400, 'invalid_request', 'unknown challenge field') };
+    const title = body.title === undefined && existing ? existing.title : clean(body.title, 100, true);
+    const description = body.description === undefined && existing ? existing.description : clean(body.description, 2000);
+    const type = existing?.type ?? body.type, scope = existing?.scope ?? body.scope;
+    const groupId = existing?.groupId ?? (scope === 'group' ? body.groupId : null);
+    const startAt = body.startAt === undefined && existing ? existing.startAt : body.startAt, endAt = body.endAt === undefined && existing ? existing.endAt : body.endAt;
+    const timeZone = body.timeZone === undefined && existing ? existing.timeZone : body.timeZone;
+    const status = body.status === undefined ? (existing?.status ?? 'draft') : body.status;
+    const rules = body.rules === undefined && existing ? existing.rules : rulesFor(type, body.rules);
+    if (!title || description === null || !TYPES.has(type) || !SCOPES.has(scope) || !date(startAt) || !date(endAt) || Date.parse(endAt) <= Date.parse(startAt)
+        || !validTimeZone(timeZone) || !STATUSES.has(status) || !rules) return { error: failure(400, 'invalid_challenge', 'invalid challenge fields or rules') };
+    if (!existing && !['draft', 'active'].includes(status)) return { error: failure(400, 'invalid_status', 'new challenge must be draft or active') };
+    if (scope === 'group') { const group = state.coachGroups.find(row => row.id === groupId); if (!group) return { error: failure(404, 'group_not_found', 'group not found') }; if (group.coachId !== coach.id) return { error: failure(403, 'access_denied', 'group belongs to another coach') }; if (group.archivedAt) return { error: failure(410, 'group_archived', 'group is archived') }; }
+    else if (groupId !== null) return { error: failure(400, 'invalid_group_id', 'coach_students requires groupId null or absent') };
+    return { value: { title, description, type, scope, groupId, startAt: new Date(Date.parse(startAt)).toISOString(), endAt: new Date(Date.parse(endAt)).toISOString(), timeZone, status, rules } };
+  };
+
+  routes['POST /api/coach/challenges'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req);
+    await run(req, res, state => {
+      if (state.challenges.length >= (limits.maxChallenges ?? 5000) || state.challenges.filter(row => row.coachId === coach.id).length >= (limits.maxChallengesPerCoach ?? 100)) return { changed: false, error: failure(409, 'challenge_limit_reached', 'challenge quota reached') };
+      const parsed = parseChallenge(body, state, coach); if (parsed.error) return { changed: false, error: parsed.error };
+      const stamp = new Date(now()).toISOString(), challenge = { id: entityId('chal', state.challenges), coachId: coach.id, ...parsed.value, participantIds: [], createdAt: stamp, updatedAt: stamp, activatedAt: null, completedAt: null, archivedAt: null };
+      if (challenge.status === 'active') { challenge.participantIds = currentEligibleIds(state, challenge); challenge.activatedAt = stamp; }
+      state.challenges.push(challenge); return { changed: true, value: { challenge: publicChallenge(challenge, now()) }, audit: { event: 'coach.challenge.create', data: { user: coach, challengeId: challenge.id } } };
+    }, 201);
+  };
+
+  routes['GET /api/coach/challenges'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach) return; const result = paginate(req, db.challenges.filter(row => row.coachId === coach.id).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map(row => publicChallenge(row, now())), codec, coach.id, 'coach-challenges');
+    if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error); json(res, 200, { challenges: result.items, page: result.page });
+  };
+  routes['GET /api/coach/challenges/{challengeId}'] = async (req, res) => { const coach = coachOnly(req, res); if (!coach) return; const challenge = db.challenges.find(row => row.id === req.challengeId); if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found'); if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied'); json(res, 200, { challenge: publicChallenge(challenge, now()) }); };
+
+  routes['PUT /api/coach/challenges/{challengeId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req);
+    await run(req, res, state => {
+      const challenge = state.challenges.find(row => row.id === req.challengeId); if (!challenge) return { changed: false, error: failure(404, 'challenge_not_found', 'challenge not found') }; if (challenge.coachId !== coach.id) return { changed: false, error: failure(403, 'access_denied', 'access denied') };
+      const current = effectiveStatus(challenge, now()); if (current === 'completed' && challenge.status === 'active') { challenge.status = 'completed'; challenge.completedAt = new Date(now()).toISOString(); }
+      const target = body.status ?? challenge.status, transitions = { draft: new Set(['draft', 'active']), active: new Set(['active', 'completed', 'archived']), completed: new Set(['completed', 'archived']), archived: new Set(['archived']) };
+      if (!transitions[challenge.status].has(target)) return { changed: false, error: failure(409, 'invalid_transition', 'invalid challenge lifecycle transition') };
+      if (challenge.status !== 'draft' && Object.keys(body).some(key => key !== 'status')) return { changed: false, error: failure(409, 'challenge_immutable', 'published challenge configuration is immutable') };
+      const parsed = parseChallenge(body, state, coach, challenge); if (parsed.error) return { changed: false, error: parsed.error }; const stamp = new Date(now()).toISOString(), previous = challenge.status;
+      Object.assign(challenge, parsed.value, { updatedAt: stamp });
+      if (previous === 'draft' && target === 'active') { challenge.participantIds = currentEligibleIds(state, challenge); challenge.activatedAt = stamp; }
+      if (previous === 'active' && ['completed', 'archived'].includes(target)) {
+        const calculated = calculateChallengeLeaderboard(challenge, { db: state, readState, nowMs: now() });
+        state.challengeScores = state.challengeScores.filter(row => row.challengeId !== challenge.id);
+        for (const row of calculated.leaderboard) state.challengeScores.push({ id: entityId('cscr', state.challengeScores), challengeId: challenge.id, athleteId: row.athleteId, score: row.score, workoutsCount: row.workoutsCount, volumeLoad: row.volumeLoad, habitCheckinsCount: row.habitCheckinsCount, lastActivityAt: row.lastActivityAt, updatedAt: stamp, finalized: true });
+        state.challengeActivityFeed = state.challengeActivityFeed.filter(row => row.challengeId !== challenge.id).concat(calculated.activityFeed.slice(0, limits.maxActivityFeedPerChallenge ?? 1000).map(row => ({ ...row, finalized: true })));
+        challenge.completedAt = stamp;
+      }
+      if (target === 'archived') challenge.archivedAt = stamp;
+      return { changed: true, value: { challenge: publicChallenge(challenge, now()) }, audit: { event: 'coach.challenge.update', data: { user: coach, challengeId: challenge.id } } };
+    });
+  };
+
+  routes['DELETE /api/coach/challenges/{challengeId}'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return;
+    await run(req, res, state => { const challenge = state.challenges.find(row => row.id === req.challengeId); if (!challenge) return { changed: false, error: failure(404, 'challenge_not_found', 'challenge not found') }; if (challenge.coachId !== coach.id) return { changed: false, error: failure(403, 'access_denied', 'access denied') }; if (challenge.status !== 'draft') return { changed: false, error: failure(409, 'challenge_has_history', 'only drafts can be deleted') }; state.challenges = state.challenges.filter(row => row.id !== challenge.id); return { changed: true, value: { ok: true, id: challenge.id }, audit: { event: 'coach.challenge.delete', data: { user: coach, challengeId: challenge.id } } }; });
+  };
+
+  routes['POST /api/coach/challenges/{challengeId}/points'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach || throttle(req, res, coach)) return; const body = await readBody(req), key = req.headers['idempotency-key'];
+    if (!exact(body, new Set(['athleteId', 'points', 'reason', 'correctionOf'])) || typeof body.athleteId !== 'string' || !ID_RE.test(body.athleteId) || !number(body.points, -10000, 10000) || body.points === 0
+        || !clean(body.reason, 500, true) || body.correctionOf !== undefined && (typeof body.correctionOf !== 'string' || !ID_RE.test(body.correctionOf)) || typeof key !== 'string' || !/^[A-Za-z0-9._:-]{8,120}$/.test(key)) return b2bError(res, 400, 'invalid_adjustment', 'valid athleteId, points, reason and Idempotency-Key are required');
+    await run(req, res, state => {
+      const challenge = state.challenges.find(row => row.id === req.challengeId); if (!challenge) return { changed: false, error: failure(404, 'challenge_not_found', 'challenge not found') }; if (challenge.coachId !== coach.id) return { changed: false, error: failure(403, 'access_denied', 'access denied') };
+      if (challenge.type !== 'custom_points') return { changed: false, error: failure(422, 'custom_points_required', 'challenge does not accept custom points') }; if (effectiveStatus(challenge, now()) !== 'active') return { changed: false, error: failure(410, 'challenge_ended', 'challenge is not active') }; if (!challengeAllowsAthlete(state, challenge, body.athleteId)) return { changed: false, error: failure(403, 'athlete_ineligible', 'athlete is not a participant') };
+      if (now() < Date.parse(challenge.startAt)) return { changed: false, error: failure(409, 'challenge_not_started', 'challenge has not started') };
+      const duplicate = state.challengeActivityFeed.find(row => row.challengeId === challenge.id && row.idempotencyKey === key);
+      if (duplicate) {
+        const correctionMatches = body.correctionOf === undefined
+          ? !state.challengeActivityFeed.some(row => row.id === duplicate.sourceId && row.challengeId === challenge.id)
+          : duplicate.sourceId === body.correctionOf;
+        if (duplicate.athleteId !== body.athleteId || duplicate.pointsAwarded !== body.points || duplicate.reason !== body.reason.trim() || !correctionMatches) return { changed: false, error: failure(409, 'idempotency_conflict', 'Idempotency-Key was already used for another adjustment') };
+        const score = state.challengeScores.find(row => row.challengeId === challenge.id && row.athleteId === body.athleteId); return { changed: false, value: { adjustment: { id: duplicate.id, points: duplicate.pointsAwarded, timestamp: duplicate.timestamp }, score: score?.score ?? 0, idempotent: true } };
+      }
+      if (Math.abs(body.points) > challenge.rules.maxPointsPerAdjustment) return { changed: false, error: failure(422, 'points_out_of_range', 'points exceed adjustment limit') };
+      let correction = null;
+      if (body.correctionOf !== undefined) {
+        correction = state.challengeActivityFeed.find(row => row.challengeId === challenge.id && row.id === body.correctionOf && row.activityType === 'custom_adjustment');
+        if (!correction) return { changed: false, error: failure(422, 'correction_not_found', 'correction target not found') };
+        if (correction.athleteId !== body.athleteId || body.points !== -correction.pointsAwarded || state.challengeActivityFeed.some(row => row.challengeId === challenge.id && row.sourceId === correction.id)) return { changed: false, error: failure(422, 'invalid_correction', 'correction must compensate one uncorrected adjustment for the same athlete') };
+      }
+      const stamp = new Date(now()).toISOString(); let score = state.challengeScores.find(row => row.challengeId === challenge.id && row.athleteId === body.athleteId);
+      if (!score) { score = { id: entityId('cscr', state.challengeScores), challengeId: challenge.id, athleteId: body.athleteId, score: 0, workoutsCount: 0, volumeLoad: 0, habitCheckinsCount: 0, lastActivityAt: null, updatedAt: stamp, finalized: false }; state.challengeScores.push(score); }
+      const next = score.score + body.points; if (Math.abs(next) > (challenge.rules.maxAbsoluteScore ?? 1000000)) return { changed: false, error: failure(422, 'score_out_of_range', 'resulting score exceeds limit') };
+      Object.assign(score, { score: Math.round(next * 1000) / 1000, lastActivityAt: stamp, updatedAt: stamp });
+      const feed = { id: entityId('caft', state.challengeActivityFeed), challengeId: challenge.id, athleteId: body.athleteId, activityType: 'custom_adjustment', sourceId: correction?.id ?? entityId('adj', state.challengeActivityFeed), description: correction ? 'Correção de pontuação' : 'Ajuste de pontuação', pointsAwarded: body.points, timestamp: stamp, reason: body.reason.trim(), idempotencyKey: key, createdAt: stamp, finalized: false };
+      state.challengeActivityFeed.push(feed); return { changed: true, value: { adjustment: { id: feed.id, points: feed.pointsAwarded, timestamp: feed.timestamp }, score: score.score, idempotent: false }, audit: { event: 'coach.challenge.points.adjust', data: { user: coach, challengeId: challenge.id, athleteId: body.athleteId, reason: feed.reason, idempotencyKey: key } } };
+    });
+  };
+
+  const leaderboardResponse = (req, result, viewerId) => {
+    const tenant = `${result.challenge.id}:${viewerId || 'coach'}`;
+    const board = paginate(req, result.leaderboard.map(({ athleteId, ...row }) => ({ ...row, isMe: athleteId === viewerId })), codec, tenant, 'leaderboard');
+    const feedRows = result.activityFeed.map(row => ({ id: row.id, participantKey: participantKey(row.challengeId, row.athleteId), displayName: nameOf(db.users.find(user => user.id === row.athleteId)), activityType: row.activityType, description: row.description, pointsAwarded: row.pointsAwarded, timestamp: row.timestamp, isMe: row.athleteId === viewerId }));
+    const feed = paginate(req, feedRows, codec, tenant, 'feed', 'feed');
+    if (board.error || feed.error) return { error: board.error || feed.error };
+    return { challenge: result.challenge, leaderboard: board.items, activityFeed: feed.items, page: board.page, feedPage: feed.page };
+  };
+
+  routes['GET /api/coach/challenges/{challengeId}/leaderboard'] = async (req, res) => {
+    const coach = coachOnly(req, res); if (!coach) return; const challenge = db.challenges.find(row => row.id === req.challengeId); if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found'); if (challenge.coachId !== coach.id) return b2bError(res, 403, 'access_denied', 'access denied');
+    const output = leaderboardResponse(req, calculateChallengeLeaderboard(challenge, { db, readState, nowMs: now() }), null); if (output.error) return b2bError(res, 400, 'invalid_pagination', output.error); json(res, 200, output);
+  };
+  routes['GET /api/athlete/challenges'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete) return; const result = paginate(req, db.challenges.filter(row => !['draft', 'archived'].includes(row.status) && challengeAllowsAthlete(db, row, athlete.id)).sort((a, b) => Date.parse(b.startAt) - Date.parse(a.startAt)).map(row => publicChallenge(row, now())), codec, athlete.id, 'athlete-challenges');
+    if (result.error) return b2bError(res, 400, 'invalid_pagination', result.error); json(res, 200, { challenges: result.items, page: result.page });
+  };
+  routes['GET /api/athlete/challenges/{challengeId}'] = async (req, res) => { const athlete = athleteOnly(req, res); if (!athlete) return; const challenge = db.challenges.find(row => row.id === req.challengeId && row.status !== 'draft'); if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found'); if (!challengeAllowsAthlete(db, challenge, athlete.id)) return b2bError(res, 403, 'access_denied', 'not a participant'); json(res, 200, { challenge: publicChallenge(challenge, now()) }); };
+  routes['GET /api/athlete/challenges/{challengeId}/leaderboard'] = async (req, res) => {
+    const athlete = athleteOnly(req, res); if (!athlete) return; const challenge = db.challenges.find(row => row.id === req.challengeId && row.status !== 'draft'); if (!challenge) return b2bError(res, 404, 'challenge_not_found', 'challenge not found'); if (!challengeAllowsAthlete(db, challenge, athlete.id)) return b2bError(res, 403, 'access_denied', 'not a participant');
+    const output = leaderboardResponse(req, calculateChallengeLeaderboard(challenge, { db, readState, nowMs: now() }), athlete.id); if (output.error) return b2bError(res, 400, 'invalid_pagination', output.error); json(res, 200, output);
+  };
+
+  return routes;
 }

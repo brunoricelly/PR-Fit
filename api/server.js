@@ -62,6 +62,7 @@ import {
   cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS, validateSchedulingState,
 } from './scheduling.js';
 import { createChallengeRoutes, validateChallengesState, CHALLENGE_LIMITS } from './challenges.js';
+import { createGroupProgramRoutes, validateGroupProgramsState, GROUP_PROGRAM_LIMITS } from './group-programs.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
 import { createInterprocessLock, mergeDbCandidate } from './db-coordinator.js';
@@ -170,6 +171,9 @@ const B2B2C_LIMITS = {
   reminderRetentionDays: envInt('B2B2C_SCHEDULING_REMINDER_RETENTION_DAYS', SCHEDULING_LIMITS.reminderRetentionDays, { min: 1, max: 3650 }),
   maxReminderStates: envInt('B2B2C_MAX_APPOINTMENT_REMINDER_STATES', SCHEDULING_LIMITS.maxReminderStates, { min: 1, max: 5000000 }),
   maxReminderOutbox: envInt('B2B2C_MAX_SCHEDULING_REMINDER_OUTBOX', SCHEDULING_LIMITS.maxReminderOutbox, { min: 1, max: 5000000 }),
+  maxGroupPrograms: envInt('B2B2C_MAX_GROUP_PROGRAMS', GROUP_PROGRAM_LIMITS.maxGroupPrograms, { min: 1, max: 1000000 }),
+  maxGroupProgramsPerCoach: envInt('B2B2C_GROUP_PROGRAMS_PER_COACH', GROUP_PROGRAM_LIMITS.maxGroupProgramsPerCoach, { min: 1, max: 100000 }),
+  maxGroupProgramAdoptions: envInt('B2B2C_MAX_GROUP_PROGRAM_ADOPTIONS', GROUP_PROGRAM_LIMITS.maxGroupProgramAdoptions, { min: 1, max: 5000000 }),
 };
 validateCommunicationHabitsLimits(B2B2C_LIMITS);
 const B2B2C_RATE = {
@@ -202,6 +206,12 @@ const B2B2C_RATE = {
   schedulingStatusIp: envInt('B2B2C_SCHEDULING_REMINDER_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
   schedulingReadAccount: envInt('B2B2C_SCHEDULING_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   schedulingReadIp: envInt('B2B2C_SCHEDULING_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
+  challengeMutationAccount: envInt('B2B2C_CHALLENGE_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 100000 }),
+  challengeMutationIp: envInt('B2B2C_CHALLENGE_MUTATION_IP_MAX', 600, { min: 1, max: 1000000 }),
+  groupJoinAccount: envInt('B2B2C_GROUP_JOIN_ACCOUNT_MAX', 60, { min: 1, max: 100000 }),
+  groupJoinIp: envInt('B2B2C_GROUP_JOIN_IP_MAX', 300, { min: 1, max: 1000000 }),
+  groupProgramMutationAccount: envInt('B2B2C_GROUP_PROGRAM_MUTATION_ACCOUNT_MAX', 60, { min: 1, max: 100000 }),
+  groupProgramMutationIp: envInt('B2B2C_GROUP_PROGRAM_MUTATION_IP_MAX', 300, { min: 1, max: 1000000 }),
 };
 const REMINDER_DISPATCH_CONFIG = Object.freeze({
   tickMs: envInt('B2B2C_SCHEDULING_REMINDER_TICK_MS', REMINDER_DISPATCH_DEFAULTS.tickMs, { min: 50, max: 3600000 }),
@@ -376,21 +386,56 @@ function saveDbUnlocked(candidate = db) {
   atomicWrite(dbTxnFile, JSON.stringify({ phase: 'committed' }), 0o600);
   removeDbTransactionFiles();
 }
+function replaceDbArray(target, source) {
+  const keyed = new Map(target.filter(item => item && typeof item === 'object' && !Array.isArray(item) && typeof item.id === 'string').map(item => [item.id, item]));
+  const next = source.map((item, index) => {
+    if (!item || typeof item !== 'object') return item;
+    const current = !Array.isArray(item) && typeof item.id === 'string' ? keyed.get(item.id) : target[index];
+    if (Array.isArray(item) && Array.isArray(current)) { replaceDbArray(current, item); return current; }
+    if (!Array.isArray(item) && current && typeof current === 'object' && !Array.isArray(current)) { replaceDbObject(current, item); return current; }
+    return structuredClone(item);
+  });
+  target.splice(0, target.length, ...next);
+}
 function replaceDbObject(target, source) {
-  for (const key of Object.keys(target)) delete target[key];
-  Object.assign(target, structuredClone(source));
+  if (target === source) source = structuredClone(source);
+  for (const key of Object.keys(target)) if (!Object.hasOwn(source, key)) delete target[key];
+  for (const [key, value] of Object.entries(source)) {
+    const current = target[key];
+    if (Array.isArray(value) && Array.isArray(current)) replaceDbArray(current, value);
+    else if (value && typeof value === 'object' && !Array.isArray(value) && current && typeof current === 'object' && !Array.isArray(current)) replaceDbObject(current, value);
+    else target[key] = structuredClone(value);
+  }
 }
 function saveDb(candidate = db) {
   return dbWriteLock.withLockSync(() => {
-    saveDbUnlocked(candidate);
-    persistedDb = structuredClone(candidate);
+    const latest = loadDb();
+    migrateB2B2C(latest);
+    compactB2B2C(latest, B2B2C_LIMITS);
+    const merged = mergeDbCandidate(latest, persistedDb, candidate);
+    validateChallengesState(merged, B2B2C_LIMITS);
+    validateGroupProgramsState(merged, B2B2C_LIMITS);
+    compactB2B2C(merged, B2B2C_LIMITS);
+    saveDbUnlocked(merged);
+    replaceDbObject(candidate, merged);
+    replaceDbObject(db, merged);
+    persistedDb = structuredClone(merged);
+    return merged;
   });
 }
 function publishDb(candidate) {
   replaceDbObject(db, candidate);
   persistedDb = structuredClone(candidate);
 }
-if (b2b2cMigrated) saveDb();
+if (b2b2cMigrated) {
+  dbWriteLock.withLockSync(() => {
+    const latest = loadDb();
+    migrateB2B2C(latest);
+    compactB2B2C(latest, B2B2C_LIMITS);
+    saveDbUnlocked(latest);
+    publishDb(latest);
+  });
+}
 // Flushed before and after the rename (durable.js): a host reset must not bring back the file
 // the client was told had been replaced.
 function atomicWrite(file, content, mode) { durableWrite(file, content, mode); }
@@ -704,6 +749,7 @@ function commitState(uid, previous, next, text) {
 }
 
 const ADOPTION_JOURNAL_PREFIX = 'prescription-adoption-';
+const GROUP_ADOPTION_JOURNAL_PREFIX = 'group-program-adoption-';
 const adoptionJournalFile = (uid, prescriptionId) => path.join(DATA,
   `${ADOPTION_JOURNAL_PREFIX}${uid.replace(/[^a-zA-Z0-9_-]/g, '')}-${prescriptionId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
 function readAdoptionJournal(file) {
@@ -726,6 +772,36 @@ function adoptionJournalFor(uid, prescriptionId, routineIds) {
     prescriptionId,
     routineIds: [...routineIds],
     at: new Date().toISOString(),
+  };
+  atomicWrite(file, JSON.stringify(journal), 0o600);
+  return { file, journal };
+}
+const groupAdoptionJournalFile = (uid, programId) => path.join(DATA,
+  `${GROUP_ADOPTION_JOURNAL_PREFIX}${uid.replace(/[^a-zA-Z0-9_-]/g, '')}-${programId.replace(/[^a-zA-Z0-9_-]/g, '')}.json`);
+function readGroupAdoptionJournal(file) {
+  const journal = JSON.parse(fs.readFileSync(file, 'utf8'));
+  if (journal?.version !== 1 || typeof journal.tx !== 'string' || typeof journal.uid !== 'string'
+      || typeof journal.programId !== 'string' || typeof journal.at !== 'string' || !journal.program
+      || typeof journal.program.prescriptionId !== 'string' || !journal.program.routine
+      || !Array.isArray(journal.routineIds) || journal.routineIds.some(id => typeof id !== 'string')
+      || !journal.adoption || journal.adoption.athleteId !== journal.uid || journal.adoption.programId !== journal.programId) {
+    throw new Error(`invalid group program adoption journal ${path.basename(file)}`);
+  }
+  return journal;
+}
+function groupAdoptionJournalFor(uid, program, routineIds, adoption) {
+  const file = groupAdoptionJournalFile(uid, program.id);
+  try { return { file, journal: readGroupAdoptionJournal(file) }; }
+  catch (error) { if (error.code !== 'ENOENT') throw error; }
+  const journal = {
+    version: 1,
+    tx: crypto.randomBytes(12).toString('hex'),
+    uid,
+    programId: program.id,
+    program: { prescriptionId: program.prescriptionId, routine: structuredClone(program.routine) },
+    routineIds: [...routineIds],
+    adoption: structuredClone(adoption),
+    at: adoption.adoptedAt,
   };
   atomicWrite(file, JSON.stringify(journal), 0o600);
   return { file, journal };
@@ -773,6 +849,39 @@ function finishAdoptionJournal(file, journal, req) {
   fs.unlinkSync(file);
   return { prescription, routineIds: [...journal.routineIds] };
 }
+function finishGroupAdoptionJournal(file, journal, req, latest) {
+  const program = latest.groupPrograms.find(item => item.id === journal.programId);
+  if (!program || program.prescriptionId !== journal.program.prescriptionId) throw new Error(`group program ${journal.programId} from adoption journal is missing`);
+  const current = readStateStrict(journal.uid);
+  if (current === UNREADABLE || !prescriptionStateReadable(current)) throw new Error(`state unreadable for ${journal.uid}`);
+  const adoption = adoptPrescriptionState(current, { id: journal.program.prescriptionId, routine: journal.program.routine }, { now: Date.parse(journal.at) });
+  if (adoption.routineIds.length !== journal.routineIds.length || adoption.routineIds.some((id, index) => id !== journal.routineIds[index])) {
+    throw new Error(`group program adoption journal ${journal.tx} no longer matches state`);
+  }
+  if (adoption.changed) {
+    commitState(journal.uid, current, adoption.state, JSON.stringify(adoption.state));
+    stateWriteTestFail('group-adoption-after-state', journal.uid);
+  }
+  let stored = latest.groupProgramAdoptions.find(item => item.programId === journal.programId && item.athleteId === journal.uid);
+  if (!stored) {
+    latest.groupProgramAdoptions.push(structuredClone(journal.adoption));
+    stored = journal.adoption;
+  } else if (stored.id !== journal.adoption.id || stored.prescriptionId !== journal.adoption.prescriptionId
+      || stored.routineIds.length !== journal.routineIds.length || stored.routineIds.some((id, index) => id !== journal.routineIds[index])) {
+    throw new Error(`group program adoption journal ${journal.tx} conflicts with stored adoption`);
+  }
+  compactB2B2C(latest, B2B2C_LIMITS);
+  validateChallengesState(latest, B2B2C_LIMITS);
+  validateGroupProgramsState(latest, B2B2C_LIMITS);
+  saveDbUnlocked(latest);
+  publishDb(latest);
+  const alreadyAudited = AUDIT_ON && auditLines().some(row => row.ev === 'athlete.group-program.adopt' && row.tx === journal.tx);
+  if (!alreadyAudited && !audit(req, 'athlete.group-program.adopt', { user: latest.users.find(user => user.id === journal.uid), msg: journal.programId, tx: journal.tx })) {
+    throw new Error(`could not audit group program adoption ${journal.tx}`);
+  }
+  fs.unlinkSync(file);
+  return { programId: journal.programId, routineIds: [...stored.routineIds], adoptedAt: stored.adoptedAt, idempotent: false };
+}
 function recoverAdoptionJournals() {
   const files = fs.readdirSync(DATA).filter(name => name.startsWith(ADOPTION_JOURNAL_PREFIX) && name.endsWith('.json')).sort();
   for (const name of files) {
@@ -780,6 +889,18 @@ function recoverAdoptionJournals() {
     const journal = readAdoptionJournal(file);
     finishAdoptionJournal(file, journal, { headers: {}, socket: {} });
     console.log('recovered prescription adoption', journal.prescriptionId, journal.uid);
+  }
+  const groupFiles = fs.readdirSync(DATA).filter(name => name.startsWith(GROUP_ADOPTION_JOURNAL_PREFIX) && name.endsWith('.json')).sort();
+  for (const name of groupFiles) {
+    const file = path.join(DATA, name);
+    const journal = readGroupAdoptionJournal(file);
+    dbWriteLock.withLockSync(() => {
+      const latest = loadDb();
+      migrateB2B2C(latest);
+      compactB2B2C(latest, B2B2C_LIMITS);
+      finishGroupAdoptionJournal(file, journal, { headers: {}, socket: {} }, latest);
+    });
+    console.log('recovered group program adoption', journal.programId, journal.uid);
   }
 }
 // Missed-workout nudge (nudge.js): opt-in on top of the reminder, so it needs everything the
@@ -2862,7 +2983,7 @@ setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const challengeDbWrites = new SerialWriteQueue();
 const challengeCollections = [
-  'coachGroups', 'groupMembers', 'challenges', 'challengeScores', 'challengeActivityFeed',
+  'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions',
 ];
 const latestChallengeDb = () => {
   const latest = loadDb();
@@ -2874,17 +2995,68 @@ const commitChallengeDb = (candidate, base = persistedDb, keys = challengeCollec
   const latest = latestChallengeDb();
   const merged = mergeDbCandidate(latest, base, candidate, { keys });
   validateChallengesState(merged, B2B2C_LIMITS);
+  validateGroupProgramsState(merged, B2B2C_LIMITS);
   saveDbUnlocked(merged);
   publishDb(merged);
 }));
+const withChallengeDbTransaction = transform => challengeDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestChallengeDb();
+  const result = await transform(latest);
+  if (result?.changed) {
+    validateChallengesState(latest, B2B2C_LIMITS);
+    validateGroupProgramsState(latest, B2B2C_LIMITS);
+    compactB2B2C(latest, B2B2C_LIMITS);
+    saveDbUnlocked(latest);
+    publishDb(latest);
+  }
+  return result;
+}));
+const adoptGroupProgram = ({ req, athlete, programId, confirmExistingPlan }) => withStateWrite(athlete.id, req, () => challengeDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestChallengeDb();
+  const program = latest.groupPrograms.find(item => item.id === programId);
+  if (!program || program.status !== 'published') return { error: { status: program?.status === 'archived' ? 410 : 404, code: program?.status === 'archived' ? 'program_archived' : 'program_not_found', message: program?.status === 'archived' ? 'program is archived' : 'program not found' } };
+  const eligible = latest.groupMembers.some(item => item.groupId === program.groupId && item.athleteId === athlete.id && item.status === 'active')
+    && latest.coachAthleteLinks.some(item => item.coachId === program.coachId && item.athleteId === athlete.id && item.status === 'active' && item.scopes.includes('training'));
+  if (!eligible) return { error: { status: 403, code: 'access_denied', message: 'active group membership and training relationship required' } };
+  const pendingFile = groupAdoptionJournalFile(athlete.id, program.id);
+  if (fs.existsSync(pendingFile)) {
+    try { return { value: finishGroupAdoptionJournal(pendingFile, readGroupAdoptionJournal(pendingFile), req, latest) }; }
+    catch (error) { console.error('group program adoption pending recovery', error); return { error: { status: 503, code: 'adoption_pending', message: 'adoption is pending recovery; retry' } }; }
+  }
+  const existing = latest.groupProgramAdoptions.find(item => item.programId === program.id && item.athleteId === athlete.id && item.status === 'active');
+  if (existing) return { value: { programId: program.id, routineIds: [...existing.routineIds], adoptedAt: existing.adoptedAt, idempotent: true } };
+  const current = readStateStrict(athlete.id);
+  if (current === UNREADABLE || !prescriptionStateReadable(current)) return { error: { status: 503, code: 'state_unreadable', message: 'state unreadable' } };
+  const humanRoutines = (current?.routines || []).filter(item => !item?.prescriptionId);
+  if (humanRoutines.length && !confirmExistingPlan) return { error: { status: 409, code: 'confirmation_required', message: 'confirm adoption alongside the existing human-authored plan' } };
+  let adoption;
+  try { adoption = adoptPrescriptionState(current, { id: program.prescriptionId, routine: program.routine }); }
+  catch (error) { if (error instanceof RangeError) return { error: { status: 503, code: 'state_unreadable', message: 'state unreadable' } }; throw error; }
+  const stamp = new Date().toISOString();
+  const record = {
+    id: `gpad_${crypto.randomBytes(12).toString('base64url')}`, programId: program.id, seriesId: program.seriesId,
+    version: program.version, coachId: program.coachId, groupId: program.groupId, athleteId: athlete.id,
+    prescriptionId: program.prescriptionId, routineIds: [...adoption.routineIds], status: 'active', adoptedAt: stamp, updatedAt: stamp,
+  };
+  let transaction;
+  try { transaction = groupAdoptionJournalFor(athlete.id, program, adoption.routineIds, record); }
+  catch (error) { console.error('could not create group program adoption journal', error); return { error: { status: 503, code: 'adoption_pending', message: 'adoption could not be committed; retry' } }; }
+  try { return { value: finishGroupAdoptionJournal(transaction.file, transaction.journal, req, latest) }; }
+  catch (error) { console.error('group program adoption pending recovery', transaction.journal.tx, error); return { error: { status: 503, code: 'adoption_pending', message: 'adoption is pending recovery; retry' } }; }
+})));
 const challengeRoutes = createChallengeRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, readState: readStateCached, rate: B2B2C_RATE,
-  saveDb, publishDb, commitCandidate: commitChallengeDb,
+  saveDb, publishDb, commitCandidate: commitChallengeDb, transaction: withChallengeDbTransaction, cursorSecret: SECRET,
+});
+const groupProgramRoutes = createGroupProgramRoutes({
+  audit, adoptProgram: adoptGroupProgram, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  profileOf, readBody, readSession, rate: B2B2C_RATE, transaction: withChallengeDbTransaction, validatePrescriptionRoutine, cursorSecret: SECRET,
 });
 
 const routes = {
   ...challengeRoutes,
+  ...groupProgramRoutes,
   ...communicationHabitsRoutes,
   ...progressRoutes,
   ...schedulingRoutes,
@@ -4777,7 +4949,7 @@ const server = http.createServer(async (req, res) => {
       'Access-Control-Allow-Methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS',
       // The CF-Access-* pair: a phone's Cloudflare Access service token (frontend lib/cf-access.js),
       // for an Access application that passes OPTIONS through to the origin.
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization, CF-Access-Client-Id, CF-Access-Client-Secret',
+      'Access-Control-Allow-Headers': 'Content-Type, Authorization, Idempotency-Key, CF-Access-Client-Id, CF-Access-Client-Secret',
       'Access-Control-Max-Age': '86400',
       ...(pna ? { 'Access-Control-Allow-Private-Network': 'true' } : {})
     });
@@ -5013,6 +5185,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/coach/groups') key = req.method + ' /api/coach/groups';
+  const coachGroupInvite = new RegExp("^/api/coach/groups/([A-Za-z0-9_-]+)/invite$").exec(url.pathname);
+  if (coachGroupInvite) {
+    key = req.method + ' /api/coach/groups/{groupId}/invite';
+    req.groupId = coachGroupInvite[1];
+  }
   const coachGroupMembers = new RegExp("^/api/coach/groups/([A-Za-z0-9_-]+)/members/([A-Za-z0-9_-]+)$").exec(url.pathname);
   if (coachGroupMembers) {
     key = req.method + ' /api/coach/groups/{groupId}/members/{athleteId}';
@@ -5033,6 +5210,11 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/coach/challenges') key = req.method + ' /api/coach/challenges';
+  const coachChallengePoints = new RegExp("^/api/coach/challenges/([A-Za-z0-9_-]+)/points$").exec(url.pathname);
+  if (coachChallengePoints) {
+    key = req.method + ' /api/coach/challenges/{challengeId}/points';
+    req.challengeId = coachChallengePoints[1];
+  }
   const coachChallengeLeaderboard = new RegExp("^/api/coach/challenges/([A-Za-z0-9_-]+)/leaderboard$").exec(url.pathname);
   if (coachChallengeLeaderboard) {
     key = req.method + ' /api/coach/challenges/{challengeId}/leaderboard';
@@ -5052,6 +5234,16 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/athlete/groups/{groupId}/leave';
     req.groupId = athleteGroupLeave[1];
   }
+  const athleteGroupAccept = new RegExp("^/api/athlete/groups/([A-Za-z0-9_-]+)/accept$").exec(url.pathname);
+  if (athleteGroupAccept) {
+    key = req.method + ' /api/athlete/groups/{groupId}/accept';
+    req.groupId = athleteGroupAccept[1];
+  }
+  const athleteGroupItem = new RegExp("^/api/athlete/groups/([A-Za-z0-9_-]+)$").exec(url.pathname);
+  if (athleteGroupItem && url.pathname !== '/api/athlete/groups/join') {
+    key = req.method + ' /api/athlete/groups/{groupId}';
+    req.groupId = athleteGroupItem[1];
+  }
 
   if (url.pathname === '/api/athlete/challenges') key = req.method + ' /api/athlete/challenges';
   const athleteChallengeLeaderboard = new RegExp("^/api/athlete/challenges/([A-Za-z0-9_-]+)/leaderboard$").exec(url.pathname);
@@ -5064,6 +5256,23 @@ const server = http.createServer(async (req, res) => {
       key = req.method + ' /api/athlete/challenges/{challengeId}';
       req.challengeId = athleteChallengeItem[1];
     }
+  }
+
+  if (url.pathname === '/api/coach/group-programs') key = req.method + ' /api/coach/group-programs';
+  const coachGroupProgramAction = /^\/api\/coach\/group-programs\/([A-Za-z0-9_-]+)\/(publish|versions|archive)$/.exec(url.pathname);
+  if (coachGroupProgramAction) {
+    key = req.method + ` /api/coach/group-programs/{programId}/${coachGroupProgramAction[2]}`;
+    req.programId = coachGroupProgramAction[1];
+  } else {
+    const coachGroupProgram = /^\/api\/coach\/group-programs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+    if (coachGroupProgram) { key = req.method + ' /api/coach/group-programs/{programId}'; req.programId = coachGroupProgram[1]; }
+  }
+  if (url.pathname === '/api/athlete/group-programs') key = req.method + ' /api/athlete/group-programs';
+  const athleteGroupProgramAdopt = /^\/api\/athlete\/group-programs\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);
+  if (athleteGroupProgramAdopt) { key = req.method + ' /api/athlete/group-programs/{programId}/adopt'; req.programId = athleteGroupProgramAdopt[1]; }
+  else {
+    const athleteGroupProgram = /^\/api\/athlete\/group-programs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+    if (athleteGroupProgram) { key = req.method + ' /api/athlete/group-programs/{programId}'; req.programId = athleteGroupProgram[1]; }
   }
 
   const handler = routes[key];
