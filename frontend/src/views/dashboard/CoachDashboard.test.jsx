@@ -5,13 +5,15 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from '../../store/useStore.js'
 import CoachDashboard from './CoachDashboard.jsx'
-import { normalizeSummary } from './dashboard-data.js'
+import { normalizeAvailability, normalizeSummary } from './dashboard-data.js'
+import { setFirstStepsDismissed } from '../../lib/first-steps-store.js'
 
 const mocks = vi.hoisted(() => ({
   api: vi.fn(),
   inbox: vi.fn(),
   summary: vi.fn(),
   appointments: vi.fn(),
+  availability: vi.fn(),
 }))
 
 vi.mock('../../lib/api.js', () => ({ api: mocks.api }))
@@ -19,7 +21,7 @@ vi.mock('../../lib/communication-api.js', () => ({
   communicationApi: { inbox: mocks.inbox, summary: mocks.summary },
   browserTimeZone: () => ({ value: 'America/Sao_Paulo', fallback: false }),
 }))
-vi.mock('../../lib/scheduling-api.js', () => ({ getCoachAppointments: mocks.appointments }))
+vi.mock('../../lib/scheduling-api.js', () => ({ getCoachAppointments: mocks.appointments, getCoachAvailability: mocks.availability }))
 
 let host
 let root
@@ -53,6 +55,7 @@ const renderDashboard = async () => {
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.clear()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -60,6 +63,7 @@ beforeEach(() => {
   mocks.inbox.mockResolvedValue({ conversations: [] })
   mocks.summary.mockResolvedValue({ summary: null })
   mocks.appointments.mockResolvedValue({ items: [] })
+  mocks.availability.mockResolvedValue({ availability: null })
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
 })
 
@@ -98,6 +102,30 @@ describe('CoachDashboard', () => {
     expect(host.textContent).toContain('Nenhuma pendência agora')
     expect(host.textContent).toContain('Agenda livre hoje')
     expect(host.textContent).toContain('Sem mensagens pendentes ou dados de adesão para mostrar')
+    expect(host.textContent).toContain('Adicione seu primeiro aluno')
+    expect(host.textContent).toContain('Configure sua disponibilidade')
+  })
+
+  it('conclui passos apenas com vínculos e disponibilidade realmente existentes', async () => {
+    mocks.api.mockResolvedValue({ links: [link] })
+    mocks.availability.mockResolvedValue({ availability: { timeZone: 'America/Sao_Paulo', windows: [], exceptions: [] } })
+
+    await renderDashboard()
+
+    expect(host.textContent).not.toContain('Adicione seu primeiro aluno')
+    expect(host.textContent).not.toContain('Configure sua disponibilidade')
+    expect(host.textContent).toContain('Prescreva o primeiro treino')
+  })
+
+  it('leva a disponibilidade para a aba Coach correta e preserva dismiss local', async () => {
+    await renderDashboard()
+    const availability = [...host.querySelectorAll('button')].find(button => button.textContent.includes('Configurar agenda'))
+    await act(async () => availability.click())
+    expect(host.querySelector('[data-location]').dataset.location).toBe('/scheduling?tab=availability')
+
+    await act(async () => { setFirstStepsDismissed(user.id, 'coach', true) })
+    await settle()
+    expect(host.textContent).toContain('Retomar primeiros passos')
   })
 
   it('mostra skeleton enquanto a carga inicial está pendente', async () => {
@@ -169,6 +197,12 @@ describe('CoachDashboard', () => {
   it('rejeita percentual de adesão fora da faixa de 0 a 100', () => {
     expect(() => normalizeSummary({ summary: { adherencePercent: 101, completedDays: 1, scheduledDays: 1 } })).toThrow('Resumo de adesão inválido')
     expect(normalizeSummary({ summary: { adherencePercent: 100, completedDays: 1, scheduledDays: 1 } }).adherencePercent).toBe(100)
+  })
+
+  it('valida disponibilidade sem transformar payload inválido em configuração concluída', () => {
+    expect(normalizeAvailability({ availability: null })).toBeNull()
+    expect(normalizeAvailability({ availability: { timeZone: 'UTC', windows: [], exceptions: [] } }).timeZone).toBe('UTC')
+    expect(() => normalizeAvailability({ availability: { timeZone: 'UTC', windows: {} } })).toThrow('Disponibilidade inválida')
   })
 
   it('trata payload 2xx malformado como erro da fonte', async () => {

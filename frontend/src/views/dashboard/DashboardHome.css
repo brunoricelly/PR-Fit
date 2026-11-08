@@ -51,6 +51,27 @@
 .dashboard-quick-actions > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
 .dashboard-quick-actions .ds-button { justify-content: flex-start; min-width: 0; }
 
+.first-steps-card { display: grid; gap: var(--ds-space-4); box-shadow: none; }
+.first-steps-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--ds-space-3); }
+.first-steps-header h2 { margin: var(--ds-space-1) 0 0; font-size: var(--ds-font-size-xl); line-height: var(--ds-line-height-tight); }
+.first-steps-header p { max-width: 54ch; margin: var(--ds-space-2) 0 0; color: var(--ds-text-secondary); }
+.first-steps-header > .ds-button { flex: 0 0 auto; }
+.first-steps-progress { display: grid; grid-template-columns: 1fr auto; gap: var(--ds-space-2); color: var(--ds-text-secondary); font-size: var(--ds-font-size-sm); }
+.first-steps-progress progress { grid-column: 1 / -1; width: 100%; height: .55rem; accent-color: var(--ds-color-brand); }
+.first-steps-list { display: grid; gap: var(--ds-space-2); margin: 0; padding: 0; list-style: none; }
+.first-steps-item { display: grid; grid-template-columns: 2rem minmax(0, 1fr); gap: var(--ds-space-2) var(--ds-space-3); padding: var(--ds-space-3); border: 1px solid var(--ds-border-subtle); border-radius: var(--ds-radius-md); background: var(--ds-surface-subtle); }
+.first-steps-status { display: grid; width: 2rem; height: 2rem; place-items: center; color: var(--ds-color-brand); }
+.first-steps-copy { min-width: 0; }
+.first-steps-copy h3 { margin: 0; font-size: var(--ds-font-size-md); }
+.first-steps-copy p { margin: var(--ds-space-1) 0 0; color: var(--ds-text-secondary); font-size: var(--ds-font-size-sm); line-height: var(--ds-line-height-body); }
+.first-steps-actions { display: flex; grid-column: 2; flex-wrap: wrap; gap: var(--ds-space-1); }
+.first-steps-actions .ds-button { min-width: min(100%, 9rem); justify-content: flex-start; padding-inline: var(--ds-space-3); }
+.first-steps-more summary { min-height: 44px; color: var(--ds-text-secondary); cursor: pointer; }
+.first-steps-more summary:focus-visible { outline: 2px solid var(--ds-focus-ring); outline-offset: 2px; }
+.first-steps-more[open] summary { margin-bottom: var(--ds-space-2); }
+.first-steps-resume { display: flex; justify-content: flex-start; }
+.first-steps-resume .ds-button { color: var(--ds-text-secondary); }
+
 .athlete-primary-card { display: grid; gap: var(--ds-space-3); overflow: hidden; background: linear-gradient(145deg, var(--ds-surface-subtle), var(--ds-surface-base) 64%); background: linear-gradient(145deg, color-mix(in srgb, var(--ds-color-brand) 18%, var(--ds-surface-base)), var(--ds-surface-base) 64%); }
 .athlete-primary-copy { display: flex; align-items: flex-start; gap: var(--ds-space-3); }
 .athlete-primary-copy h2 { margin: var(--ds-space-1) 0 0; font-size: var(--ds-font-size-xl); line-height: var(--ds-line-height-tight); }
@@ -76,6 +97,10 @@
   .dashboard-section-heading-row { align-items: flex-start; }
   .dashboard-secondary .dashboard-section-heading-row { flex-direction: column; }
   .dashboard-quick-actions .ds-button { padding-inline: var(--ds-space-3); }
+  .first-steps-header { display: grid; }
+  .first-steps-header > .ds-button { justify-self: start; }
+  .first-steps-actions { grid-column: 1 / -1; }
+  .first-steps-actions .ds-button { flex: 1 1 9rem; }
 }
 
 @media (min-width: 48rem) {
@@ -91,9 +116,15 @@
   .athlete-today-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .athlete-remote-loading { grid-column: 1 / -1; grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .athlete-quick-actions > div { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .first-steps-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .first-steps-more .first-steps-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 
 @media (min-width: 64rem) {
   .dashboard-shell { gap: var(--ds-space-6); }
   .athlete-today-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .first-steps-card * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto; transition-duration: .01ms !important; }
 }

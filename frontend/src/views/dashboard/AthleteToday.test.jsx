@@ -1,10 +1,11 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from '../../store/useStore.js'
 import AthleteToday from './AthleteToday.jsx'
+import { setFirstStepsDismissed } from '../../lib/first-steps-store.js'
 
 const mocks = vi.hoisted(() => ({
   api: vi.fn(),
@@ -34,6 +35,11 @@ const deferred = () => {
   return { promise, resolve, reject }
 }
 
+function LocationProbe() {
+  const location = useLocation()
+  return <span data-location={location.pathname + location.search} />
+}
+
 const state = extra => useStore.setState(current => ({
   user,
   ready: true,
@@ -55,12 +61,13 @@ const settle = async () => act(async () => {
 })
 
 const renderToday = async () => {
-  await act(async () => { root.render(<MemoryRouter><AthleteToday /></MemoryRouter>) })
+  await act(async () => { root.render(<MemoryRouter><AthleteToday /><LocationProbe /></MemoryRouter>) })
   await settle()
 }
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  localStorage.clear()
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -98,6 +105,27 @@ describe('AthleteToday', () => {
     expect(host.textContent).toContain('1 aviso não lido')
     expect(host.textContent).not.toContain('Check-in')
     expect(host.querySelector('progress[aria-label="Progresso da meta de água"]')).toBeTruthy()
+    expect(host.textContent).not.toContain('Entenda seu plano')
+    expect(host.textContent).toContain('Inicie seu primeiro treino')
+  })
+
+  it('usa histórico real para concluir o primeiro treino e abre Evolução', async () => {
+    state({ workouts: [{ id: 'w1', d: today, routineId: 'routine_1', entries: [] }] })
+    await renderToday()
+
+    expect(host.textContent).not.toContain('Inicie seu primeiro treino')
+    const evolution = [...host.querySelectorAll('button')].find(button => button.textContent.includes('Abrir Evolução'))
+    await act(async () => evolution.click())
+    expect(host.querySelector('[data-location]').dataset.location).toBe('/stats')
+  })
+
+  it('retoma o checklist Atleta persistido sem expor tarefas de Coach', async () => {
+    await act(async () => { setFirstStepsDismissed(user.id, 'athlete', true) })
+    await renderToday()
+
+    expect(host.textContent).toContain('Retomar primeiros passos')
+    expect(host.textContent).not.toContain('Adicione seu primeiro aluno')
+    expect(host.textContent).not.toContain('Configure sua disponibilidade')
   })
 
   it('oferece continuar o treino como única ação primária', async () => {

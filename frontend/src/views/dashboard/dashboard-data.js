@@ -54,6 +54,17 @@ export function normalizeAppointments(payload) {
   })
 }
 
+export function normalizeAvailability(payload) {
+  const object = payloadObject(payload, 'Disponibilidade')
+  if (object.availability === null) return null
+  const availability = object.availability
+  if (!availability || typeof availability !== 'object' || !Array.isArray(availability.windows)
+    || !Array.isArray(availability.exceptions) || typeof availability.timeZone !== 'string') {
+    throw new TypeError('Disponibilidade inválida')
+  }
+  return availability
+}
+
 export function normalizeLinks(payload) {
   return payloadArray(payload, 'links', 'Vínculos').map(link => {
     if (!link || typeof link !== 'object' || typeof link.id !== 'string' || typeof link.status !== 'string'

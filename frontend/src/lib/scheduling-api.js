@@ -60,8 +60,8 @@ async function request(path, opts) {
 }
 
 // Coach methods
-export async function getCoachAvailability() {
-  return request('/api/coach/availability')
+export async function getCoachAvailability(opts) {
+  return request('/api/coach/availability', opts)
 }
 
 export async function updateCoachAvailability(payload, rev) {

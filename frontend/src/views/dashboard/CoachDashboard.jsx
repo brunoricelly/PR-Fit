@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api.js'
 import { communicationApi, browserTimeZone } from '../../lib/communication-api.js'
-import { getCoachAppointments } from '../../lib/scheduling-api.js'
+import { getCoachAppointments, getCoachAvailability } from '../../lib/scheduling-api.js'
 import { useStore } from '../../store/useStore.js'
 import { useOnline } from '../../components/ServerSync.jsx'
 import {
@@ -17,9 +17,11 @@ import {
   Surface,
 } from '../../components/design-system.jsx'
 import Icon from '../../components/Icon.jsx'
+import FirstSteps from '../../components/FirstSteps.jsx'
 import {
   loadingSource,
   mapSettledWithConcurrency,
+  normalizeAvailability,
   normalizeAppointments,
   normalizeConversations,
   normalizeLinks,
@@ -108,22 +110,25 @@ export default function CoachDashboard() {
         links: loadingSource(),
         inbox: loadingSource(),
         appointments: loadingSource(),
+        availability: loadingSource(),
         summaries: loadingSource(),
       },
     })
     setLoading(true)
 
     const bounds = dayBounds(new Date())
-    const [linksResult, inboxResult, appointmentsResult] = await Promise.allSettled([
+    const [linksResult, inboxResult, appointmentsResult, availabilityResult] = await Promise.allSettled([
       api('/api/coach/athletes', requestOptions),
       communicationApi.inbox({ limit: 100 }, requestOptions),
       getCoachAppointments({ status: 'scheduled', ...bounds, limit: 100 }, requestOptions),
+      getCoachAvailability(requestOptions),
     ])
     if (!current()) return
 
     const linksSource = settledSource(linksResult, normalizeLinks, sourceEmpty)
     const inboxSource = settledSource(inboxResult, normalizeConversations, sourceEmpty)
     const appointmentsSource = settledSource(appointmentsResult, normalizeAppointments, sourceEmpty)
+    const availabilitySource = settledSource(availabilityResult, normalizeAvailability, availability => availability === null)
     const unavailableSummaries = summariesUnavailableSource(new Error('Vínculos indisponíveis'))
     setDashboardState({
       userId,
@@ -131,6 +136,7 @@ export default function CoachDashboard() {
         links: linksSource,
         inbox: inboxSource,
         appointments: appointmentsSource,
+        availability: availabilitySource,
         summaries: sourceSucceeded(linksSource) ? loadingSource([]) : unavailableSummaries,
       },
     })
@@ -171,6 +177,7 @@ export default function CoachDashboard() {
         links: linksSource,
         inbox: inboxSource,
         appointments: appointmentsSource,
+        availability: availabilitySource,
         summaries: summariesSource,
       },
     })
@@ -235,9 +242,17 @@ export default function CoachDashboard() {
     sources.links.status === 'error' && 'alunos',
     sources.inbox.status === 'error' && 'mensagens',
     sources.appointments.status === 'error' && 'agenda',
+    sources.availability.status === 'error' && 'disponibilidade',
     sources.summaries.status === 'error' && 'adesão',
   ].filter(Boolean)
   const primaryLabel = view.attention.length ? 'Revisar alunos' : 'Organizar treinos'
+  const coachSteps = [
+    { id: 'profile', title: 'Revise seu perfil', text: 'Confira dados da conta e preferências do app.', route: '/settings', cta: 'Abrir configurações', completion: 'visit' },
+    { id: 'first-athlete', title: 'Adicione seu primeiro aluno', text: 'Crie um convite ou acompanhe um vínculo existente.', route: '/professionals', cta: 'Gerenciar alunos', completion: 'evidence', completed: sourceSucceeded(sources.links) && sources.links.data.length > 0 },
+    { id: 'first-workout', title: 'Prescreva o primeiro treino', text: 'Abra um aluno com acesso a treino e organize a rotina.', route: '/professionals', cta: 'Abrir alunos', completion: 'manual' },
+    { id: 'availability', title: 'Configure sua disponibilidade', text: 'Defina quando seus alunos podem agendar sessões.', route: '/scheduling?tab=availability', cta: 'Configurar agenda', completion: 'evidence', completed: sourceSucceeded(sources.availability) && sources.availability.data !== null },
+    { id: 'community', title: 'Conheça a Comunidade', text: 'Explore grupos, programas e desafios.', route: '/community', cta: 'Abrir Comunidade', completion: 'visit' },
+  ]
 
   return <main className="ds-scope dashboard-page dashboard-page-coach">
     <div className="dashboard-shell">
@@ -258,6 +273,8 @@ export default function CoachDashboard() {
       {errors.length > 0 && <Alert tone="warning" title="Parte da visão geral não atualizou" action={<Button size="sm" onClick={load}>Tentar novamente</Button>}>
         Não foi possível atualizar {errors.join(', ')}. O restante continua disponível.
       </Alert>}
+
+      <FirstSteps key={`${user.id}:coach`} userId={user.id} role="coach" steps={coachSteps} />
 
       <section className="dashboard-priority-grid" aria-label="Prioridades de hoje">
         <Card className="dashboard-priority-card">

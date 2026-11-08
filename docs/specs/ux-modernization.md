@@ -1,10 +1,10 @@
 # PR Fit — Programa de Homologação, UX e Modernização Visual
 
 ## Gate JEV vigente
-- **Limiar**: **0,88**.
-- **Fonte**: instrução explícita mais recente do usuário; substitui o valor anterior de 0,73 para todo o programa de UX.
+- **Limiar**: **0,85**.
+- **Fonte**: instrução explícita mais recente do usuário; substitui o valor anterior de 0,88 para todo o programa de UX.
 - Executar decisão canônica somente no candidato final de cada release, após testes, builds, probes, inspeção do diff e auditorias.
-- Score abaixo de 0,88, P0/P1 ou evidência bloqueada implica NO-GO.
+- Score abaixo de 0,85, P0/P1 ou evidência bloqueada implica NO-GO.
 
 ## Objetivo
 Transformar o PR Fit atual em uma experiência simples, moderna, leve, acessível e autoexplicativa para treinadores, nutricionistas e alunos, sem adicionar White-label (Fase 9) ou Cobrança (Fase 10) neste ciclo.
@@ -63,11 +63,19 @@ Transformar o PR Fit atual em uma experiência simples, moderna, leve, acessíve
 - Não inventar dados; cards sem fonte real devem ser omitidos ou neutros.
 
 #### Implementação recortada — dashboards por intenção
-- O recorte aprovado desta etapa moderniza somente `/home`; o onboarding amplo permanece adiado para um checkpoint próprio e não foi iniciado.
+- O primeiro checkpoint modernizou `/home`; o segundo adiciona onboarding contextual, não bloqueante e específico ao papel ativo na mesma superfície.
 - Coach: alunos vêm de `GET /api/coach/athletes`, mensagens de `GET /api/messages/inbox`, agenda de `GET /api/coach/appointments` e adesão de `GET /api/coach/athletes/{athleteId}/habits-summary` com período de 7 dias.
 - “Exige atenção” é derivado apenas de fatos já carregados: mensagem não lida, vínculo pendente/suspenso ou zero check-ins concluídos quando há dias programados na semana. Nenhum limiar novo de desempenho foi criado.
 - Atleta: treino e progresso semanal usam o estado local sincronizado já existente; alimentação/água usam `GET /api/athlete/meal-plan` e `GET /api/athlete/meal-adherence`; hábitos usam `GET /api/athlete/habits`; agenda usa `GET /api/athlete/appointments`; mensagens usam `GET /api/messages/inbox`.
 - Módulos remotos sem dados são omitidos. O atalho de check-in só aparece quando o módulo está habilitado e já existem cartões de academia.
+
+#### Checkpoint 3B — primeiros passos por papel
+- O checklist usa `localStorage` na chave `prfit_first_steps`, com payload `{ version: 1, entries: [...] }`. Cada entrada é isolada por `userId` e `role` (`coach` ou `athlete`); conta dual-role nunca compartilha progresso entre os papéis.
+- O payload é validado integralmente antes do uso. JSON corrompido, versão desconhecida, duplicidade de escopo ou campos inválidos falham fechado para um estado vazio; a próxima gravação válida substitui o conteúdo inválido. A versão no envelope permite adicionar migrações explícitas em etapas futuras.
+- Fechar apenas marca o checklist como pausado e exibe “Retomar primeiros passos”. Logout não apaga o payload: o histórico permanece para a mesma conta, mas o isolamento por `userId` impede que seja aplicado ao próximo usuário.
+- Coach: vínculo existente conclui “primeiro aluno”; `GET /api/coach/availability` conclui disponibilidade configurada. Perfil e Comunidade são concluídos ao abrir a rota pelo checklist. Não há endpoint agregado confiável para provar uma prescrição em toda a carteira, então “primeiro treino” oferece marcação local explícita “Já fiz”, sem mutação de negócio.
+- Atleta: rotinas locais concluem “Meu plano”; treino ativo real ou histórico local conclui “primeiro treino”. Perfil, Evolução e Comunidade são concluídos ao abrir as rotas correspondentes pelo checklist.
+- Rotas Coach: `/settings`, `/professionals`, `/scheduling?tab=availability`, `/community`. Rotas Atleta: `/settings`, `/plan`, `/workout` quando há sessão ativa, `/stats`, `/community`.
 
 **Gate:** dados reais/API, estados vazios e offline, testes de persistência do onboarding, E2E dos primeiros passos.
 

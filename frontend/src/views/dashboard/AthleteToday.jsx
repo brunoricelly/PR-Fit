@@ -21,6 +21,7 @@ import {
   Surface,
 } from '../../components/design-system.jsx'
 import Icon from '../../components/Icon.jsx'
+import FirstSteps from '../../components/FirstSteps.jsx'
 import {
   loadingSource,
   normalizeAppointments,
@@ -157,6 +158,7 @@ export default function AthleteToday() {
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'Atleta'
   const activeSession = !!S.active
   const editingWorkout = !!S.active?.editingWorkoutId
+  const workoutInProgress = activeSession && !editingWorkout
   const action = activeSession
     ? { label: editingWorkout ? 'Continuar edição' : 'Continuar treino', detail: S.active.name || (editingWorkout ? 'Edição em andamento' : 'Treino em andamento'), run: () => navigate('/workout'), icon: editingWorkout ? 'pencil' : 'play' }
     : local.routines.length && !local.done
@@ -186,6 +188,13 @@ export default function AthleteToday() {
   const remoteContent = !!(nextAppointment || unread || plan || habits.length)
   const sourcesKnownEmpty = remote && ['inbox', 'appointments', 'nutritionPlan', 'nutritionAdherence', 'habits']
     .every(key => remote[key].status === 'empty')
+  const athleteSteps = [
+    { id: 'profile', title: 'Revise seu perfil', text: 'Confira seus dados e preferências.', route: '/settings', cta: 'Abrir perfil', completion: 'visit' },
+    { id: 'plan', title: 'Entenda seu plano', text: 'Veja os treinos e a organização da semana.', route: '/plan', cta: 'Abrir Meu plano', completion: 'visit', completed: S.routines.length > 0 },
+    { id: 'first-workout', title: workoutInProgress ? 'Continue seu treino' : 'Inicie seu primeiro treino', text: workoutInProgress ? 'Seu treino em andamento está pronto para continuar.' : 'Comece quando houver um treino pronto para você.', route: workoutInProgress ? '/workout' : '/plan', cta: workoutInProgress ? 'Continuar treino' : 'Ver treinos', completion: 'evidence', completed: workoutInProgress || S.workouts.length > 0 },
+    { id: 'evolution', title: 'Conheça sua Evolução', text: 'Acompanhe histórico, volume e medidas.', route: '/stats', cta: 'Abrir Evolução', completion: 'visit' },
+    { id: 'community', title: 'Conheça a Comunidade', text: 'Explore grupos, programas e desafios.', route: '/community', cta: 'Abrir Comunidade', completion: 'visit' },
+  ]
 
   return <main className="ds-scope dashboard-page dashboard-page-athlete">
     <div className="dashboard-shell">
@@ -205,6 +214,8 @@ export default function AthleteToday() {
         <Button variant="primary" onClick={action.run}>{action.label}</Button>
         {!activeSession && local.routines.length > 0 && !local.done && <Button variant="ghost" onClick={() => navigate('/workout')}>Escolher outro treino</Button>}
       </Card>
+
+      <FirstSteps key={`${user.id}:athlete`} userId={user.id} role="athlete" steps={athleteSteps} />
 
       {!online && <Alert tone="warning" title="Você está offline">
         O treino continua disponível neste dispositivo. Agenda, mensagens e acompanhamentos serão atualizados quando a conexão voltar.

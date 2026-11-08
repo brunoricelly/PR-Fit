@@ -42,10 +42,11 @@ beforeEach(() => {
 describe('scheduling-api coach operations', () => {
   it('getCoachAvailability calls GET /api/coach/availability', async () => {
     const fakeResp = { availability: { id: 'cavl_1', timeZone: 'America/Sao_Paulo' } }
+    const controller = new AbortController()
     mocks.api.mockResolvedValueOnce(fakeResp)
 
-    const res = await getCoachAvailability()
-    expect(mocks.api).toHaveBeenCalledWith('/api/coach/availability', undefined)
+    const res = await getCoachAvailability({ signal: controller.signal })
+    expect(mocks.api).toHaveBeenCalledWith('/api/coach/availability', { signal: controller.signal })
     expect(res).toEqual(fakeResp)
   })
 
