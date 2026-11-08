@@ -299,11 +299,29 @@ export default function AthleteToday() {
         {loading && !remote ? <div className="dashboard-loading-grid athlete-remote-loading" aria-label="Carregando resumos"><Skeleton height="8rem" /><Skeleton height="8rem" /></div> : <>
           {plan && <Card className="athlete-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Alimentação</span><h3>{plan.title}</h3></div><Icon name="scale" aria-hidden="true" /></div>
+            {plan.coach?.name && <p className="pro-meta" style={{ marginTop: '-4px', marginBottom: '8px' }}>Prescrito por {plan.coach.name}</p>}
+            {(plan.targetCalories > 0 || plan.targetMacros?.protein > 0) && (
+              <div className="athlete-target-pills" aria-label="Metas nutricionais prescritas">
+                {plan.targetCalories > 0 && <span className="athlete-target-pill"><strong>{plan.targetCalories}</strong> kcal</span>}
+                {plan.targetMacros?.protein > 0 && <span className="athlete-target-pill">P: {plan.targetMacros.protein}g</span>}
+                {plan.targetMacros?.carbs > 0 && <span className="athlete-target-pill">C: {plan.targetMacros.carbs}g</span>}
+                {plan.targetMacros?.fats > 0 && <span className="athlete-target-pill">G: {plan.targetMacros.fats}g</span>}
+              </div>
+            )}
             {sourceSucceeded(remote?.nutritionAdherence)
-              ? <p>{checkedMeals} de {mealCount} refeições marcadas</p>
+              ? (() => {
+                const mealPercent = mealCount > 0 ? Math.round((checkedMeals / mealCount) * 100) : 0
+                return <>
+                  <p>{checkedMeals} de {mealCount} refeições marcadas</p>
+                  {mealCount > 0 && <div className="athlete-meter"><span>Refeições</span><strong>{mealPercent}% ({checkedMeals} de {mealCount})</strong><progress aria-label="Progresso das refeições" aria-valuenow={mealPercent} aria-valuemin="0" aria-valuemax="100" max={mealCount} value={checkedMeals} /></div>}
+                </>
+              })()
               : <p>Adesão indisponível agora.</p>}
-            {sourceSucceeded(remote?.nutritionAdherence) && waterGoal > 0 && <div className="athlete-meter"><span>Água</span><strong>{water} / {waterGoal} ml</strong><progress aria-label="Progresso da meta de água" max={waterGoal} value={Math.min(water, waterGoal)} /></div>}
-            <Button variant="ghost" onClick={() => navigate('/professionals')}>Abrir alimentação</Button>
+            {sourceSucceeded(remote?.nutritionAdherence) && waterGoal > 0 && (() => {
+              const waterPercent = Math.round((Math.min(water, waterGoal) / waterGoal) * 100)
+              return <div className="athlete-meter"><span>Água</span><strong>{waterPercent}% ({water} / {waterGoal} ml)</strong><progress aria-label="Progresso da meta de água" aria-valuenow={waterPercent} aria-valuemin="0" aria-valuemax="100" max={waterGoal} value={Math.min(water, waterGoal)} /></div>
+            })()}
+            <Button variant="ghost" onClick={() => navigate('/professionals?tab=nutrition')}>Abrir alimentação</Button>
           </Card>}
 
           {habits.length > 0 && <Card className="athlete-summary-card">

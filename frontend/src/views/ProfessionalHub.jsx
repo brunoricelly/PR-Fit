@@ -715,6 +715,82 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
   </>
 }
 
+function CoachNutritionWorkspace({ user }) {
+  const [links, setLinks] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
+  const [selectedAthleteId, setSelectedAthleteId] = useState(null)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(false)
+    try {
+      const result = await api('/api/coach/athletes')
+      const activeNutritionLinks = (result.links || []).filter(
+        link => link.status === 'active' && link.scopes.includes('nutrition') && link.athlete
+      )
+      setLinks(activeNutritionLinks)
+      if (activeNutritionLinks.length > 0 && !selectedAthleteId) {
+        setSelectedAthleteId(activeNutritionLinks[0].athlete.id)
+      }
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [user?.id, selectedAthleteId])
+
+  useEffect(() => { load() }, [load])
+
+  if (loading && links === null) return <div className="pro-loading">{p('Loading…')}</div>
+  if (loadError) return (
+    <div className="card pro-load-error" role="alert">
+      <p>{p('Could not load your professional relationships.')}</p>
+      <Button size="sm" onClick={load}>{p('Try again')}</Button>
+    </div>
+  )
+  if (!links || links.length === 0) return (
+    <EmptyState
+      icon="scale"
+      title={p('No nutrition athletes yet')}
+      text={p('Connect with athletes and enable the nutrition scope to prescribe meal plans.')}
+    />
+  )
+
+  const selectedLink = links.find(l => l.athlete.id === selectedAthleteId) || links[0]
+
+  return (
+    <section className="coach-nutrition-workspace" aria-labelledby="coach-nutrition-title">
+      <header className="pro-panel-head">
+        <h2 id="coach-nutrition-title" className="pro-section-title">{p('Nutrition prescription workspace')}</h2>
+      </header>
+      {links.length > 1 && (
+        <div className="pro-athlete-selector" role="tablist" aria-label={p('Nutrition athletes')}>
+          {links.map(link => (
+            <button
+              key={link.id}
+              role="tab"
+              aria-selected={link.athlete.id === selectedLink.athlete.id}
+              className={`pro-sched-tab ${link.athlete.id === selectedLink.athlete.id ? 'active' : ''}`}
+              onClick={() => setSelectedAthleteId(link.athlete.id)}
+            >
+              <Icon name="person" />
+              <span>{link.athlete.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="pro-athlete-active-nutrition">
+        <div className="athlete-card-head" style={{ marginBottom: 12 }}>
+          <h3>{selectedLink.athlete.name}</h3>
+          <span className="pro-meta">{selectedLink.athlete.email || ''}</span>
+        </div>
+        <NutritionPanel athleteId={selectedLink.athlete.id} />
+      </div>
+    </section>
+  )
+}
+
 function AthletePrescriptions({ userId }) {
   const toast = useUI(state => state.toast)
   const pullState = useStore(state => state.pullState)
@@ -1062,6 +1138,7 @@ export default function ProfessionalHub() {
   const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'relationships')
   if (!user) return null
   const coach = user.profile?.kind === 'coach'
+  const hasNutrition = coach && (user?.profile?.coachSpecialties?.includes('nutrition') || user?.coachSpecialties?.includes('nutrition'))
   return <main className="narrow pro-page">
     <div className="pro-nav"><button data-back="/settings" onClick={() => navigate('/settings')}><Icon name="chevronLeft" />{p('Settings')}</button></div>
     <header className="pro-hero"><div><span className="pro-kicker">{p('Professional relationships')}</span>
@@ -1098,11 +1175,31 @@ export default function ProfessionalHub() {
         <Icon name="trophy" />
         <span>{p('Community')}</span>
       </button>
+      {hasNutrition && (
+        <button
+          role="tab"
+          aria-selected={tab === 'nutrition'}
+          className={"pro-sched-tab " + (tab === 'nutrition' ? 'active' : '')}
+          onClick={() => setTab('nutrition')}
+        >
+          <Icon name="scale" />
+          <span>{p('Nutrition')}</span>
+        </button>
+      )}
     </nav>
     {tab === 'scheduling' ? (
       <SchedulingView embedded />
     ) : tab === 'community' ? (
       <CommunityHub embedded defaultRole={coach ? 'coach' : 'athlete'} />
+    ) : tab === 'nutrition' ? (
+      coach ? (
+        <CoachNutritionWorkspace user={user} />
+      ) : (
+        <section aria-labelledby="athlete-nutrition-section">
+          <h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2>
+          <AthleteNutritionView />
+        </section>
+      )
     ) : (
       <>
         {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}

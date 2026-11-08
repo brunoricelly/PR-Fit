@@ -128,3 +128,7 @@
 @media (prefers-reduced-motion: reduce) {
   .first-steps-card * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto; transition-duration: .01ms !important; }
 }
+
+.athlete-target-pills { display: flex; flex-wrap: wrap; gap: var(--ds-space-2); margin: var(--ds-space-2) 0; }
+.athlete-target-pill { background: var(--ds-color-surface-sunken); border: 1px solid var(--ds-color-border-subtle); padding: 2px 8px; border-radius: var(--ds-radius-pill, 9999px); font-size: var(--ds-font-size-xs); color: var(--ds-text-secondary); }
+.athlete-target-pill strong { color: var(--ds-text-primary); }

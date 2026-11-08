@@ -4,6 +4,7 @@ import { professionalError, professionalText as p } from '../lib/professional-co
 import { useUI } from '../store/useUI.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
+import { Alert, Badge, EmptyState } from '../components/design-system.jsx'
 import './NutritionPanel.css'
 
 const today = () => {
@@ -35,6 +36,13 @@ const totalsOf = plan => plan.meals.flatMap(meal => meal.items).reduce((totals, 
   carbs: totals.carbs + number(item.carbs), fats: totals.fats + number(item.fats), fiber: totals.fiber + number(item.fiber),
 }), { calories: 0, protein: 0, carbs: 0, fats: 0, fiber: 0 })
 
+const CONTEXTUAL_RECOMMENDATIONS = [
+  'Meal timing: 4-5 meals spaced every 3-4 hours',
+  'Hydration: 500ml upon waking, 250ml every 2 hours',
+  'Supplementation: 5g creatine post-workout, whey protein as needed',
+  'Pre-workout: fast-digesting carbohydrates 45 min before training',
+]
+
 function MacroSummary({ plan }) {
   const totals = totalsOf(plan)
   const values = [
@@ -45,8 +53,24 @@ function MacroSummary({ plan }) {
     [p('Fiber'), totals.fiber, plan.targetMacros.fiber, 'g'],
   ]
   return <div className="nutrition-macros" aria-label={p('Calculated nutrition totals')}>
-    {values.map(([label, actual, target, unit]) => <div key={label}><span>{label}</span><strong>{actual} / {number(target)} {unit}</strong>
-      <progress max={Math.max(number(target), actual, 1)} value={actual} /></div>)}
+    {values.map(([label, actual, target, unit]) => {
+      const tgt = number(target)
+      const pct = tgt > 0 ? Math.round((actual / tgt) * 100) : (actual > 0 ? 100 : 0)
+      return (
+        <div key={label}>
+          <span>{label}</span>
+          <strong>{actual} / {tgt} {unit}</strong>
+          <progress
+            aria-label={`${label} (${pct}%)`}
+            aria-valuenow={pct}
+            aria-valuemin="0"
+            aria-valuemax="100"
+            max={Math.max(tgt, actual, 1)}
+            value={actual}
+          />
+        </div>
+      )
+    })}
   </div>
 }
 
@@ -101,7 +125,29 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
   const [plan, setPlan] = useState(() => initial ? editablePlan(initial) : blankPlan())
   const [saving, setSaving] = useState(false)
   const updateMeal = (mealIndex, next) => setPlan(current => ({ ...current, meals: current.meals.map((meal, index) => index === mealIndex ? next : meal) }))
+
+  const targetCal = number(plan.targetCalories)
+  const targetProt = number(plan.targetMacros.protein)
+  const targetCarbs = number(plan.targetMacros.carbs)
+  const targetFats = number(plan.targetMacros.fats)
+  const targetFiber = number(plan.targetMacros.fiber)
+  const targetWater = number(plan.targetMacros.waterMl)
+
+  const hasNegativeTarget = targetCal < 0 || targetProt < 0 || targetCarbs < 0 || targetFats < 0 || targetFiber < 0 || targetWater < 0
+  const hasNegativeItem = plan.meals.some(m => m.items.some(i => number(i.calories) < 0 || number(i.protein) < 0 || number(i.carbs) < 0 || number(i.fats) < 0 || number(i.fiber) < 0
+    || i.substitutes.some(s => (s.calories !== '' && number(s.calories) < 0) || (s.protein !== '' && number(s.protein) < 0) || (s.carbs !== '' && number(s.carbs) < 0) || (s.fats !== '' && number(s.fats) < 0) || (s.fiber !== '' && number(s.fiber) < 0))))
+
+  const macroCalories = targetProt * 4 + targetCarbs * 4 + targetFats * 9
+  const macroCoherence = targetCal > 0 && (targetProt > 0 || targetCarbs > 0 || targetFats > 0) ? (
+    macroCalories < targetCal * 0.65
+      ? { tone: 'warning', title: p('Macronutrient sum incoherence'), text: p('Macro sum ({0} kcal) is too low for the daily goal of {1} kcal. Increase protein, carbs or fats.', macroCalories, targetCal) }
+      : macroCalories > targetCal * 1.35
+        ? { tone: 'warning', title: p('Macronutrient sum incoherence'), text: p('Macro sum ({0} kcal) exceeds the daily goal of {1} kcal. Decrease protein, carbs or fats.', macroCalories, targetCal) }
+        : { tone: 'info', title: p('Consistent macro distribution'), text: p('Calculated macro calories: {0} kcal (P: {1}g · C: {2}g · G: {3}g)', macroCalories, targetProt, targetCarbs, targetFats) }
+  ) : null
+
   const save = async () => {
+    if (hasNegativeTarget || hasNegativeItem) return toast(p('Food nutrient values cannot be negative.'))
     const invalid = !plan.title.trim() || plan.meals.some(meal => !meal.name.trim() || !meal.time || meal.items.some(item => !item.name.trim() || !item.portion.trim()
       || item.substitutes.some(substitute => !substitute.name.trim() || !substitute.portion.trim())))
     if (invalid) return toast(p('Complete the plan, meals, foods and portions.'))
@@ -127,6 +173,14 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
     } catch (error) { toast(professionalError(error)) }
     finally { setSaving(false) }
   }
+
+  const addRecommendation = rec => {
+    setPlan(current => ({
+      ...current,
+      notes: current.notes ? `${current.notes}\n• ${p(rec)}` : `• ${p(rec)}`,
+    }))
+  }
+
   return <section className="card nutrition-editor" aria-label={p('Meal plan editor')}>
     <div className="nutrition-editor-head"><h3>{initial ? p('Edit meal plan') : p('New meal plan')}</h3><Button size="sm" onClick={onCancel}>{p('Cancel')}</Button></div>
     <div className="nutrition-grid two">
@@ -141,11 +195,41 @@ function MealPlanEditor({ initial, athleteId, onSaved, onCancel }) {
           <TextField name={`target-${key}`} type="number" min={key === 'fiber' ? '0' : '1'} value={value} onChange={event => setPlan(current => key === 'targetCalories'
             ? { ...current, targetCalories: event.target.value } : { ...current, targetMacros: { ...current.targetMacros, [key]: event.target.value } })} /></label>)}
     </div>
+
+    {macroCoherence && (
+      <div className="nutrition-validation-box">
+        <Alert tone={macroCoherence.tone} title={macroCoherence.title}>
+          {macroCoherence.text}
+        </Alert>
+      </div>
+    )}
+
+    {hasNegativeTarget && (
+      <div className="nutrition-validation-box">
+        <Alert tone="error" title={p('Food nutrient values cannot be negative.')}>
+          {p('Calories cannot be negative.')}
+        </Alert>
+      </div>
+    )}
+
     <MacroSummary plan={plan} />
     <div className="nutrition-meal-editors">{plan.meals.map((meal, mealIndex) => <MealEditor key={meal.id || mealIndex} meal={meal} mealIndex={mealIndex}
       canRemove={plan.meals.length > 1} onChange={next => updateMeal(mealIndex, next)}
       onRemove={() => setPlan(current => ({ ...current, meals: current.meals.filter((_, index) => index !== mealIndex) }))} />)}</div>
     <Button size="sm" icon="plus" onClick={() => setPlan(current => ({ ...current, meals: [...current.meals, blankMeal()] }))}>{p('Add meal')}</Button>
+
+    <div className="nutrition-recommendations-toolbar">
+      <span className="pro-label">{p('Contextual recommendations')}</span>
+      <span className="pro-meta">{p('Add meal timing, hydration or supplementation guidelines for the athlete.')}</span>
+      <div className="nutrition-rec-pills">
+        {CONTEXTUAL_RECOMMENDATIONS.map((rec, idx) => (
+          <button key={idx} type="button" className="nutrition-rec-pill" onClick={() => addRecommendation(rec)}>
+            + {p(rec)}
+          </button>
+        ))}
+      </div>
+    </div>
+
     <label className="pro-field"><span>{p('Notes')}</span><TextArea name="mealPlanNotes" rows={3} value={plan.notes} maxLength={2000} onChange={event => setPlan(current => ({ ...current, notes: event.target.value }))} /></label>
     <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Save meal plan')}</Button>
   </section>
@@ -157,8 +241,65 @@ function PlanSummary({ plan, adherence, onEdit, onStatus, onDelete }) {
     <div className="nutrition-editor-head"><div><h3>{plan.title}</h3><span className="pro-meta">{p('By {0}', plan.coach?.name || p('Unavailable account'))} · {plan.targetCalories} kcal · {plan.meals.length} {p('meals')}</span></div><span className={`pro-status ${plan.status}`}>{p(plan.status === 'active' ? 'Active' : plan.status === 'draft' ? 'Draft' : 'Archived')}</span></div>
     <MacroSummary plan={plan} />
     {plan.notes && <p className="nutrition-notes">{plan.notes}</p>}
-    <div className="nutrition-history"><strong>{p('Recent adherence')}</strong>
-      {checked.length === 0 ? <span>{p('No meal check-ins yet.')}</span> : checked.slice(0, 7).map(item => <span key={item.id}>{item.date}: {item.mealsChecked.length}/{plan.meals.length} · {item.waterDrunkMl} ml</span>)}</div>
+    <div className="nutrition-history">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <strong>{p('Recent adherence')}</strong>
+        {checked.length > 0 && <span className="pro-meta">{checked.length} {checked.length === 1 ? 'registro' : 'registros'}</span>}
+      </div>
+      {checked.length === 0 ? <span>{p('No meal check-ins yet.')}</span> : (
+        <div className="nutrition-adherence-card-grid">
+          {checked.slice(0, 7).map(item => {
+            const mealCount = plan.meals.length
+            const mealsDone = item.mealsChecked.length
+            const allMealsDone = mealCount > 0 && mealsDone >= mealCount
+            const waterMl = item.waterDrunkMl || 0
+            const waterTarget = plan.targetMacros?.waterMl || 0
+            const waterDone = waterTarget > 0 && waterMl >= waterTarget
+            const mealPct = mealCount > 0 ? Math.round((mealsDone / mealCount) * 100) : 0
+            const waterPct = waterTarget > 0 ? Math.round((Math.min(waterMl, waterTarget) / waterTarget) * 100) : 0
+
+            return (
+              <div key={item.id} className="nutrition-adherence-day">
+                <div className="nutrition-adherence-day-head">
+                  <span>{item.date}</span>
+                  <Badge tone={allMealsDone && (waterTarget === 0 || waterDone) ? 'success' : 'neutral'}>
+                    {allMealsDone ? p('Completed') : `${mealPct}%`}
+                  </Badge>
+                </div>
+                <div className="nutrition-adherence-day-metrics">
+                  <div className="nutrition-adherence-metric-row">
+                    <span>{p('Meal check-ins')}:</span>
+                    <strong>{mealsDone}/{mealCount} ({mealPct}%)</strong>
+                  </div>
+                  <progress
+                    aria-label={p('Meal adherence progress')}
+                    aria-valuenow={mealPct}
+                    aria-valuemin="0"
+                    aria-valuemax="100"
+                    max={mealCount}
+                    value={mealsDone}
+                  />
+                  <div className="nutrition-adherence-metric-row">
+                    <span>{p('Water intake')}:</span>
+                    <strong>{waterMl}{waterTarget > 0 ? ` / ${waterTarget} ml` : ' ml'} ({waterPct}%)</strong>
+                  </div>
+                  {waterTarget > 0 && (
+                    <progress
+                      aria-label={p('Water adherence progress')}
+                      aria-valuenow={waterPct}
+                      aria-valuemin="0"
+                      aria-valuemax="100"
+                      max={waterTarget}
+                      value={Math.min(waterMl, waterTarget)}
+                    />
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
     <div className="pro-actions"><Button size="sm" onClick={() => onEdit(plan)}>{p('Edit')}</Button>
       {plan.status !== 'active' && <Button size="sm" variant="primary" onClick={() => onStatus(plan, 'active')}>{p('Activate')}</Button>}
       {plan.status === 'active' && <Button size="sm" onClick={() => onStatus(plan, 'archived')}>{p('Archive')}</Button>}
@@ -241,34 +382,35 @@ function SubstituteDialog({ item, trigger, onClose }) {
 
 export function AthleteNutritionView() {
   const toast = useUI(state => state.toast)
-  const date = today()
+  const [date] = useState(today)
   const [plan, setPlan] = useState(null)
-  const [loaded, setLoaded] = useState(false)
   const [adherence, setAdherence] = useState(null)
   const [water, setWater] = useState('0')
-  const [substitutes, setSubstitutes] = useState(null)
+  const [loaded, setLoaded] = useState(false)
   const [error, setError] = useState(null)
+  const [substitutes, setSubstitutes] = useState(null)
   const [pending, setPending] = useState(() => new Set())
   const adherenceRef = useRef(null)
   const mutationQueueRef = useRef(Promise.resolve())
   const mutationVersionsRef = useRef(new Map())
   const mutationSequenceRef = useRef(0)
+
   const updateAdherence = useCallback(next => {
     const value = typeof next === 'function' ? next(adherenceRef.current) : next
     adherenceRef.current = value
     setAdherence(value)
-    return value
   }, [])
+
   const load = useCallback(async () => {
     setError(null)
     try {
       const [planResult, adherenceResult] = await Promise.all([api('/api/athlete/meal-plan'), api(`/api/athlete/meal-adherence?date=${date}`)])
-      setPlan(planResult.mealPlan || null)
       const current = (adherenceResult.adherenceRecords || [adherenceResult.adherence]).find(item => item?.mealPlanId === planResult.mealPlan?.id) || null
-      adherenceRef.current = current; setAdherence(current); setWater(String(current?.waterDrunkMl || 0)); setLoaded(true)
+      adherenceRef.current = current; setPlan(planResult.mealPlan || null); setAdherence(current); setWater(String(current?.waterDrunkMl || 0)); setLoaded(true)
     } catch (loadError) { setError(loadError); setLoaded(true) }
   }, [date])
   useEffect(() => { load() }, [load])
+
   const persist = useCallback((key, mutation, rollback) => {
     if (!plan) return
     const version = ++mutationSequenceRef.current
@@ -297,6 +439,7 @@ export function AthleteNutritionView() {
     }
     mutationQueueRef.current = mutationQueueRef.current.then(run, run)
   }, [date, plan, toast, updateAdherence])
+
   const toggleMeal = mealId => {
     const before = new Set(adherenceRef.current?.mealsChecked || [])
     const checked = !before.has(mealId)
@@ -312,31 +455,140 @@ export function AthleteNutritionView() {
       return { ...current, mealsChecked: [...restored] }
     }))
   }
+
   const saveWater = () => {
     const previous = adherenceRef.current?.waterDrunkMl || 0
-    const value = number(water)
+    const value = Math.max(0, number(water))
     updateAdherence(current => ({
       id: current?.id, athleteId: current?.athleteId, mealPlanId: plan.id, date,
       mealsChecked: current?.mealsChecked || [], waterDrunkMl: value, notes: current?.notes || '', updatedAt: current?.updatedAt,
     }))
     persist('water', { waterDrunkMl: value }, () => { updateAdherence(current => ({ ...current, waterDrunkMl: previous })); setWater(String(previous)) })
   }
+
+  const adjustWater = amount => {
+    const current = number(water)
+    const next = Math.max(0, current + amount)
+    setWater(String(next))
+    const previous = adherenceRef.current?.waterDrunkMl || 0
+    updateAdherence(curr => ({
+      id: curr?.id, athleteId: curr?.athleteId, mealPlanId: plan.id, date,
+      mealsChecked: curr?.mealsChecked || [], waterDrunkMl: next, notes: curr?.notes || '', updatedAt: curr?.updatedAt,
+    }))
+    persist('water', { waterDrunkMl: next }, () => {
+      updateAdherence(curr => ({ ...curr, waterDrunkMl: previous }))
+      setWater(String(previous))
+    })
+  }
+
   const closeSubstitutes = useCallback(() => setSubstitutes(null), [])
   if (!loaded) return <div className="pro-loading">{p('Loading…')}</div>
   if (error) return <div className="card pro-load-error" role="alert"><p>{professionalError(error)}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
   if (!plan) return <p className="pro-empty-inline">{p('No active meal plan.')}</p>
+
   const checked = new Set(adherence?.mealsChecked || [])
+  const mealCount = plan.meals.length
+  const checkedCount = checked.size
+  const mealPercent = mealCount > 0 ? Math.round((checkedCount / mealCount) * 100) : 0
+  const waterVal = number(water)
+  const waterGoal = plan.targetMacros?.waterMl || 0
+  const waterPercent = waterGoal > 0 ? Math.round((Math.min(waterVal, waterGoal) / waterGoal) * 100) : 0
+
   return <section className="card athlete-nutrition" aria-labelledby="athlete-nutrition-title">
-    <div className="nutrition-editor-head"><div><h3 id="athlete-nutrition-title">{plan.title}</h3><span className="pro-meta">{p('By {0}', plan.coach?.name || p('Unavailable account'))}</span></div><strong>{checked.size}/{plan.meals.length}</strong></div>
+    <div className="nutrition-editor-head">
+      <div>
+        <h3 id="athlete-nutrition-title">{plan.title}</h3>
+        <span className="pro-meta">{p('By {0}', plan.coach?.name || p('Unavailable account'))}</span>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <strong>{checkedCount}/{mealCount}</strong>
+        {mealCount > 0 && checkedCount >= mealCount && <Badge tone="success">{p('Completed')}</Badge>}
+      </div>
+    </div>
+
+    <div className="athlete-target-banner" aria-label={p('Daily nutritional targets')}>
+      {plan.targetCalories > 0 && <span className="athlete-target-badge"><strong>{plan.targetCalories}</strong> kcal</span>}
+      {plan.targetMacros?.protein > 0 && <span className="athlete-target-badge"><strong>P:</strong> {plan.targetMacros.protein}g</span>}
+      {plan.targetMacros?.carbs > 0 && <span className="athlete-target-badge"><strong>C:</strong> {plan.targetMacros.carbs}g</span>}
+      {plan.targetMacros?.fats > 0 && <span className="athlete-target-badge"><strong>G:</strong> {plan.targetMacros.fats}g</span>}
+      {plan.targetMacros?.fiber > 0 && <span className="athlete-target-badge"><strong>F:</strong> {plan.targetMacros.fiber}g</span>}
+      {waterGoal > 0 && <span className="athlete-target-badge"><strong>{p('Water (ml)')}:</strong> {waterGoal} ml</span>}
+    </div>
+
     <MacroSummary plan={plan} />
-    {plan.notes && <p className="nutrition-notes">{plan.notes}</p>}
+
+    {plan.notes && (
+      <div className="nutrition-recommendations-banner">
+        <h4>{p('Nutritionist recommendations')}</h4>
+        <p>{plan.notes}</p>
+      </div>
+    )}
+
+    <div className="nutrition-adherence-tracker" style={{ margin: '14px 0 8px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+        <strong>{p('Meal check-ins')}</strong>
+        <span>{mealPercent}% ({checkedCount}/{mealCount} {p('meals')})</span>
+      </div>
+      <progress
+        aria-label={p('Meal adherence progress')}
+        aria-valuenow={mealPercent}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        max={mealCount}
+        value={checkedCount}
+      />
+    </div>
+
     <div className="athlete-meals">{plan.meals.slice().sort((left, right) => left.time.localeCompare(right.time)).map(meal => <article className={`athlete-meal${checked.has(meal.id) ? ' checked' : ''}`} key={meal.id}>
-      <div className="athlete-meal-head"><div><time>{meal.time}</time><h4>{meal.name}</h4></div><Button size="sm" disabled={pending.has(`meal:${meal.id}`)} variant={checked.has(meal.id) ? 'primary' : 'plain'} onClick={() => toggleMeal(meal.id)}>{checked.has(meal.id) ? p('Completed') : p('Check in')}</Button></div>
+      <div className="athlete-meal-head">
+        <div><time>{meal.time}</time><h4>{meal.name}</h4></div>
+        <Button size="sm" className="athlete-meal-action-btn" style={{ minHeight: '44px' }} disabled={pending.has(`meal:${meal.id}`)} variant={checked.has(meal.id) ? 'primary' : 'plain'} onClick={() => toggleMeal(meal.id)}>
+          {checked.has(meal.id) ? p('Completed') : p('Check in')}
+        </Button>
+      </div>
       {meal.items.map(item => <div className="athlete-food" key={item.id}><div><strong>{item.name}</strong><span>{item.portion}</span></div><small>{item.calories} kcal · P {item.protein}g · C {item.carbs}g · G {item.fats}g · F {item.fiber || 0}g</small>
-        {item.substitutes.length > 0 && <Button size="sm" onClick={event => setSubstitutes({ item, trigger: event.currentTarget })}>{p('View substitutions')}</Button>}</div>)}
+        {item.substitutes.length > 0 && <Button size="sm" style={{ minHeight: '44px' }} onClick={event => setSubstitutes({ item, trigger: event.currentTarget })}>{p('View substitutions')}</Button>}</div>)}
     </article>)}</div>
-    <div className="nutrition-water"><div><strong>{p('Water today')}</strong><span>{number(water)} / {plan.targetMacros.waterMl} ml</span></div><progress max={plan.targetMacros.waterMl} value={Math.min(number(water), plan.targetMacros.waterMl)} />
-      <div><TextField name="waterDrunkMl" disabled={pending.has('water')} type="number" min="0" max="20000" step="100" value={water} onChange={event => setWater(event.target.value)} /><Button size="sm" variant="primary" disabled={pending.has('water')} onClick={saveWater}>{p('Save water')}</Button></div></div>
+
+    <div className="nutrition-water">
+      <div>
+        <strong>{p('Water today')}</strong>
+        <span>{waterPercent}% ({waterVal} / {waterGoal} ml)</span>
+      </div>
+      <progress
+        aria-label={p('Water adherence progress')}
+        aria-valuenow={waterPercent}
+        aria-valuemin="0"
+        aria-valuemax="100"
+        max={waterGoal}
+        value={Math.min(waterVal, waterGoal)}
+      />
+      {waterGoal > 0 && waterVal >= waterGoal && (
+        <Badge tone="success" style={{ alignSelf: 'flex-start' }}>
+          {p('Daily water target reached')}
+        </Badge>
+      )}
+
+      <div className="athlete-water-quick-buttons" aria-label={p('Quick water intake')}>
+        <Button size="sm" className="athlete-water-btn" disabled={pending.has('water')} onClick={() => adjustWater(250)}>
+          +250ml
+        </Button>
+        <Button size="sm" className="athlete-water-btn" disabled={pending.has('water')} onClick={() => adjustWater(500)}>
+          +500ml
+        </Button>
+        <Button size="sm" className="athlete-water-btn" disabled={pending.has('water')} onClick={() => adjustWater(1000)}>
+          +1000ml
+        </Button>
+        <Button size="sm" className="athlete-water-btn" disabled={pending.has('water') || waterVal === 0} onClick={() => adjustWater(-250)}>
+          -250ml
+        </Button>
+      </div>
+
+      <div>
+        <TextField name="waterDrunkMl" disabled={pending.has('water')} type="number" min="0" max="20000" step="100" value={water} onChange={event => setWater(event.target.value)} />
+        <Button size="sm" variant="primary" style={{ minHeight: '44px' }} disabled={pending.has('water')} onClick={saveWater}>{p('Save water')}</Button>
+      </div>
+    </div>
     {substitutes && <SubstituteDialog item={substitutes.item} trigger={substitutes.trigger} onClose={closeSubstitutes} />}
   </section>
 }

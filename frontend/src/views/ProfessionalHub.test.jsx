@@ -460,3 +460,35 @@ describe('ProfessionalHub', () => {
     expect(removeDivBtn.textContent).toContain("Remove division")
   })
 })
+
+  it('renders Nutrition tab for coaches with nutrition specialty and isolates athletes by nutrition scope', async () => {
+    const athleteNutri = { id: 'u_athlete_nutri', name: 'Atleta Nutrição', email: 'nutri@prfit.app' }
+    const athleteTrainingOnly = { id: 'u_athlete_train', name: 'Atleta Treino', email: 'train@prfit.app' }
+    mocks.user = {
+      id: 'u_coach_nutri', name: 'Coach Nutri', admin: false,
+      profile: { kind: 'coach', coachSpecialties: ['training', 'nutrition'] },
+      capabilities: ['relationships:invite', 'relationships:list'],
+    }
+    mocks.answers['/api/coach/athletes'] = {
+      links: [
+        { id: 'link_nutri', status: 'active', scopes: ['nutrition'], athlete: athleteNutri },
+        { id: 'link_train', status: 'active', scopes: ['training'], athlete: athleteTrainingOnly },
+      ],
+    }
+    mocks.answers[`/api/coach/athletes/${athleteNutri.id}/meal-plans`] = { mealPlans: [] }
+    mocks.answers[`/api/coach/athletes/${athleteNutri.id}/meal-adherence`] = { adherence: [] }
+
+    await mount('/professionals')
+
+    const tabs = [...host.querySelectorAll('.pro-sched-nav button')]
+    const nutritionTab = tabs.find(t => t.textContent.includes('Nutrition'))
+    expect(nutritionTab).toBeTruthy()
+
+    await act(async () => { nutritionTab.click() })
+    await settle()
+
+    expect(host.textContent).toContain('Nutrition prescription workspace')
+    expect(host.textContent).toContain('Atleta Nutrição')
+    expect(host.textContent).not.toContain('Atleta Treino')
+    expect(host.textContent).toContain('New meal plan')
+  })

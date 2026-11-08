@@ -159,3 +159,79 @@ describe('nutrition phase 4 views', () => {
     expect(host.textContent).toContain('1800 / 3000 ml')
   })
 })
+
+  it('validates macro coherence in real-time and allows 1-touch contextual recommendations', async () => {
+    const route = '/api/coach/athletes/u_athlete/meal-plans'
+    mocks.answers[route] = { mealPlans: [] }
+    mocks.answers['/api/coach/athletes/u_athlete/meal-adherence'] = { adherence: [] }
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    await click(button('New meal plan'))
+
+    // Notice default plan has 2000 kcal target, 150g protein (600kcal), 250g carbs (1000kcal), 65g fats (585kcal) = 2185 kcal (within 0.65-1.35)
+    expect(host.textContent).toContain('Consistent macro distribution')
+
+    // Change target calories to 10000 kcal while macros remain ~2185 kcal -> macro sum is too low
+    await change(input('target-targetCalories'), '10000')
+    await settle()
+    expect(host.textContent).toContain('Macronutrient sum incoherence')
+    expect(host.textContent).toContain('is too low for the daily goal')
+
+    // Click contextual recommendation pill to insert hydration guideline into notes
+    const recButton = [...host.querySelectorAll('.nutrition-rec-pill')].find(b => b.textContent.includes('Hydration'))
+    expect(recButton).toBeTruthy()
+    await click(recButton)
+    await settle()
+    expect(input('mealPlanNotes').value).toContain('Hydration: 500ml upon waking, 250ml every 2 hours')
+  })
+
+  it('provides 1-touch quick water buttons and accessible adherence indicators', async () => {
+    mocks.answers['/api/athlete/meal-plan'] = { mealPlan }
+    mocks.answers['/api/athlete/meal-adherence?date=*'] = { adherence: { id: 'adh_1', athleteId: 'u_athlete', mealPlanId: 'mp_1', mealsChecked: ['m_1'], waterDrunkMl: 1000 } }
+    mocks.answers['/api/athlete/meal-adherence'] = body => ({ adherence: { id: 'adh_1', athleteId: 'u_athlete', ...body, updatedAt: 2 } })
+    await mount(<AthleteNutritionView />)
+
+    // Check transparent targets banner
+    expect(host.querySelector('.athlete-target-banner')).toBeTruthy()
+    expect(host.textContent).toContain('2400 kcal')
+    expect(host.textContent).toContain('P: 160g')
+    expect(host.textContent).toContain('C: 300g')
+    expect(host.textContent).toContain('G: 70g')
+
+    // Check accessible meal adherence progress
+    const mealProgress = host.querySelector('progress[aria-label="Meal adherence progress"]')
+    expect(mealProgress).toBeTruthy()
+    expect(mealProgress.getAttribute('aria-valuenow')).toBe('100')
+    expect(host.textContent).toContain('100% (1/1 meals)')
+
+    // Check accessible water adherence progress
+    const waterProgress = host.querySelector('progress[aria-label="Water adherence progress"]')
+    expect(waterProgress).toBeTruthy()
+    expect(waterProgress.getAttribute('aria-valuenow')).toBe('33') // 1000 / 3000 ml = 33%
+
+    // 1-touch quick water increment (+500ml)
+    const add500 = button('+500ml')
+    expect(add500).toBeTruthy()
+    await click(add500)
+    await settle()
+
+    const lastCall = mocks.calls.filter(c => c.path === '/api/athlete/meal-adherence' && c.method === 'POST').at(-1)
+    expect(lastCall.body).toMatchObject({ mealPlanId: 'mp_1', waterDrunkMl: 1500 })
+    expect(host.textContent).toContain('50% (1500 / 3000 ml)')
+  })
+
+  it('renders semantic adherence badges and progress in coach plan summary', async () => {
+    const route = '/api/coach/athletes/u_athlete/meal-plans'
+    mocks.answers[route] = { mealPlans: [mealPlan] }
+    mocks.answers['/api/coach/athletes/u_athlete/meal-adherence'] = {
+      adherence: [{ id: 'adh_today', mealPlanId: 'mp_1', date: '2026-11-08', mealsChecked: ['m_1'], waterDrunkMl: 3000 }],
+    }
+    await mount(<NutritionPanel athleteId="u_athlete" />)
+
+    expect(host.textContent).toContain('Recent adherence')
+    expect(host.textContent).toContain('2026-11-08')
+    expect(host.textContent).toContain('1/1 (100%)')
+    expect(host.textContent).toContain('3000 / 3000 ml (100%)')
+    const completedBadge = host.querySelector('.nutrition-adherence-day .ds-badge.success')
+    expect(completedBadge).toBeTruthy()
+  })

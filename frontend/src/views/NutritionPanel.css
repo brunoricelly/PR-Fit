@@ -35,3 +35,41 @@
 .nutrition-substitute span,.nutrition-substitute small{color:var(--label-2);font-size:var(--fs-footnote)}
 @media(max-width:900px){.nutrition-substitute-row{grid-template-columns:1fr auto}.nutrition-substitute-row>.field:nth-child(2),.nutrition-substitute-nutrients{grid-column:1}.nutrition-substitute-nutrients{grid-template-columns:repeat(3,minmax(70px,1fr))}}
 @media(max-width:600px){.nutrition-grid.two,.nutrition-grid.five,.nutrition-targets,.nutrition-macros{grid-template-columns:1fr}.nutrition-substitute-nutrients{grid-template-columns:repeat(2,minmax(70px,1fr))}.athlete-food{grid-template-columns:1fr}.athlete-food>.btn{grid-column:1;grid-row:auto;justify-self:start}}
+
+/* Modern Nutrition & Adherence (Checkpoint 4.3) */
+.nutrition-validation-box { margin: 12px 0; }
+.nutrition-validation-box .ds-alert { margin: 0; }
+.nutrition-recommendations-toolbar { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.nutrition-rec-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.nutrition-rec-pill { min-height: 44px; padding: 8px 12px; font-size: var(--fs-footnote); background: var(--surface); border: 1px dashed var(--separator); border-radius: var(--r-sm); color: var(--label); text-align: left; cursor: pointer; transition: background .15s ease, border-color .15s ease; }
+.nutrition-rec-pill:hover, .nutrition-rec-pill:focus-visible { background: var(--surface-2); border-color: var(--acc); outline: 2px solid var(--acc); outline-offset: 1px; }
+
+.nutrition-adherence-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 10px; }
+.nutrition-adherence-day { padding: 10px 12px; border-radius: var(--r-sm); background: var(--surface); border: 1px solid var(--separator); display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-caption1); }
+.nutrition-adherence-day-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; color: var(--label); }
+.nutrition-adherence-day-metrics { display: flex; flex-direction: column; gap: 4px; color: var(--label-2); }
+.nutrition-adherence-metric-row { display: flex; justify-content: space-between; align-items: center; }
+.nutrition-adherence-day-metrics progress { width: 100%; height: 6px; accent-color: var(--acc); }
+
+.athlete-target-banner { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.athlete-target-badge { display: inline-flex; align-items: center; gap: 4px; padding: 6px 12px; border-radius: 9999px; background: var(--surface-2); border: 1px solid var(--separator); font-size: var(--fs-footnote); color: var(--label); }
+.athlete-target-badge strong { color: var(--acc-ink, var(--acc)); font-weight: 700; }
+
+.athlete-water-quick-buttons { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 6px; }
+.athlete-water-btn { min-height: 44px; min-width: 44px; padding: 0 14px; font-size: var(--fs-subhead); font-weight: 600; }
+
+.nutrition-recommendations-banner { margin: 14px 0; padding: 14px; border-radius: var(--r-sm); background: var(--surface); border-left: 4px solid var(--acc); }
+.nutrition-recommendations-banner h4 { margin: 0 0 6px; font-size: var(--fs-footnote); font-weight: 700; color: var(--label); text-transform: uppercase; letter-spacing: 0.04em; }
+.nutrition-recommendations-banner p { margin: 0; color: var(--label-2); font-size: var(--fs-footnote); line-height: 1.5; white-space: pre-wrap; }
+
+.athlete-meal-action-btn { min-height: 44px; min-width: 104px; }
+.athlete-meal-head h4 { font-size: var(--fs-subhead); }
+
+@media (prefers-reduced-motion: reduce) {
+  .nutrition-rec-pill, .nutrition-macros progress, .nutrition-water progress, .nutrition-adherence-day-metrics progress {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto;
+  }
+}
