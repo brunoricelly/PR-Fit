@@ -10,8 +10,8 @@ import { dateLocale } from '../lib/i18n.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
 import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
-import EmptyState from '../components/EmptyState.jsx'
-import { Button, TextArea, TextField } from '../components/ui.jsx'
+import { Alert, Badge, Button, Field, Input, Modal, EmptyState } from '../components/design-system.jsx'
+import { TextArea, TextField } from '../components/ui.jsx'
 import AssessmentPanel from './AssessmentPanel.jsx'
 import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
 import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
@@ -22,6 +22,12 @@ const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === '
 const statusLabel = status => ({
   pending: p('Pending'), active: p('Active'), suspended: p('Suspended'), ended: p('Ended'),
 }[status] || status)
+const statusTone = status => ({
+  active: 'success',
+  pending: 'warning',
+  suspended: 'danger',
+  ended: 'neutral',
+}[status] || 'neutral')
 const formatDate = value => value ? new Date(value).toLocaleDateString(dateLocale()) : ''
 const prescriptionStateLabel = state => ({
   available: p('Available'), adopted: p('Adopted'), withdrawn: p('Withdrawn'),
@@ -238,19 +244,34 @@ function ProfileSetup({ user }) {
 function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }) {
   const person = side === 'coach' ? link.athlete : link.coach
   const title = person?.name || (link.status === 'pending' ? p('Invitation pending') : p('Unavailable account'))
+  const tone = statusTone(link.status)
+
   return <article className="card pro-link" data-status={link.status}>
     <div className="pro-link-head">
-      <div><h2>{title}</h2><div className="pro-meta">{link.scopes.map(scopeLabel).join(' · ')}</div></div>
-      <span className={'pro-status ' + link.status}>{statusLabel(link.status)}</span>
+      <div>
+        <h2>{title}</h2>
+        <div className="pro-scopes-badges">
+          {link.scopes.map(scope => <Badge key={scope} tone="info">{scopeLabel(scope)}</Badge>)}
+        </div>
+      </div>
+      <Badge tone={tone} className={`pro-status-badge pro-status ${link.status}`}>{statusLabel(link.status)}</Badge>
     </div>
+    {link.status === 'pending' && side === 'coach' && (
+      <p className="dim small" style={{ margin: '8px 0 0' }}>{p('Waiting for athlete to accept invitation.')}</p>
+    )}
+    {link.status === 'suspended' && (
+      <p className="dim small" style={{ margin: '8px 0 0', color: 'var(--ds-state-danger, var(--red))' }}>
+        {p('Relationship is suspended. Professional access is temporarily paused.')}
+      </p>
+    )}
     <div className="pro-dates">
       {link.acceptedAt && <span>{p('Accepted {0}', formatDate(link.acceptedAt))}</span>}
       {link.expiresAt && link.status === 'pending' && <span>{p('Expires {0}', formatDate(link.expiresAt))}</span>}
       {link.endedAt && <span>{p('Ended {0}', formatDate(link.endedAt))}</span>}
     </div>
     {(canSuspend || canEnd) && <div className="pro-actions">
-      {canSuspend && <Button size="sm" onClick={() => onStatus(link, 'suspended')}>{p('Suspend')}</Button>}
-      {canEnd && <Button size="sm" variant="danger" onClick={() => onStatus(link, 'ended')}>{p('End relationship')}</Button>}
+      {canSuspend && <Button size="sm" onClick={() => onStatus(link, 'suspended')} style={{ minHeight: '44px' }}>{p('Suspend')}</Button>}
+      {canEnd && <Button size="sm" variant="danger" onClick={() => onStatus(link, 'ended')} style={{ minHeight: '44px' }}>{link.status === 'pending' ? p('Cancel invitation') : p('End relationship')}</Button>}
     </div>}
     {children}
   </article>
@@ -258,12 +279,18 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }
 
 function CoachPortfolio({ user, inbox, onSchedule }) {
   const toast = useUI(state => state.toast)
+  const navigate = useNavigate()
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [scopes, setScopes] = useState(() => user.profile.coachSpecialties.slice(0, 1))
   const [creating, setCreating] = useState(false)
   const [freshInvite, setFreshInvite] = useState(null)
+  const [copiedLink, setCopiedLink] = useState(false)
+  const [copiedCode, setCopiedCode] = useState(false)
+  const [liveMessage, setLiveMessage] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [confirmModal, setConfirmModal] = useState(null)
   const capabilities = new Set(user.capabilities || [])
   const canInvite = capabilities.has('relationships:invite')
 
@@ -292,57 +319,267 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
     try {
       const result = await api('/api/coach/invites', { method: 'POST', body: JSON.stringify({ scopes, expiresInDays: 7 }) })
       setFreshInvite(result.invite)
+      setCopiedLink(false)
+      setCopiedCode(false)
+      const msg = p('New invitation created. Share the code or link with your athlete.')
+      setLiveMessage(msg)
+      toast(msg)
       await load()
     } catch (error) { toast(professionalError(error)) }
     finally { setCreating(false) }
   }
+
   const copyInvite = async () => {
-    if (await copyText(freshInvite.token)) toast(p('Invitation copied.'))
+    if (!freshInvite) return
+    if (await copyText(freshInvite.token)) {
+      setCopiedCode(true)
+      setTimeout(() => setCopiedCode(false), 2500)
+      setLiveMessage(p('Invite code copied to clipboard.'))
+      toast(p('Invitation copied.'))
+    }
   }
-  const status = (link, next) => confirmSheet({
-    title: next === 'ended' ? p('End this relationship?') : p('Suspend this relationship?'),
-    message: next === 'ended'
-      ? p('Future professional access is blocked. The athlete keeps their training data.')
-      : p('Professional access is blocked until a future reactivation flow.'),
-    confirmText: next === 'ended' ? p('End relationship') : p('Suspend'),
-    danger: true,
-    onConfirm: async () => {
+
+  const copyInviteLink = async () => {
+    if (!freshInvite) return
+    const origin = typeof window !== 'undefined' ? window.location.origin : ''
+    const linkUrl = `${origin}/professionals?invite=${freshInvite.token}&coach=${encodeURIComponent(user.name || '')}&scopes=${freshInvite.scopes.join(',')}`
+    if (await copyText(linkUrl)) {
+      setCopiedLink(true)
+      setTimeout(() => setCopiedLink(false), 2500)
+      setLiveMessage(p('Invite link copied to clipboard.'))
+      toast(p('Invitation link copied.'))
+    }
+  }
+
+  const status = (link, next) => {
+    const isCancelInvite = link.status === 'pending' && next === 'ended'
+    const isEnd = next === 'ended'
+    const title = isCancelInvite
+      ? p('Cancel pending invitation?')
+      : isEnd
+        ? p('End this relationship?')
+        : p('Suspend this relationship?')
+    const message = isCancelInvite
+      ? p('The generated invitation code will be invalidated and the athlete will no longer be able to accept it.')
+      : isEnd
+        ? p('Future professional access is blocked. The athlete keeps their training data.')
+        : p('Professional access is blocked until a future reactivation flow.')
+    const confirmText = isCancelInvite
+      ? p('Cancel invitation')
+      : isEnd
+        ? p('End relationship')
+        : p('Suspend')
+    const destructiveNote = isEnd && !isCancelInvite
+      ? p('This action is irreversible. The athlete retains all workouts, nutrition and progress data.')
+      : undefined
+
+    const execute = async () => {
       try {
         const result = await api('/api/coach/links/status', { method: 'POST', body: JSON.stringify({ linkId: link.id, status: next }) })
         setLinks(current => current.map(item => item.id === link.id ? { ...item, ...result.link } : item))
+        toast(isCancelInvite ? p('Invitation cancelled.') : isEnd ? p('Relationship ended.') : p('Relationship suspended.'))
       } catch (error) { toast(professionalError(error)) }
-    },
-  })
+    }
+
+    setConfirmModal({
+      title,
+      message,
+      destructiveNote,
+      confirmText,
+      danger: isEnd,
+      onConfirm: execute,
+    })
+
+    confirmSheet?.({
+      title,
+      message,
+      confirmText,
+      danger: isEnd,
+      onConfirm: execute,
+    })
+  }
+
+  const origin = typeof window !== 'undefined' ? window.location.origin : ''
+  const freshInviteLink = freshInvite ? `${origin}/professionals?invite=${freshInvite.token}&coach=${encodeURIComponent(user.name || '')}&scopes=${freshInvite.scopes.join(',')}` : ''
+
+  const filteredLinks = useMemo(() => {
+    if (!links) return null
+    if (statusFilter === 'all') return links
+    return links.filter(item => item.status === statusFilter)
+  }, [links, statusFilter])
+
+  const counts = useMemo(() => {
+    if (!links) return { all: 0, active: 0, pending: 0, suspended: 0 }
+    return {
+      all: links.length,
+      active: links.filter(l => l.status === 'active').length,
+      pending: links.filter(l => l.status === 'pending').length,
+      suspended: links.filter(l => l.status === 'suspended').length,
+    }
+  }, [links])
 
   return <>
     {canInvite && <section className="card pro-invite" aria-labelledby="pro-invite-title">
       <h2 id="pro-invite-title">{p('Invite an athlete')}</h2>
       <p>{p('Choose what this relationship authorizes. The athlete must accept explicitly.')}</p>
       <ScopeChoices allowed={user.profile.coachSpecialties} value={scopes} onChange={setScopes} />
-      <Button variant="primary" disabled={creating || !scopes.length} onClick={createInvite}>{creating ? p('Creating…') : p('Create invitation')}</Button>
-      {freshInvite && <div className="pro-token" role="status">
-        <div><strong>{p('Share this code once')}</strong><span>{p('It expires {0}.', formatDate(freshInvite.expiresAt))}</span></div>
-        <code>{freshInvite.token}</code>
-        <Button size="sm" icon="copy" onClick={copyInvite}>{p('Copy invitation')}</Button>
+      <div className="pro-scope-descriptions" style={{ margin: '8px 0 14px', display: 'grid', gap: '6px' }}>
+        {scopes.includes('training') && (
+          <div className="dim small" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Icon name="dumbbell" style={{ color: 'var(--acc)' }} />
+            <span><strong>{p('Training')}:</strong> {p('Prescribe workouts, routines, sets, reps and monitor training habits.')}</span>
+          </div>
+        )}
+        {scopes.includes('nutrition') && (
+          <div className="dim small" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Icon name="apple" style={{ color: 'var(--green)' }} />
+            <span><strong>{p('Nutrition')}:</strong> {p('Prescribe meal plans, caloric and macronutrient targets, and track meal adherence.')}</span>
+          </div>
+        )}
+        {scopes.includes('assessments') && (
+          <div className="dim small" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Icon name="shield" style={{ color: 'var(--orange)' }} />
+            <span><strong>{p('Physical assessments')}:</strong> {p('Track body weight, circumferences, skinfolds and physical evolution.')}</span>
+          </div>
+        )}
+      </div>
+      <Button variant="primary" disabled={creating || !scopes.length} onClick={createInvite} style={{ minHeight: '44px' }}>
+        {creating ? p('Creating…') : p('Create invitation')}
+      </Button>
+
+      {freshInvite && <div className="pro-token" role="region" aria-label={p('Invitation ready to share')}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 8 }}>
+          <div>
+            <strong>{p('Invitation ready to share')}</strong>
+            <span style={{ display: 'block', fontSize: 'var(--fs-footnote)', color: 'var(--label-2)' }}>
+              {p('It expires {0}.', formatDate(freshInvite.expiresAt))}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {freshInvite.scopes.map(s => <Badge key={s} tone="info">{scopeLabel(s)}</Badge>)}
+          </div>
+        </div>
+
+        <div className="pro-token-copy-row">
+          <div>
+            <label className="pro-label" style={{ marginBottom: 4 }}>{p('Invitation link')}</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Input
+                readOnly
+                value={freshInviteLink}
+                style={{ flex: '1 1 200px', minHeight: '44px' }}
+                aria-label={p('Invitation link')}
+              />
+              <Button
+                size="sm"
+                icon={copiedLink ? 'check' : 'copy'}
+                onClick={copyInviteLink}
+                style={{ minHeight: '44px', minWidth: '44px' }}
+              >
+                {copiedLink ? p('Link copied!') : p('Copy link')}
+              </Button>
+            </div>
+          </div>
+
+          <div>
+            <label className="pro-label" style={{ marginBottom: 4 }}>{p('Invitation code')}</label>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <code style={{ flex: '1 1 200px', padding: '10px 12px', background: 'var(--surface)', borderRadius: 'var(--r-xs)', wordBreak: 'break-all', minHeight: '44px', display: 'flex', alignItems: 'center' }}>
+                {freshInvite.token}
+              </code>
+              <Button
+                size="sm"
+                icon={copiedCode ? 'check' : 'copy'}
+                onClick={copyInvite}
+                style={{ minHeight: '44px', minWidth: '44px' }}
+              >
+                {copiedCode ? p('Code copied!') : p('Copy invitation')}
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="sr-only" aria-live="polite" role="status">
+          {liveMessage}
+        </div>
       </div>}
     </section>}
+
     <section aria-labelledby="pro-coach-list-title">
-      <h2 className="pro-section-title" id="pro-coach-list-title">{p('Portfolio')}</h2>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, margin: '22px 4px 10px' }}>
+        <h2 className="pro-section-title" id="pro-coach-list-title" style={{ margin: 0 }}>{p('Portfolio')}</h2>
+      </div>
+
+      {links && links.length > 0 && (
+        <div className="pro-status-filter" role="group" aria-label={p('Filter by status')}>
+          <button type="button" className={'pro-choice' + (statusFilter === 'all' ? ' on' : '')} aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
+            {p('All athletes')} ({counts.all})
+          </button>
+          <button type="button" className={'pro-choice' + (statusFilter === 'active' ? ' on' : '')} aria-pressed={statusFilter === 'active'} onClick={() => setStatusFilter('active')}>
+            {p('Active')} ({counts.active})
+          </button>
+          <button type="button" className={'pro-choice' + (statusFilter === 'pending' ? ' on' : '')} aria-pressed={statusFilter === 'pending'} onClick={() => setStatusFilter('pending')}>
+            {p('Pending')} ({counts.pending})
+          </button>
+          {counts.suspended > 0 && (
+            <button type="button" className={'pro-choice' + (statusFilter === 'suspended' ? ' on' : '')} aria-pressed={statusFilter === 'suspended'} onClick={() => setStatusFilter('suspended')}>
+              {p('Suspended')} ({counts.suspended})
+            </button>
+          )}
+        </div>
+      )}
+
       {loading && links === null ? <div className="pro-loading">{p('Loading…')}</div>
         : loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load your professional relationships.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
         : links.length === 0 ? <EmptyState icon="person" title={p('No athletes yet')} text={p('Create an invitation to start your portfolio.')} />
-          : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="coach" onStatus={status}
-            canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
-            canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
-            {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
-            {link.status === 'active' && link.scopes.includes('nutrition') && link.athlete && <NutritionPanel athleteId={link.athlete.id} />}
-            {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
-            <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
-            {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
-            {link.athlete && <CoachProgressPanel link={link} athleteId={link.athlete.id} />}
-            {link.status === 'active' && link.athlete && <div className="pro-actions"><Button size="sm" onClick={() => onSchedule ? onSchedule(link.athlete.id) : navigate('/scheduling?athleteId=' + link.athlete.id)}>{p('Schedule session')}</Button></div>}
-          </RelationshipCard>)}</div>}
+          : filteredLinks.length === 0 ? <p className="pro-empty-inline" style={{ padding: '16px 0' }}>{p('No athletes match the selected filter.')}</p>
+            : <div className="pro-list">{filteredLinks.map(link => <RelationshipCard key={link.id} link={link} side="coach" onStatus={status}
+              canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
+              canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
+              {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
+              {link.status === 'active' && link.scopes.includes('nutrition') && link.athlete && <NutritionPanel athleteId={link.athlete.id} />}
+              {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
+              <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
+              {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
+              {link.athlete && <CoachProgressPanel link={link} athleteId={link.athlete.id} />}
+              {link.status === 'active' && link.athlete && <div className="pro-actions"><Button size="sm" onClick={() => onSchedule ? onSchedule(link.athlete.id) : navigate('/scheduling?athleteId=' + link.athlete.id)}>{p('Schedule session')}</Button></div>}
+            </RelationshipCard>)}</div>}
     </section>
+
+    {confirmModal && (
+      <Modal
+        id="coach-relationship-confirm"
+        title={confirmModal.title}
+        closeLabel={p('Close')}
+        onClose={() => setConfirmModal(null)}
+      >
+        <div className="pro-modal-form">
+          <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>{confirmModal.message}</p>
+          {confirmModal.destructiveNote && (
+            <Alert tone="error" style={{ marginBottom: 14 }}>
+              {confirmModal.destructiveNote}
+            </Alert>
+          )}
+          <div className="pro-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+            <Button type="button" onClick={() => setConfirmModal(null)} style={{ minHeight: '44px' }}>
+              {p('Cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant={confirmModal.danger ? 'danger' : 'primary'}
+              onClick={async () => {
+                const action = confirmModal.onConfirm
+                setConfirmModal(null)
+                await action?.()
+              }}
+              style={{ minHeight: '44px' }}
+            >
+              {confirmModal.confirmText}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    )}
   </>
 }
 
@@ -382,13 +619,24 @@ function AthletePrescriptions({ userId }) {
   </section>
 }
 
-function AthleteProfessionals({ initialToken, userId, inbox, embedded = false, onSchedule }) {
+function AthleteProfessionals({ initialInvite, initialToken, userId, inbox, embedded = false, onSchedule }) {
   const toast = useUI(state => state.toast)
+  const navigate = useNavigate()
+  const tokenFromProps = typeof initialInvite === 'object' ? (initialInvite?.invite || '') : (initialToken || '')
+  const coachFromProps = typeof initialInvite === 'object' ? (initialInvite?.coach || '') : ''
+  const scopesFromProps = typeof initialInvite === 'object' ? (initialInvite?.scopes || null) : null
+
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [token, setToken] = useState(initialToken || '')
+  const [token, setToken] = useState(tokenFromProps)
+  const [coachName, setCoachName] = useState(coachFromProps)
+  const [requestedScopes, setRequestedScopes] = useState(scopesFromProps)
   const [accepting, setAccepting] = useState(false)
+  const [acceptError, setAcceptError] = useState(null)
+  const [liveStatus, setLiveStatus] = useState('')
+  const [confirmModal, setConfirmModal] = useState(null)
+
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(false)
@@ -411,25 +659,68 @@ function AthleteProfessionals({ initialToken, userId, inbox, embedded = false, o
   const accept = async () => {
     if (!token.trim()) return
     setAccepting(true)
+    setAcceptError(null)
     try {
       await api('/api/coach/invites/accept', { method: 'POST', body: JSON.stringify({ token: token.trim() }) })
       setToken('')
-      toast(p('Invitation accepted.'))
+      setCoachName('')
+      setRequestedScopes(null)
+      const msg = p('Invitation accepted.')
+      setLiveStatus(msg)
+      toast(msg)
       await load()
-    } catch (error) { toast(professionalError(error)) }
-    finally { setAccepting(false) }
+    } catch (error) {
+      const msg = professionalError(error)
+      setAcceptError(msg)
+      setLiveStatus(msg)
+      toast(msg)
+    } finally {
+      setAccepting(false)
+    }
   }
-  const end = link => confirmSheet({
-    title: p('End this relationship?'),
-    message: p('The professional loses future access. Your training data stays with you.'),
-    confirmText: p('End relationship'), danger: true,
-    onConfirm: async () => {
+
+  const declineInvite = () => {
+    setToken('')
+    setCoachName('')
+    setRequestedScopes(null)
+    setAcceptError(null)
+    const msg = p('Invitation declined. No data was shared.')
+    setLiveStatus(msg)
+    toast(msg)
+  }
+
+  const end = link => {
+    const title = p('End this relationship?')
+    const message = p('The professional loses future access. Your training data stays with you.')
+    const confirmText = p('End relationship')
+    const destructiveNote = p('This action will immediately stop data sharing. Your logged workouts, meals and history remain safely in your account.')
+
+    const execute = async () => {
       try {
         const result = await api('/api/coach/links/status', { method: 'POST', body: JSON.stringify({ linkId: link.id, status: 'ended' }) })
         setLinks(current => current.map(item => item.id === link.id ? { ...item, ...result.link } : item))
+        toast(p('Relationship ended.'))
       } catch (error) { toast(professionalError(error)) }
-    },
-  })
+    }
+
+    setConfirmModal({
+      title,
+      message,
+      destructiveNote,
+      confirmText,
+      danger: true,
+      onConfirm: execute,
+    })
+
+    confirmSheet?.({
+      title,
+      message,
+      confirmText,
+      danger: true,
+      onConfirm: execute,
+    })
+  }
+
   const assessmentConsent = async (link, granted) => {
     try {
       const result = await api(`/api/athlete/coaches/${link.id}/assessment-consent`, { method: 'POST', body: JSON.stringify({ granted }) })
@@ -451,13 +742,117 @@ function AthleteProfessionals({ initialToken, userId, inbox, embedded = false, o
         </Button>
       </div>
     </section>
+
     <section className="card pro-accept" aria-labelledby="pro-accept-title">
       <h2 id="pro-accept-title">{p('Accept an invitation')}</h2>
       <p>{p('Opening an invitation never grants access by itself. Review it and accept here.')}</p>
-      <label className="pro-field"><span>{p('Invitation code')}</span>
-        <TextField name="inviteToken" value={token} onChange={event => setToken(event.target.value)} autoComplete="off" spellCheck="false" /></label>
-      <Button variant="primary" disabled={accepting || !token.trim()} onClick={accept}>{accepting ? p('Accepting…') : p('Accept invitation')}</Button>
+
+      {token.trim() && (
+        <div className="pro-accept-context">
+          {coachName ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 24, color: 'var(--acc)' }}><Icon name="personCircle" /></span>
+              <div>
+                <div style={{ fontWeight: 600, fontSize: 'var(--fs-subhead)' }}>
+                  {p('Professional {0} invited you to connect on PR Fit.', coachName)}
+                </div>
+                <span className="dim small">{p('Professional profile')}</span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+              <span style={{ fontSize: 24, color: 'var(--acc)' }}><Icon name="shield" /></span>
+              <div style={{ fontWeight: 600, fontSize: 'var(--fs-subhead)' }}>
+                {p('Connect your profile with a certified coach or nutritionist.')}
+              </div>
+            </div>
+          )}
+
+          <div className="pro-scope-explainer" style={{ display: 'grid', gap: 10, marginTop: 10 }}>
+            <strong style={{ fontSize: 'var(--fs-footnote)', color: 'var(--label-2)' }}>
+              {p('Data and access requested by professional:')}
+            </strong>
+            {(!requestedScopes || requestedScopes.includes('training')) && (
+              <div className="pro-scope-item">
+                <Icon name="dumbbell" style={{ color: 'var(--acc)' }} />
+                <div>
+                  <strong>{p('Workouts & routines')}: </strong>
+                  <span className="dim small">{p('Your coach will be able to prescribe workouts, adjust routines, and view your exercise logs.')}</span>
+                </div>
+              </div>
+            )}
+            {(!requestedScopes || requestedScopes.includes('nutrition')) && (
+              <div className="pro-scope-item">
+                <Icon name="apple" style={{ color: 'var(--green)' }} />
+                <div>
+                  <strong>{p('Nutrition & meal plans')}: </strong>
+                  <span className="dim small">{p('Your nutritionist will be able to prescribe meal plans, set macro goals, and monitor meal adherence.')}</span>
+                </div>
+              </div>
+            )}
+            {(!requestedScopes || requestedScopes.includes('assessments')) && (
+              <div className="pro-scope-item">
+                <Icon name="shield" style={{ color: 'var(--orange)' }} />
+                <div>
+                  <strong>{p('Physical assessments & measurements')}: </strong>
+                  <span className="dim small">{p('Body measurements and progress photos require explicit athlete consent before sharing.')}</span>
+                </div>
+              </div>
+            )}
+            <p className="dim small" style={{ margin: '8px 0 0', fontStyle: 'italic' }}>
+              {p('Your account credentials, password, and personal email are never shared. You can revoke access at any time.')}
+            </p>
+          </div>
+        </div>
+      )}
+
+      <Field label={p('Invitation code')} help={p('Review the code received from your coach or nutritionist.')} error={acceptError || undefined}>
+        <Input
+          name="inviteToken"
+          value={token}
+          onChange={event => {
+            setToken(event.target.value)
+            setAcceptError(null)
+          }}
+          placeholder={p('Paste the invitation code here')}
+          autoComplete="off"
+          spellCheck="false"
+          style={{ minHeight: '44px' }}
+        />
+      </Field>
+
+      {acceptError && (
+        <Alert tone="error" title={p('Unable to accept invitation')} style={{ marginTop: 12 }}>
+          {acceptError}
+        </Alert>
+      )}
+
+      <div className="pro-actions" style={{ display: 'flex', gap: 8, marginTop: 14 }}>
+        <Button
+          variant="primary"
+          disabled={accepting || !token.trim()}
+          onClick={accept}
+          style={{ minHeight: '44px' }}
+        >
+          {accepting ? p('Accepting…') : p('Accept invitation')}
+        </Button>
+        {token.trim() && (
+          <Button
+            variant="secondary"
+            disabled={accepting}
+            onClick={declineInvite}
+            style={{ minHeight: '44px' }}
+          >
+            {p('Decline invitation')}
+          </Button>
+        )}
+      </div>
+
+      <div className="sr-only" aria-live="polite" role="status">
+        {liveStatus}
+      </div>
     </section>
+
     <AthletePrescriptions userId={userId} />
     <section aria-labelledby="athlete-nutrition-section"><h2 className="pro-section-title" id="athlete-nutrition-section">{p('My nutrition')}</h2><AthleteNutritionView /></section>
     <section aria-labelledby="athlete-assessments-title"><h2 className="pro-section-title" id="athlete-assessments-title">{p('My physical assessments')}</h2><AssessmentPanel athlete /></section>
@@ -478,6 +873,41 @@ function AthleteProfessionals({ initialToken, userId, inbox, embedded = false, o
             <CommunicationPanel link={link} side="athlete" actorId={userId} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
           </RelationshipCard>)}</div>}
     </section>
+
+    {confirmModal && (
+      <Modal
+        id="athlete-relationship-confirm"
+        title={confirmModal.title}
+        closeLabel={p('Close')}
+        onClose={() => setConfirmModal(null)}
+      >
+        <div className="pro-modal-form">
+          <p style={{ margin: '0 0 12px', lineHeight: 1.5 }}>{confirmModal.message}</p>
+          {confirmModal.destructiveNote && (
+            <Alert tone="error" style={{ marginBottom: 14 }}>
+              {confirmModal.destructiveNote}
+            </Alert>
+          )}
+          <div className="pro-actions" style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 16 }}>
+            <Button type="button" onClick={() => setConfirmModal(null)} style={{ minHeight: '44px' }}>
+              {p('Cancel')}
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              onClick={async () => {
+                const action = confirmModal.onConfirm
+                setConfirmModal(null)
+                await action?.()
+              }}
+              style={{ minHeight: '44px' }}
+            >
+              {confirmModal.confirmText}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    )}
   </>
 }
 
@@ -486,10 +916,17 @@ export default function ProfessionalHub() {
   const location = useLocation()
   const navigate = useNavigate()
   const inbox = useCommunicationInbox(user?.id)
-  const initialToken = useMemo(() => new URLSearchParams(location.search).get('invite') || '', [])
+  const initialParams = useMemo(() => {
+    const params = new URLSearchParams(location.search)
+    return {
+      invite: params.get('invite') || '',
+      coach: params.get('coach') || '',
+      scopes: params.get('scopes') ? params.get('scopes').split(',').map(s => s.trim()).filter(Boolean) : null,
+    }
+  }, [])
   useEffect(() => {
-    if (initialToken && location.search) navigate('/professionals', { replace: true })
-  }, [initialToken, location.search, navigate])
+    if (initialParams.invite && location.search) navigate('/professionals', { replace: true })
+  }, [initialParams.invite, location.search, navigate])
   const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'relationships')
   if (!user) return null
   const coach = user.profile?.kind === 'coach'
@@ -538,8 +975,8 @@ export default function ProfessionalHub() {
       <>
         {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
         {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
-        {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
-          : <AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
+        {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
+          : <AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
         {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
       </>
     )}

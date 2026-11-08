@@ -81,7 +81,9 @@ Transformar o PR Fit atual em uma experiência simples, moderna, leve, acessíve
 
 ### Etapa 4 — Simplificação dos fluxos essenciais
 Em subcheckpoints sequenciais:
-1. convite/vínculo e permissões;
+1. convite/vínculo e permissões (Checkpoint 4.1 concluído):
+   - Visão do Profissional (Coach/Nutri): área intuitiva de geração de convites com explicação clara dos escopos (treino, nutrição, avaliações), cópia direta de link/código com feedback visual e aria-live imediato, alvos de toque >= 44px. Carteira com badges do design system, filtro de status (ativos, pendentes, suspensos) e diálogos de confirmação proporcionais ao risco via Modal.jsx.
+   - Visão do Aluno: tela de aceitação contextual explicitando o profissional solicitante e discriminando os dados compartilhados com garantia de privacidade, ações evidentes de aceitar e recusar (sem compartilhamento de dados ao recusar), e tratamento de erro descritivo em PT-BR via Alert e Toast.
 2. prescrição/adoção de treino;
 3. nutrição e aderência;
 4. agenda/reagendamento;
