@@ -1,3 +1,4 @@
+import SchedulingView from './SchedulingView.jsx'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
@@ -254,7 +255,7 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }
   </article>
 }
 
-function CoachPortfolio({ user, inbox }) {
+function CoachPortfolio({ user, inbox, onSchedule }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -338,6 +339,7 @@ function CoachPortfolio({ user, inbox }) {
             <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
             {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
             {link.athlete && <CoachProgressPanel link={link} athleteId={link.athlete.id} />}
+            {link.status === 'active' && link.athlete && <div className="pro-actions"><Button size="sm" onClick={() => onSchedule ? onSchedule(link.athlete.id) : navigate('/scheduling?athleteId=' + link.athlete.id)}>{p('Schedule session')}</Button></div>}
           </RelationshipCard>)}</div>}
     </section>
   </>
@@ -379,7 +381,7 @@ function AthletePrescriptions({ userId }) {
   </section>
 }
 
-function AthleteProfessionals({ initialToken, userId, inbox, embedded = false }) {
+function AthleteProfessionals({ initialToken, userId, inbox, embedded = false, onSchedule }) {
   const toast = useUI(state => state.toast)
   const [links, setLinks] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -437,6 +439,17 @@ function AthleteProfessionals({ initialToken, userId, inbox, embedded = false })
 
   return <>
     {embedded && <h2 className="pro-section-title">{p('My professionals')}</h2>}
+    <section className="card pro-schedule-shortcut" aria-labelledby="athlete-schedule-shortcut-title">
+      <div className="pro-panel-head">
+        <div>
+          <h3 id="athlete-schedule-shortcut-title" style={{ margin: 0 }}>{p('Appointments and calendar')}</h3>
+          <p className="dim small" style={{ margin: '4px 0 0' }}>{p('Book and manage your sessions with linked professionals.')}</p>
+        </div>
+        <Button size="sm" variant="primary" onClick={() => onSchedule ? onSchedule() : navigate('/scheduling')}>
+          {p('Schedule session')}
+        </Button>
+      </div>
+    </section>
     <section className="card pro-accept" aria-labelledby="pro-accept-title">
       <h2 id="pro-accept-title">{p('Accept an invitation')}</h2>
       <p>{p('Opening an invitation never grants access by itself. Review it and accept here.')}</p>
@@ -476,6 +489,7 @@ export default function ProfessionalHub() {
   useEffect(() => {
     if (initialToken && location.search) navigate('/professionals', { replace: true })
   }, [initialToken, location.search, navigate])
+  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'relationships')
   if (!user) return null
   const coach = user.profile?.kind === 'coach'
   return <main className="narrow pro-page">
@@ -486,10 +500,36 @@ export default function ProfessionalHub() {
       <Icon name={coach ? 'person' : 'shield'} />
     </header>
     <ProfileSetup user={user} />
-    {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
-    {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
-    {coach ? <><CoachPortfolio user={user} inbox={inbox} /><AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} embedded /></>
-      : <AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} />}
-    {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
+    <nav className="pro-sched-nav" role="tablist" style={{ marginTop: 12 }}>
+      <button
+        role="tab"
+        aria-selected={tab === 'relationships'}
+        className={"pro-sched-tab " + (tab === 'relationships' ? 'active' : '')}
+        onClick={() => setTab('relationships')}
+      >
+        <Icon name="person" />
+        <span>{p('Relationships')}</span>
+      </button>
+      <button
+        role="tab"
+        aria-selected={tab === 'scheduling'}
+        className={"pro-sched-tab " + (tab === 'scheduling' ? 'active' : '')}
+        onClick={() => setTab('scheduling')}
+      >
+        <Icon name="calendar" />
+        <span>{p('Appointments')}</span>
+      </button>
+    </nav>
+    {tab === 'scheduling' ? (
+      <SchedulingView embedded />
+    ) : (
+      <>
+        {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
+        {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
+        {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
+          : <AthleteProfessionals initialToken={initialToken} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
+        {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
+      </>
+    )}
   </main>
 }

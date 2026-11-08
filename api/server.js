@@ -16,7 +16,7 @@ import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
-import { dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
+import { appointmentReminderPush, dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
 import { verifyError, isMisconfigured, originHint } from './verify-error.js';
 import {
   hashPassword, verifyPassword, needsRehash, passwordProblem, passwordLength, nameKey, BusyError,
@@ -58,6 +58,12 @@ import {
 import {
   calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
 } from './progress-analytics.js';
+import {
+  cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS, validateSchedulingState,
+} from './scheduling.js';
+import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
+import { SerialWriteQueue } from './serial-write-queue.js';
+import { createInterprocessLock, mergeDbCandidate } from './db-coordinator.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -155,6 +161,14 @@ const B2B2C_LIMITS = {
   terminalLinksKeep: envInt('B2B2C_TERMINAL_LINKS_KEEP', 1000, { max: 100000 }),
   terminalPrescriptionsKeep: envInt('B2B2C_TERMINAL_PRESCRIPTIONS_KEEP', 1000, { max: 100000 }),
   terminalRetentionDays: envInt('B2B2C_TERMINAL_RETENTION_DAYS', 90, { max: 3650 }),
+  maxActiveAppointmentsPerLink: envInt('B2B2C_ACTIVE_APPOINTMENTS_PER_LINK', SCHEDULING_LIMITS.maxActiveAppointmentsPerLink, { min: 1, max: 100000 }),
+  maxActiveAppointments: envInt('B2B2C_MAX_ACTIVE_APPOINTMENTS', SCHEDULING_LIMITS.maxActiveAppointments, { min: 1, max: 1000000 }),
+  maxTerminalAppointmentsPerLink: envInt('B2B2C_TERMINAL_APPOINTMENTS_PER_LINK', SCHEDULING_LIMITS.maxTerminalAppointmentsPerLink, { min: 1, max: 1000000 }),
+  maxTerminalAppointments: envInt('B2B2C_MAX_TERMINAL_APPOINTMENTS', SCHEDULING_LIMITS.maxTerminalAppointments, { min: 1, max: 5000000 }),
+  appointmentRetentionDays: envInt('B2B2C_APPOINTMENT_RETENTION_DAYS', SCHEDULING_LIMITS.appointmentRetentionDays, { min: 1, max: 36500 }),
+  reminderRetentionDays: envInt('B2B2C_SCHEDULING_REMINDER_RETENTION_DAYS', SCHEDULING_LIMITS.reminderRetentionDays, { min: 1, max: 3650 }),
+  maxReminderStates: envInt('B2B2C_MAX_APPOINTMENT_REMINDER_STATES', SCHEDULING_LIMITS.maxReminderStates, { min: 1, max: 5000000 }),
+  maxReminderOutbox: envInt('B2B2C_MAX_SCHEDULING_REMINDER_OUTBOX', SCHEDULING_LIMITS.maxReminderOutbox, { min: 1, max: 5000000 }),
 };
 validateCommunicationHabitsLimits(B2B2C_LIMITS);
 const B2B2C_RATE = {
@@ -181,7 +195,24 @@ const B2B2C_RATE = {
   progressMutationIp: envInt('B2B2C_PROGRESS_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
   progressExportAccount: envInt('B2B2C_PROGRESS_EXPORT_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
   progressExportIp: envInt('B2B2C_PROGRESS_EXPORT_IP_MAX', 600, { min: 1, max: 100000 }),
+  schedulingMutationAccount: envInt('B2B2C_SCHEDULING_MUTATION_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
+  schedulingMutationIp: envInt('B2B2C_SCHEDULING_MUTATION_IP_MAX', 300, { min: 1, max: 100000 }),
+  schedulingStatusAccount: envInt('B2B2C_SCHEDULING_REMINDER_STATUS_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  schedulingStatusIp: envInt('B2B2C_SCHEDULING_REMINDER_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
+  schedulingReadAccount: envInt('B2B2C_SCHEDULING_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
+  schedulingReadIp: envInt('B2B2C_SCHEDULING_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
+const REMINDER_DISPATCH_CONFIG = Object.freeze({
+  tickMs: envInt('B2B2C_SCHEDULING_REMINDER_TICK_MS', REMINDER_DISPATCH_DEFAULTS.tickMs, { min: 50, max: 3600000 }),
+  leaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.leaseMs, { min: 1000, max: 86400000 }),
+  baseRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_BASE_MS', REMINDER_DISPATCH_DEFAULTS.baseRetryMs, { min: 1000, max: 86400000 }),
+  maxRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_MAX_MS', REMINDER_DISPATCH_DEFAULTS.maxRetryMs, { min: 1000, max: 7 * 86400000 }),
+  maxAttempts: envInt('B2B2C_SCHEDULING_REMINDER_MAX_ATTEMPTS', REMINDER_DISPATCH_DEFAULTS.maxAttempts, { min: 1, max: 100 }),
+  batchSize: envInt('B2B2C_SCHEDULING_REMINDER_BATCH_SIZE', REMINDER_DISPATCH_DEFAULTS.batchSize, { min: 1, max: 10000 }),
+  lockLeaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.lockLeaseMs, { min: 1000, max: 300000 }),
+  lockTimeoutMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_TIMEOUT_MS', REMINDER_DISPATCH_DEFAULTS.lockTimeoutMs, { min: 50, max: 300000 }),
+  lockRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_RETRY_MS', REMINDER_DISPATCH_DEFAULTS.lockRetryMs, { min: 1, max: 10000 }),
+});
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
@@ -217,6 +248,12 @@ const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 const integrations = createIntegrations({ dataDir: DATA, secret: SECRET, version: '1' });
 
 const dbFile = path.join(DATA, 'db.json');
+const dbWriteLock = createInterprocessLock({
+  lockPath: dbFile + '.lock',
+  leaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
+  acquireTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
+  retryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+});
 const dbTxnFile = dbFile + '.txn';
 const dbTxnOldFile = dbFile + '.txn.old';
 const dbTxnNewFile = dbFile + '.txn.new';
@@ -275,7 +312,8 @@ function loadDb() {
     }
   }
 }
-let db = loadDb();
+let db = dbWriteLock.withLockSync(() => loadDb());
+let persistedDb = structuredClone(db);
 let b2b2cMigrated = false;
 try {
   for (const key of ['users', 'creds', 'subs', 'invites', 'deviceLinks']) {
@@ -312,7 +350,7 @@ const isOwner = user => !!user && isAdmin(user) && user.id === ownerId();
 // way: loadDb falls back to it. A copy of the version being replaced, as it used to be, lost
 // whatever the last save wrote (a profile just created) when db.json was later found unreadable.
 // A write cut short leaves the previous db.json.bak whole (temporary file and rename).
-function saveDb(candidate = db) {
+function saveDbUnlocked(candidate = db) {
   const failMarker = process.env.B2B2C_DB_FAIL_FILE;
   if (failMarker && fs.existsSync(failMarker)) {
     fs.unlinkSync(failMarker);
@@ -337,9 +375,19 @@ function saveDb(candidate = db) {
   atomicWrite(dbTxnFile, JSON.stringify({ phase: 'committed' }), 0o600);
   removeDbTransactionFiles();
 }
+function replaceDbObject(target, source) {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, structuredClone(source));
+}
+function saveDb(candidate = db) {
+  return dbWriteLock.withLockSync(() => {
+    saveDbUnlocked(candidate);
+    persistedDb = structuredClone(candidate);
+  });
+}
 function publishDb(candidate) {
-  for (const key of Object.keys(db)) delete db[key];
-  Object.assign(db, candidate);
+  replaceDbObject(db, candidate);
+  persistedDb = structuredClone(candidate);
 }
 if (b2b2cMigrated) saveDb();
 // Flushed before and after the rename (durable.js): a host reset must not bring back the file
@@ -494,10 +542,12 @@ if (Array.isArray(db.subs)) {
 async function sendPush(userId, payload, deviceId) {
   let subs = db.subs.filter(s => s.userId === userId);
   if (deviceId) subs = subs.filter(s => !s.deviceId || s.deviceId === deviceId);
-  if (!subs.length) return;
+  if (!subs.length) return { status: 'unavailable', delivered: 0 };
   const body = JSON.stringify(payload);
   let dirty = false;
   let next = 0;
+  let delivered = 0;
+  let transientFailures = 0;
   const worker = async () => {
     while (next < subs.length) {
       const sub = subs[next++];
@@ -505,7 +555,7 @@ async function sendPush(userId, payload, deviceId) {
       // that is private (however it got into db.json) is dropped here rather than connected to.
       const bad = pushEndpointError(sub.endpoint);
       if (bad) {
-        console.error('push endpoint refused', userId, bad);
+        console.error('push endpoint refused', bad);
         db.subs = db.subs.filter(s => s.endpoint !== sub.endpoint); dirty = true;
         continue;
       }
@@ -517,15 +567,16 @@ async function sendPush(userId, payload, deviceId) {
       try {
         await webpush.sendNotification({ endpoint: sub.endpoint, keys: sub.keys }, body,
           { urgency: 'high', timeout: PUSH_TIMEOUT_MS, agent: PUSH_AGENT });
+        delivered++;
       } catch (e) {
-        console.error('push send failed', userId, e.statusCode, e.body || e.message);
+        console.error('push send failed', e.statusCode || 'network');
         // 404/410: the push service says the subscription is gone. 403: it refuses our VAPID
         // signature — a subscription made against a key this instance no longer has (data/vapid.json
         // regenerated). Neither will ever deliver again; keeping them only hides the fact from the
         // Settings toggle, which reads the browser's side. The client re-subscribes on its next boot.
         if (e.statusCode === 404 || e.statusCode === 410 || e.statusCode === 403) {
           db.subs = db.subs.filter(s => s.endpoint !== sub.endpoint); dirty = true;
-        }
+        } else transientFailures++;
       }
     }
   };
@@ -537,6 +588,8 @@ async function sendPush(userId, payload, deviceId) {
   // memory, so only the copy on disk lags: the next saveDb() that succeeds, from any route,
   // writes it out, and a restart re-reads the old file and prunes it again on the next send.
   if (dirty) { try { saveDb(); } catch (e) { console.error('push: could not save db.json', e.message); } }
+  if (delivered) return { status: 'delivered', delivered };
+  return { status: transientFailures ? 'retry' : 'unavailable', delivered: 0 };
 }
 
 // Rest-timer alerts: client schedules on start/extend, cancels on skip or on-screen completion —
@@ -2730,17 +2783,126 @@ const progressRoutes = createProgressRoutes({
     exportIp: B2B2C_RATE.progressExportIp,
   },
 });
+const schedulingDbWrites = new SerialWriteQueue();
+const schedulingCollections = [
+  'coachAvailability', 'coachAppointments', 'schedulingReminderPreferences', 'appointmentReminderStates', 'schedulingReminderOutbox',
+];
+const latestSchedulingDb = () => {
+  const latest = loadDb();
+  migrateB2B2C(latest);
+  compactB2B2C(latest, B2B2C_LIMITS);
+  return latest;
+};
+const withSchedulingDbTransaction = transform => schedulingDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestSchedulingDb();
+  const result = transform(latest);
+  if (result?.changed) {
+    validateSchedulingState(latest, B2B2C_LIMITS);
+    saveDbUnlocked(latest);
+    publishDb(latest);
+  }
+  return result;
+}));
+const commitSchedulingDb = (candidate, base = persistedDb, keys = schedulingCollections) => schedulingDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestSchedulingDb();
+  const merged = mergeDbCandidate(latest, base, candidate, { keys });
+  validateSchedulingState(merged, B2B2C_LIMITS);
+  saveDbUnlocked(merged);
+  publishDb(merged);
+}));
+const schedulingRoutes = createSchedulingRoutes({
+  audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
+  makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb, cursorSecret: SECRET,
+  commitCandidate: commitSchedulingDb,
+});
+const appointmentReminderDispatcher = createReminderDispatcher({
+  transaction: withSchedulingDbTransaction,
+  deliver: async ({ userId, idempotencyKey }) => {
+    const result = await sendPush(userId, appointmentReminderPush(idempotencyKey));
+    if (result.status === 'delivered') return result;
+    if (result.status === 'unavailable') return { status: 'retry', confirmed: true };
+    return { status: 'uncertain' };
+  },
+  logger: { error: message => console.error(message) },
+  config: REMINDER_DISPATCH_CONFIG,
+});
+const REMINDER_STATUS_ACCOUNT = createWindow({ max: B2B2C_RATE.schedulingStatusAccount, windowMs: B2B2C_RATE.windowMs });
+const REMINDER_STATUS_IP = createWindow({ max: B2B2C_RATE.schedulingStatusIp, windowMs: B2B2C_RATE.windowMs });
+const reminderBacklog = (nowMs = Date.now()) => {
+  const backlog = {};
+  let oldestDue = null;
+  let activeLeases = 0;
+  let expiredLeases = 0;
+  for (const item of db.schedulingReminderOutbox) {
+    backlog[item.status] = (backlog[item.status] || 0) + 1;
+    if ((item.status === 'pending' || item.status === 'retry') && Date.parse(item.nextAttemptAt || item.scheduledFor) <= nowMs) {
+      const due = Date.parse(item.nextAttemptAt || item.scheduledFor);
+      oldestDue = oldestDue === null ? due : Math.min(oldestDue, due);
+    }
+    if (item.status === 'processing' || item.status === 'delivery_started') {
+      if (Date.parse(item.leaseExpiresAt) > nowMs) activeLeases++;
+      else expiredLeases++;
+    }
+  }
+  for (const status of ['pending', 'processing', 'delivery_started', 'retry', 'delivered', 'delivery_uncertain', 'failed', 'canceled']) backlog[status] ||= 0;
+  return {
+    backlog,
+    oldestDueAgeSeconds: oldestDue === null ? null : Math.max(0, Math.floor((nowMs - oldestDue) / 1000)),
+    leases: { active: activeLeases, expired: expiredLeases },
+    totals: { retry: backlog.retry, failed: backlog.failed, delivery_uncertain: backlog.delivery_uncertain },
+  };
+};
+const reminderHealth = () => {
+  const summary = reminderBacklog();
+  return summary.backlog.delivery_uncertain > 0 || summary.leases.expired > 0 ? 'degraded' : 'ok';
+};
+
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const routes = {
   ...communicationHabitsRoutes,
   ...progressRoutes,
+  ...schedulingRoutes,
   // 503 rather than a flag in a 200: the container healthcheck is `wget --spider`, which reads
   // the status and nothing else, and an instance that cannot write its data directory is exactly
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
   'GET /api/health': async (req, res) => {
     if (!dataWritable()) return json(res, 503, { ok: false, writable: false });
-    json(res, 200, { ok: true, users: db.users.length, writable: true });
+    json(res, 200, { ok: true, users: db.users.length, writable: true, schedulingReminders: reminderHealth() });
+  },
+
+  'GET /api/admin/scheduling-reminders/status': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const wait = Math.max(REMINDER_STATUS_ACCOUNT.take(admin.id), REMINDER_STATUS_IP.take(limitAddress(req)));
+    if (wait) {
+      auditFail(req, 'admin.scheduling-reminders.status.throttled', { ok: false, user: admin, msg: 'rate_limited' });
+      return json(res, 429, { error: 'too many requests', code: 'rate_limited' }, { 'Retry-After': String(wait) });
+    }
+    const summary = reminderBacklog();
+    const storageLock = await dbWriteLock.inspect();
+    audit(req, 'admin.scheduling-reminders.status', { user: admin, msg: reminderHealth() });
+    json(res, 200, {
+      dispatcher: appointmentReminderDispatcher.status(),
+      ...summary,
+      storageLock,
+      config: {
+        tickMs: REMINDER_DISPATCH_CONFIG.tickMs,
+        deliveryLeaseMs: REMINDER_DISPATCH_CONFIG.leaseMs,
+        lockLeaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
+        lockTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
+        lockRetryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+        retryBaseMs: REMINDER_DISPATCH_CONFIG.baseRetryMs,
+        retryMaxMs: REMINDER_DISPATCH_CONFIG.maxRetryMs,
+        maxAttempts: REMINDER_DISPATCH_CONFIG.maxAttempts,
+        batchSize: REMINDER_DISPATCH_CONFIG.batchSize,
+        retentionDays: B2B2C_LIMITS.reminderRetentionDays,
+        maxStates: B2B2C_LIMITS.maxReminderStates,
+        maxOutbox: B2B2C_LIMITS.maxReminderOutbox,
+        statusRateAccount: B2B2C_RATE.schedulingStatusAccount,
+        statusRateIp: B2B2C_RATE.schedulingStatusIp,
+        rateWindowMs: B2B2C_RATE.windowMs,
+      },
+    });
   },
 
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
@@ -3623,6 +3785,9 @@ const routes = {
     candidateLink.updatedAt = now;
     if (body.status === 'suspended') { candidateLink.suspendedAt = now; candidateLink.suspendedBy = actor.id; }
     if (body.status === 'ended') { candidateLink.endedAt = now; candidateLink.endedBy = actor.id; }
+    if (['suspended', 'ended'].includes(body.status)) {
+      cancelFutureAppointmentsForLink(candidate, link.id, 'relationship_' + body.status, actor.id, Date.parse(now));
+    }
     const compactionResult = compactB2B2C(candidate, B2B2C_LIMITS);
     try { saveDb(candidate); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'relationship transition could not be saved'); }
@@ -4322,13 +4487,21 @@ const routes = {
     const u = db.users.find(x => x.id === body.id);
     if (!u) return json(res, 404, { error: 'no such user' });
     if (isAdmin(u)) return json(res, 400, { error: 'cannot disable an admin' });
-    u.disabled = !!body.disabled;
-    if (u.disabled) presence.delete(u.id);   // drop them off "training now" at once
+    const candidate = structuredClone(db);
+    const candidateUser = candidate.users.find(x => x.id === u.id);
+    candidateUser.disabled = !!body.disabled;
+    if (candidateUser.disabled) presence.delete(candidateUser.id);   // drop them off "training now" at once
     // A device link made before the lock would otherwise still be waiting when it is lifted.
-    if (u.disabled) dropDeviceLinks(db, u.id);
-    saveDb();
-    audit(req, u.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: u });
-    json(res, 200, { ok: true, id: u.id, disabled: u.disabled });
+    if (candidateUser.disabled) dropDeviceLinks(candidate, candidateUser.id);
+    const nowMs = Date.now();
+    for (const appointment of candidate.coachAppointments.filter(item => item.coachId === candidateUser.id || item.athleteId === candidateUser.id)) {
+      reconcileAppointmentReminders(candidate, appointment, nowMs, { userId: candidateUser.id });
+    }
+    try { await commitSchedulingDb(candidate, persistedDb, [...schedulingCollections, 'users', 'deviceLinks']); }
+    catch { return json(res, 503, { error: 'account status could not be saved', code: 'storage_unavailable' }); }
+    const published = db.users.find(x => x.id === candidateUser.id);
+    audit(req, published.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: published });
+    json(res, 200, { ok: true, id: published.id, disabled: published.disabled });
   },
 
   // Disable locks an account out; this removes it. The one destructive action in the app, so the
@@ -4752,6 +4925,68 @@ const server = http.createServer(async (req, res) => {
     key = req.method + ' /api/athlete/prescriptions/{routineId}/adopt';
     req.routineId = athletePrescription[1];
   }
+  if (url.pathname === '/api/coach/availability') key = req.method + ' /api/coach/availability';
+  if (url.pathname === '/api/coach/appointments') key = req.method + ' /api/coach/appointments';
+  const coachAppointments = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/appointments$/.exec(url.pathname);
+  if (coachAppointments) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/appointments';
+    req.athleteId = coachAppointments[1];
+  }
+  const coachAvailabilitySlots = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/availability-slots$/.exec(url.pathname);
+  if (coachAvailabilitySlots) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/availability-slots';
+    req.athleteId = coachAvailabilitySlots[1];
+  }
+  const coachAppointmentAttendance = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/attendance$/.exec(url.pathname);
+  if (coachAppointmentAttendance) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/attendance';
+    req.appointmentId = coachAppointmentAttendance[1];
+  }
+  const coachAppointmentReschedule = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/reschedule$/.exec(url.pathname);
+  if (coachAppointmentReschedule) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/reschedule';
+    req.appointmentId = coachAppointmentReschedule[1];
+  }
+  const coachAppointmentCancel = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)\/cancel$/.exec(url.pathname);
+  if (coachAppointmentCancel) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}/cancel';
+    req.appointmentId = coachAppointmentCancel[1];
+  }
+  const coachAppointmentItem = /^\/api\/coach\/appointments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (coachAppointmentItem) {
+    key = req.method + ' /api/coach/appointments/{appointmentId}';
+    req.appointmentId = coachAppointmentItem[1];
+  }
+  const athleteAvailabilitySlots = /^\/api\/athlete\/coaches\/([A-Za-z0-9_-]+)\/availability-slots$/.exec(url.pathname);
+  if (athleteAvailabilitySlots) {
+    key = req.method + ' /api/athlete/coaches/{coachId}/availability-slots';
+    req.coachId = athleteAvailabilitySlots[1];
+  }
+  if (url.pathname === '/api/athlete/appointments') key = req.method + ' /api/athlete/appointments';
+  const athleteCoachAppointments = /^\/api\/athlete\/coaches\/([A-Za-z0-9_-]+)\/appointments$/.exec(url.pathname);
+  if (athleteCoachAppointments) {
+    key = req.method + ' /api/athlete/coaches/{coachId}/appointments';
+    req.coachId = athleteCoachAppointments[1];
+  }
+  const athleteAppointmentCancel = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)\/cancel$/.exec(url.pathname);
+  if (athleteAppointmentCancel) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}/cancel';
+    req.appointmentId = athleteAppointmentCancel[1];
+  }
+  const athleteAppointmentReschedule = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)\/reschedule$/.exec(url.pathname);
+  if (athleteAppointmentReschedule) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}/reschedule';
+    req.appointmentId = athleteAppointmentReschedule[1];
+  }
+  const athleteAppointmentItem = /^\/api\/athlete\/appointments\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+  if (athleteAppointmentItem) {
+    key = req.method + ' /api/athlete/appointments/{appointmentId}';
+    req.appointmentId = athleteAppointmentItem[1];
+  }
+  if (url.pathname === '/api/scheduling/reminder-preferences') {
+    key = req.method + ' /api/scheduling/reminder-preferences';
+  }
+
   const handler = routes[key];
   if (!handler) return json(res, 404, { error: 'not found' });
   if (!csrfOk(req, key)) {
@@ -4821,7 +5056,22 @@ server.headersTimeout = 60000;
 // port that was actually bound: with PORT=0 the OS picks one, and a caller that did not choose it
 // (the tests spawn the server that way, and so does anyone running two instances on one box) has
 // no other way to learn it.
-server.listen(PORT, () => console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`));
+server.listen(PORT, () => {
+  console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`);
+  appointmentReminderDispatcher.start();
+  appointmentReminderDispatcher.startTick();
+});
+
+let shuttingDown = false;
+async function shutdownServer() {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.close();
+  try { await appointmentReminderDispatcher.stop(); }
+  finally { process.exit(0); }
+}
+process.once('SIGTERM', shutdownServer);
+process.once('SIGINT', shutdownServer);
 
 // The server's own command for a locked-out owner or admin (#584, recover.js): asked over a local
 // socket only this process's user can open (admin-socket.js explains why not by editing db.json).

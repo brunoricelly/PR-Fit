@@ -79,3 +79,13 @@ export function nudgePush(lang, tone, routine, iso) {
   const name = routine?.name || 'openGym';
   return { title: copy.title, body: line.replace('{0}', () => name), tag: 'nudge' };
 }
+
+export function appointmentReminderPush(idempotencyKey) {
+  return {
+    type: 'appointment_reminder',
+    idempotencyKey,
+    title: 'Upcoming appointment',
+    body: 'Your scheduled appointment starts soon.',
+    tag: idempotencyKey,
+  };
+}
