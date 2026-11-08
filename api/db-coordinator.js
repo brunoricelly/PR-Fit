@@ -99,17 +99,29 @@ function quarantineName(lockPath, label, token) {
   return `${lockPath}.${label}-${safe}-${process.pid}-${crypto.randomBytes(6).toString('hex')}`;
 }
 
+function isPidDead(pid) {
+  if (typeof pid !== 'number' || !Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return false;
+  } catch (error) {
+    return error.code === 'ESRCH';
+  }
+}
+
 function expiredSnapshot(lockPath, leaseMs, now) {
   const identity = directoryIdentity(lockPath);
   if (!identity) return null;
   const owner = readOwner(lockPath);
+  const ownerDead = owner && isPidDead(owner.pid);
   const expiresAt = owner?.expiresAt ?? identity.mtimeMs + leaseMs;
-  if (expiresAt > now()) return null;
+  if (!ownerDead && expiresAt > now()) return null;
   const verifiedOwner = readOwner(lockPath);
   const verifiedIdentity = directoryIdentity(lockPath);
   if (!sameIdentity(identity, verifiedIdentity)) return null;
   if ((owner?.token || null) !== (verifiedOwner?.token || null)) return null;
-  if ((verifiedOwner?.expiresAt ?? verifiedIdentity.mtimeMs + leaseMs) > now()) return null;
+  const verifiedDead = verifiedOwner && isPidDead(verifiedOwner.pid);
+  if (!verifiedDead && (verifiedOwner?.expiresAt ?? verifiedIdentity.mtimeMs + leaseMs) > now()) return null;
   return { token: verifiedOwner?.token || null, identity: verifiedIdentity };
 }
 
@@ -233,8 +245,10 @@ export function createInterprocessLock({
       const identity = directoryIdentity(lockPath);
       if (!identity) return { active: false, expired: false };
       const owner = readOwner(lockPath);
+      const ownerDead = owner && isPidDead(owner.pid);
       const expiresAt = owner?.expiresAt ?? identity.mtimeMs + leaseMs;
-      return { active: expiresAt > now(), expired: expiresAt <= now() };
+      const active = !ownerDead && expiresAt > now();
+      return { active, expired: !active };
     },
   };
 }

@@ -5354,6 +5354,7 @@ let shuttingDown = false;
 async function shutdownServer() {
   if (shuttingDown) return;
   shuttingDown = true;
+  server.closeAllConnections?.();
   server.close();
   try { await appointmentReminderDispatcher.stop(); }
   finally { process.exit(0); }
