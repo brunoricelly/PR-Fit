@@ -83,6 +83,13 @@ const StructuralBalance = lazyView(() => import('./views/StructuralBalance.jsx')
 const ProgressPhotos = lazyView(() => import('./views/ProgressPhotos.jsx'))
 const ProfessionalHub = lazyView(() => import('./views/ProfessionalHub.jsx'))
 const SchedulingView = lazyView(() => import('./views/SchedulingView.jsx'))
+const CoachGroupsView = lazyView(() => import('./views/coach/CoachGroupsView.jsx'))
+const CoachChallengesView = lazyView(() => import('./views/coach/CoachChallengesView.jsx'))
+const CoachGroupProgramsView = lazyView(() => import('./views/coach/CoachGroupProgramsView.jsx'))
+const AthleteGroupsView = lazyView(() => import('./views/athlete/AthleteGroupsView.jsx'))
+const AthleteChallengesView = lazyView(() => import('./views/athlete/AthleteChallengesView.jsx'))
+const AthleteGroupProgramsView = lazyView(() => import('./views/athlete/AthleteGroupProgramsView.jsx'))
+const CommunityHub = lazyView(() => import('./views/CommunityHub.jsx'))
 // The tabs and screens past Home (Stats, History, the Library, Settings, ...) as well: a start
 // only needs Home, and these are fetched right behind it the same way.
 const CheckIn = lazyView(() => import('./views/CheckIn.jsx'))
@@ -354,6 +361,17 @@ function Shell() {
       <Route path="/settings/:page" element={<SettingsRoute />} />
             <Route path="/professionals" element={<ProfessionalHub />} />
       <Route path="/scheduling" element={<SchedulingView />} />
+      <Route path="/coach/groups" element={user?.profile?.kind === 'coach' ? <CoachGroupsView /> : <Navigate to="/athlete/groups" replace />} />
+      <Route path="/coach/challenges" element={user?.profile?.kind === 'coach' ? <CoachChallengesView /> : <Navigate to="/athlete/challenges" replace />} />
+      <Route path="/coach/programs" element={user?.profile?.kind === 'coach' ? <CoachGroupProgramsView /> : <Navigate to="/athlete/programs" replace />} />
+      <Route path="/athlete/groups" element={<AthleteGroupsView />} />
+      <Route path="/athlete/challenges" element={<AthleteChallengesView />} />
+      <Route path="/athlete/programs" element={<AthleteGroupProgramsView />} />
+      <Route path="/community" element={<CommunityHub />} />
+      <Route path="/join" element={<AthleteGroupsView />} />
+      <Route path="/groups" element={user?.profile?.kind === 'coach' ? <Navigate to="/coach/groups" replace /> : <Navigate to="/athlete/groups" replace />} />
+      <Route path="/challenges" element={user?.profile?.kind === 'coach' ? <Navigate to="/coach/challenges" replace /> : <Navigate to="/athlete/challenges" replace />} />
+      <Route path="/group-programs" element={user?.profile?.kind === 'coach' ? <Navigate to="/coach/programs" replace /> : <Navigate to="/athlete/programs" replace />} />
       {/* The Coach screens gate themselves on the instance config; the routes exist whenever the
           AI Coach module is on, so a deep link from a notification lands somewhere sane rather
           than on the catch-all. With the module off, Home is the sane place. */}

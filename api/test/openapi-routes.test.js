@@ -18,7 +18,10 @@ const read = f => fs.readFileSync(f, 'utf8');
 const spec = read(path.join(API, 'openapi.yaml'));
 
 /** Every `'GET /api/x': async (req, res)` key in the route table. */
-const routeKeys = src => [...src.matchAll(/^\s*'(GET|POST|PUT|PATCH|DELETE) (\/api\/[^']*)':/gm)].map(m => `${m[1]} ${m[2]}`);
+const routeKeys = src => [
+  ...src.matchAll(/^\s*'(GET|POST|PUT|PATCH|DELETE) (\/api\/[^']*)':/gm),
+  ...src.matchAll(/^\s*routes\['(GET|POST|PUT|PATCH|DELETE) (\/api\/[^']*)'\]\s*=/gm),
+].map(m => `${m[1]} ${m[2]}`);
 
 /** Every operation under `paths:`, as "METHOD /path". */
 function specOperations(yaml) {
@@ -42,6 +45,8 @@ test('every route the server registers is in openapi.yaml, and nothing else is',
     ...routeKeys(read(path.join(API, 'scheduling.js'))),
     ...routeKeys(read(path.join(API, 'communication-habits.js'))),
     ...routeKeys(read(path.join(API, 'progress-analytics.js'))),
+    ...routeKeys(read(path.join(API, 'challenges.js'))),
+    ...routeKeys(read(path.join(API, 'group-programs.js'))),
     ...routeKeys(read(path.join(API, 'coach', 'routes.js'))),
     ...routeKeys(read(path.join(API, 'integrations', 'routes.js')))
   ]);

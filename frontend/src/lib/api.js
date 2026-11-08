@@ -82,6 +82,13 @@ async function request(url, init, ms) {
   const expired = new Promise((_, reject) => {
     if (ms > 0) timer = setTimeout(() => { if (ctl) ctl.abort(); reject(failure(t('The server did not answer in time.'), 'timeout')) }, ms)
   })
+  if (init?.signal && ctl) {
+    if (init.signal.aborted) {
+      ctl.abort(init.signal.reason)
+    } else {
+      init.signal.addEventListener('abort', () => ctl.abort(init.signal.reason), { once: true })
+    }
+  }
   const answer = exchange(url, ctl ? Object.assign({}, init, { signal: ctl.signal }) : init)
   answer.catch(() => {})   // it may still settle after the timeout has answered; nobody is listening then
   try { return await Promise.race([answer, expired]) }

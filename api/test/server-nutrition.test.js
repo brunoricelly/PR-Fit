@@ -91,7 +91,7 @@ test('nutrition plans and daily adherence are isolated, bounded and atomic', asy
   t.after(async () => stop(server));
 
   let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 8);
+  assert.equal(stored.schemaVersion, 9);
   assert.deepEqual(stored.mealPlans, []);
   assert.deepEqual(stored.mealAdherence, []);
 

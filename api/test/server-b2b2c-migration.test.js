@@ -128,7 +128,7 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   await boundPort(server.child, server.log);
   await stop(server.child);
   const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-  assert.equal(stored.schemaVersion, 8);
+  assert.equal(stored.schemaVersion, 9);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
   assert.deepEqual(stored.coachPrescriptions, []);
@@ -142,16 +142,20 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   assert.deepEqual(stored.progressReports, []);
   assert.deepEqual(stored.coachAvailability, []);
   assert.deepEqual(stored.coachAppointments, []);
+  assert.deepEqual(stored.coachGroups, []);
+  assert.deepEqual(stored.groupMembers, []);
+  assert.deepEqual(stored.challenges, []);
+  assert.deepEqual(stored.challengeScores, []);
 });
 
-test('known schema versions migrate to version 8', async t => {
-  for (const schemaVersion of [1, 2, 3, 4, 5, 6, 7]) {
+test('known schema versions migrate to version 9', async t => {
+  for (const schemaVersion of [1, 2, 3, 4, 5, 6, 7, 8]) {
     const sample = fixture(t, { schemaVersion, users: [], creds: [], subs: [], invites: [] });
     const server = start(sample.dataDir);
     await boundPort(server.child, server.log);
     await stop(server.child);
     const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
-    assert.equal(stored.schemaVersion, 8);
+    assert.equal(stored.schemaVersion, 9);
     assert.deepEqual(stored.coachInvites, []);
     assert.deepEqual(stored.coachAthleteLinks, []);
     assert.deepEqual(stored.coachPrescriptions, []);

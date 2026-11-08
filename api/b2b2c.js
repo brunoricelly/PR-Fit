@@ -8,8 +8,14 @@ import {
 import {
   compactSchedulingState, migrateSchedulingState, removeSchedulingUser, validateSchedulingState,
 } from './scheduling.js';
+import {
+  compactChallengesState, removeChallengesUser, validateChallengesState, CHALLENGE_LIMITS,
+} from './challenges.js';
+import {
+  compactGroupProgramsState, removeGroupProgramsUser, validateGroupProgramsState, GROUP_PROGRAM_LIMITS,
+} from './group-programs.js';
 
-export const B2B2C_SCHEMA_VERSION = 8;
+export const B2B2C_SCHEMA_VERSION = 9;
 export const COACH_SCOPES = ['training', 'nutrition', 'assessments'];
 export const B2B2C_LIMITS = {
   maxAssessmentsPerAthlete: 200,
@@ -34,6 +40,8 @@ export const B2B2C_LIMITS = {
   maxFailedAccountCleanupJobs: 10000,
   accountCleanupCompleteRetentionDays: 90,
   accountCleanupFailedRetentionDays: 365,
+  ...CHALLENGE_LIMITS,
+  ...GROUP_PROGRAM_LIMITS,
 };
 
 export const PARQ_VERSION = '2024.1';
@@ -77,7 +85,7 @@ export function migrateB2B2C(db) {
     if (db.schemaVersion > B2B2C_SCHEMA_VERSION) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is newer than supported version ${B2B2C_SCHEMA_VERSION}`);
     }
-    if (![1, 2, 3, 4, 5, 6, 7, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
+    if (![1, 2, 3, 4, 5, 6, 7, 8, B2B2C_SCHEMA_VERSION].includes(db.schemaVersion)) {
       throw new B2B2CDataError(`schemaVersion ${db.schemaVersion} is not a known migration source`);
     }
     if (db.schemaVersion < B2B2C_SCHEMA_VERSION) {
@@ -85,7 +93,7 @@ export function migrateB2B2C(db) {
       changed = true;
     }
   }
-  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs', 'coachAvailability', 'coachAppointments']) {
+  for (const key of ['coachInvites', 'coachAthleteLinks', 'coachPrescriptions', 'coachAssessments', 'mealPlans', 'mealAdherence', 'coachMessages', 'coachHabits', 'habitCheckins', 'accountCleanupJobs', 'coachAvailability', 'coachAppointments', 'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions']) {
     if (db[key] === undefined) { db[key] = []; changed = true; continue; }
     if (!Array.isArray(db[key])) throw new B2B2CDataError(`${key} must be an array`);
   }
@@ -155,6 +163,10 @@ export function migrateB2B2C(db) {
   catch (error) { throw new B2B2CDataError(error.message); }
   try { changed = migrateSchedulingState(db) || changed; }
   catch (error) { throw new B2B2CDataError(error.message); }
+  try { validateChallengesState(db, B2B2C_LIMITS); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  try { validateGroupProgramsState(db, B2B2C_LIMITS); }
+  catch (error) { throw new B2B2CDataError(error.message); }
   return changed;
 }
 
@@ -197,6 +209,14 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   db.accountCleanupJobs ||= [];
   db.coachAvailability ||= [];
   db.coachAppointments ||= [];
+  db.coachGroups ||= [];
+  db.groupMembers ||= [];
+  db.groupInvites ||= [];
+  db.challenges ||= [];
+  db.challengeScores ||= [];
+  db.challengeActivityFeed ||= [];
+  db.groupPrograms ||= [];
+  db.groupProgramAdoptions ||= [];
   const maxPrescriptions = limits.maxPrescriptions ?? 5000;
   const terminalPrescriptionsKeep = limits.terminalPrescriptionsKeep ?? 1000;
   const nowIso = new Date(nowMs).toISOString();
@@ -396,6 +416,14 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
   try { scheduling = compactSchedulingState(db, limits, nowMs); }
   catch (error) { throw new B2B2CDataError(error.message); }
   changed = changed || scheduling.changed;
+  let challenges;
+  try { challenges = compactChallengesState(db, limits, nowMs); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  changed = changed || challenges.changed;
+  let programs;
+  try { programs = compactGroupProgramsState(db, limits, nowMs); }
+  catch (error) { throw new B2B2CDataError(error.message); }
+  changed = changed || programs.changed;
   return {
     changed, invites: keptInvites.length, links: keptLinks.length,
     prescriptions: keptPrescriptions.length, assessments: db.coachAssessments.length,
@@ -403,6 +431,8 @@ export function compactB2B2C(db, limits, nowMs = Date.now()) {
     messages: db.coachMessages.length, habits: db.coachHabits.length, checkins: db.habitCheckins.length,
     goals: db.progressGoals.length, reports: db.progressReports.length,
     availability: db.coachAvailability.length, appointments: db.coachAppointments.length,
+    groups: db.coachGroups.length, members: db.groupMembers.length, groupPrograms: db.groupPrograms.length,
+    challenges: db.challenges.length, scores: db.challengeScores.length,
     expiredAssessments,
   };
 }
@@ -937,6 +967,8 @@ export function removeB2B2CUser(db, userId) {
   removeCommunicationHabitsUser(db, userId);
   removeProgressUser(db, userId);
   removeSchedulingUser(db, userId);
+  removeChallengesUser(db, userId);
+  removeGroupProgramsUser(db, userId);
   db.coachInvites = db.coachInvites.filter(invite => invite.coachId !== userId && invite.acceptedBy !== userId);
   db.coachAthleteLinks = db.coachAthleteLinks.filter(link => link.coachId !== userId && link.athleteId !== userId);
   db.coachPrescriptions = db.coachPrescriptions.filter(item => item.coachId !== userId && item.athleteId !== userId);

@@ -24,6 +24,21 @@ test('an active lock is not stolen, an expired lock is recovered, and a foreign 
   assert.equal((await second.inspect()).active, true);
   assert.equal(await recovered.release(), true);
   assert.equal(fs.existsSync(lockPath), false);
+
+  // Orphan lock from a dead process is recovered immediately without waiting for clock
+  fs.mkdirSync(lockPath, { mode: 0o700 });
+  let deadPid = 999999;
+  while (true) {
+    try { process.kill(deadPid, 0); deadPid++; }
+    catch (e) { if (e.code === 'ESRCH') break; deadPid++; }
+  }
+  fs.writeFileSync(path.join(lockPath, 'owner.json'), JSON.stringify({
+    token: 'dead_owner', pid: deadPid, acquiredAt: clock, expiresAt: clock + 100_000,
+  }));
+  const deadRecovered = await second.acquire();
+  assert.equal(typeof deadRecovered.token, 'string');
+  assert.equal(await deadRecovered.release(), true);
+  assert.equal(fs.existsSync(lockPath), false);
 });
 
 test('a held lock refreshes its lease until the owner releases it', async t => {

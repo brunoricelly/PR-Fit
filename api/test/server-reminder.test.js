@@ -39,7 +39,8 @@ async function startServer(t, subs = []) {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', REMINDER_TICK_MS: '300' }
   });
-  const h = { api: '', dataDir, child, log: '' };
+  const exit = new Promise(resolve => child.once('exit', resolve));
+  const h = { api: '', dataDir, child, log: '', exit };
   child.stdout.on('data', d => h.log += d);
   child.stderr.on('data', d => h.log += d);
   t.after(() => { child.kill('SIGKILL'); fs.rmSync(dataDir, { recursive: true, force: true }); });
@@ -213,6 +214,7 @@ test('a disabled profile gets no reminder', async t => {
   const db = JSON.parse(fs.readFileSync(path.join(h.dataDir, 'db.json'), 'utf8'));
   assert.equal(db.users[0].id, 'u_test_1');
   h.child.kill('SIGKILL');
+  await h.exit;
   db.users[0].disabled = true;
   fs.writeFileSync(path.join(h.dataDir, 'db.json'), JSON.stringify(db));
   fs.writeFileSync(path.join(h.dataDir, 'state-u_test_1.json'), goodState(late.hhmm));

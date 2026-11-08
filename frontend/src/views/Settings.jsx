@@ -1327,6 +1327,30 @@ function SettingsRoot({ ctx, preview, open, user, sync, home, go, entryKey }) {
           title={p('Appointments')}
           subtitle={p('Manage availability, sessions and reminders')}
           accessory="chevron" onClick={() => nav('/scheduling')} />}
+        {user && !DEMO && user.profile?.kind === 'coach' && <Row icon="person" iconTint="var(--acc)"
+          title={p('Community & Groups')}
+          subtitle={p('Manage groups, athlete roster and invites')}
+          accessory="chevron" onClick={() => nav('/coach/groups')} />}
+        {user && !DEMO && user.profile?.kind === 'coach' && <Row icon="trophy" iconTint="var(--orange)"
+          title={p('Group challenges')}
+          subtitle={p('Leaderboards, custom scoring and milestones')}
+          accessory="chevron" onClick={() => nav('/coach/challenges')} />}
+        {user && !DEMO && user.profile?.kind === 'coach' && <Row icon="calendar" iconTint="var(--blue)"
+          title={p('Collective programs')}
+          subtitle={p('Publish group routine versions')}
+          accessory="chevron" onClick={() => nav('/coach/programs')} />}
+        {user && !DEMO && user.profile?.kind !== 'coach' && <Row icon="person" iconTint="var(--acc)"
+          title={p('My groups')}
+          subtitle={p('Join community groups and connect with teammates')}
+          accessory="chevron" onClick={() => nav('/athlete/groups')} />}
+        {user && !DEMO && user.profile?.kind !== 'coach' && <Row icon="trophy" iconTint="var(--orange)"
+          title={p('Group challenges')}
+          subtitle={p('Climb the community leaderboards')}
+          accessory="chevron" onClick={() => nav('/athlete/challenges')} />}
+        {user && !DEMO && user.profile?.kind !== 'coach' && <Row icon="calendar" iconTint="var(--blue)"
+          title={p('Collective programs')}
+          subtitle={p('Adopt group workout programs')}
+          accessory="chevron" onClick={() => nav('/athlete/programs')} />}
       </Section>
       {ROOT_GROUPS.map(g => g.filter(id => pageVisible(id, ctx))).filter(g => g.length).map(g => (
         <Section key={g[0]}>
