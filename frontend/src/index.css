@@ -612,7 +612,8 @@ h4.sec{
 }
 :root[data-theme="light"] #tabbar{background:rgba(249,249,251,.94)}
 #tabbar button{
-  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  min-height:44px;min-width:44px;box-sizing:border-box;
   color:var(--label-2);font-size:10px;font-weight:500;letter-spacing:.005em;padding-top:3px;
   transition:color var(--fast);
 }
@@ -3271,4 +3272,43 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 @media (max-width:360px){
   .kpis .tile{padding:10px 11px}
   .kpis .tile .v{font-size:var(--fs-title3)}
+}
+
+/* Dual-Role Navigation Bar */
+.shell-dual-role-bar {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  background: var(--bg-el, var(--ds-surface-base, #121814));
+  background: color-mix(in srgb, var(--bg-el, #121814) 94%, transparent);
+  border-bottom: 1px solid var(--sep, var(--ds-border-subtle, #2d3931));
+  padding: 4px 12px;
+  -webkit-backdrop-filter: saturate(180%) blur(10px);
+  backdrop-filter: saturate(180%) blur(10px);
+}
+:root[data-theme="light"] .shell-dual-role-bar {
+  background: rgba(249, 249, 251, 0.94);
+}
+.shell-dual-role-inner {
+  max-width: 960px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.shell-dual-role-current {
+  font-size: 13px;
+  color: var(--label-2, var(--ds-text-secondary, #b6c1ba));
+}
+.shell-dual-role-current strong {
+  color: var(--acc, var(--ds-color-brand, #35d06f));
+}
+@media (max-width: 480px) {
+  .shell-dual-role-inner {
+    justify-content: center;
+  }
+  .shell-dual-role-current {
+    display: none;
+  }
 }

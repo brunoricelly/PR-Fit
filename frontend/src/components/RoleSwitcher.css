@@ -1,0 +1,50 @@
+.ds-role-switcher-container {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 4px 0 8px;
+}
+
+.ds-role-switcher {
+  display: inline-flex;
+  align-items: center;
+  background: var(--surface-2, var(--ds-surface-subtle, #1a231d));
+  border: 1px solid var(--sep, var(--ds-border-subtle, #2d3931));
+  border-radius: var(--r-full, var(--ds-radius-full, 999px));
+  padding: 3px;
+  gap: 4px;
+}
+
+.ds-role-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 16px;
+  border-radius: var(--r-full, var(--ds-radius-full, 999px));
+  border: none;
+  background: transparent;
+  color: var(--label-2, var(--ds-text-secondary, #b6c1ba));
+  font-size: var(--fs-subhead, var(--ds-font-size-sm, 14px));
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+}
+
+.ds-role-tab:hover {
+  color: var(--label, var(--ds-text-primary, #ffffff));
+}
+
+.ds-role-tab.active,
+.ds-role-tab[aria-selected="true"] {
+  background: var(--acc, var(--ds-color-brand, #35d06f));
+  color: var(--on-acc, var(--ds-color-on-brand, #07140c));
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.ds-role-tab .icn {
+  font-size: 18px;
+}

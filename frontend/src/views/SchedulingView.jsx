@@ -24,6 +24,7 @@ import {
 } from '../lib/scheduling-api.js'
 import { dateLocale } from '../lib/i18n.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
+import { useActiveRole } from '../lib/roles.js'
 import Icon from '../components/Icon.jsx'
 import EmptyState from '../components/EmptyState.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
@@ -1917,12 +1918,20 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
     return initialTab || new URLSearchParams(location.search).get('tab') || ''
   }, [initialTab, location.search])
 
+  const [globalRole, setGlobalRole] = useActiveRole(user)
+
   const [roleMode, setRoleMode] = useState(() => {
     if (initialRole) return initialRole
     if (queryRole === 'athlete') return 'athlete'
     if (queryTab === 'book') return 'athlete'
-    return isCoach ? 'coach' : 'athlete'
+    return globalRole || (isCoach ? 'coach' : 'athlete')
   })
+
+  useEffect(() => {
+    if (!initialRole && !queryRole && !queryTab && globalRole && globalRole !== roleMode) {
+      setRoleMode(globalRole)
+    }
+  }, [globalRole, initialRole, queryRole, queryTab, roleMode])
 
   const [activeTab, setActiveTab] = useState(() => {
     if (queryTab) return queryTab
@@ -1973,6 +1982,7 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   const handleSwitchRole = mode => {
     if (mode === roleMode) return
     setRoleMode(mode)
+    setGlobalRole(mode)
     if (mode === 'athlete' && activeTab === 'availability') {
       setActiveTab('book')
     } else if (mode === 'coach' && activeTab === 'book') {

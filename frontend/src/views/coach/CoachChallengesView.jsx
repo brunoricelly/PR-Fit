@@ -303,9 +303,9 @@ export default function CoachChallengesView({ embedded = false }) {
     <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && (
         <div className="pro-nav">
-          <button type="button" onClick={() => navigate('/professionals')}>
+          <button type="button" onClick={() => navigate('/community')}>
             <Icon name="chevronLeft" />
-            <span>{p('My athletes')}</span>
+            <span>{p('Community')}</span>
           </button>
         </div>
       )}

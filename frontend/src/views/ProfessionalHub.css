@@ -1,6 +1,6 @@
 .pro-page{padding-bottom:30px}
 .pro-nav{margin-bottom:10px}
-.pro-nav button{display:inline-flex;align-items:center;gap:4px;min-height:44px;color:var(--acc-ink);background:none;font-size:var(--fs-subhead)}
+.pro-nav button{display:inline-flex;align-items:center;justify-content:center;gap:4px;min-height:44px;min-width:44px;color:var(--acc-ink);background:none;font-size:var(--fs-subhead)}
 .pro-hero{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
 .pro-hero>div{min-width:0}.pro-hero>.icn{flex:none;font-size:34px;color:var(--acc-ink);margin-top:6px}
 .pro-kicker{display:block;color:var(--label-2);font-size:var(--fs-footnote);font-weight:600;text-transform:uppercase;letter-spacing:.06em}

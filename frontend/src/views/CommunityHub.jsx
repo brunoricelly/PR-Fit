@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../store/useStore.js'
 import { professionalText as p } from '../lib/professional-copy.js'
+import { useActiveRole } from '../lib/roles.js'
 import Icon from '../components/Icon.jsx'
 import CoachGroupsView from './coach/CoachGroupsView.jsx'
 import CoachChallengesView from './coach/CoachChallengesView.jsx'
@@ -26,12 +27,25 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
     return new URLSearchParams(location.search).get('role') || ''
   }, [location.search])
 
+  const [globalRole, setGlobalRole, isDual] = useActiveRole(user)
+
   const [roleMode, setRoleMode] = useState(() => {
     if (defaultRole) return defaultRole
     if (queryRole === 'coach') return 'coach'
     if (queryRole === 'athlete') return 'athlete'
-    return isCoach ? 'coach' : 'athlete'
+    return globalRole || (isCoach ? 'coach' : 'athlete')
   })
+
+  React.useEffect(() => {
+    if (!defaultRole && !queryRole && globalRole && globalRole !== roleMode) {
+      setRoleMode(globalRole)
+    }
+  }, [globalRole, defaultRole, queryRole, roleMode])
+
+  const handleRoleSwitch = mode => {
+    setRoleMode(mode)
+    setGlobalRole(mode)
+  }
 
   const [section, setSection] = useState(querySection)
 
@@ -41,9 +55,9 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
     <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && (
         <div className="pro-nav">
-          <button type="button" onClick={() => navigate(isCoach ? '/professionals' : '/settings')}>
+          <button type="button" onClick={() => navigate(location.state?.from || '/home')}>
             <Icon name="chevronLeft" />
-            <span>{isCoach ? p('My athletes') : p('Settings')}</span>
+            <span>Início</span>
           </button>
         </div>
       )}
@@ -57,7 +71,7 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
               role="tab"
               aria-selected={roleMode === 'coach'}
               className={`gc-filter-btn ${roleMode === 'coach' ? 'active' : ''}`}
-              onClick={() => setRoleMode('coach')}
+              onClick={() => handleRoleSwitch('coach')}
             >
               {p('Coach view') || 'Coach view'}
             </button>
@@ -66,7 +80,7 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
               role="tab"
               aria-selected={roleMode === 'athlete'}
               className={`gc-filter-btn ${roleMode === 'athlete' ? 'active' : ''}`}
-              onClick={() => setRoleMode('athlete')}
+              onClick={() => handleRoleSwitch('athlete')}
             >
               {p('Athlete view') || 'Athlete view'}
             </button>

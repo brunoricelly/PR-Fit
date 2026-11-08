@@ -7,17 +7,85 @@ import Icon from './Icon.jsx'
 import Elapsed from './Elapsed.jsx'
 import { useConnectionTrouble } from './SyncBanner.jsx'
 import { retapTab } from '../lib/scroll-top.js'
+import { useActiveRole } from '../lib/roles.js'
 
-// Module scope, not TabBar's render body. Declared inside it, `Tab` was a new function on every
-// render, so React saw a different component type each time and threw the button away and built a
-// fresh one — on a bar that is fixed on screen, and once a second for the whole of a rest. The
-// state it took with it is the DOM node itself: focus, the :active tint, any in-flight transition.
 function Tab({ active, icon, label, onClick, dot, tour }) {
   return (
-    <button className={active ? 'on' : ''} onClick={onClick} data-tour={tour} aria-label={dot ? label + ', ' + t('Connection problem') : undefined}>
-      <span className="tab-ic"><Icon name={icon} />{dot && <span className="tab-dot" aria-hidden="true" />}</span><span>{label}</span>
+    <button
+      className={active ? 'on' : ''}
+      onClick={onClick}
+      data-tour={tour}
+      aria-label={dot ? label + ', ' + t('Connection problem') : undefined}
+    >
+      <span className="tab-ic">
+        <Icon name={icon} />
+        {dot && <span className="tab-dot" aria-hidden="true" />}
+      </span>
+      <span>{label}</span>
     </button>
   )
+}
+
+function resolveActiveTabKey(pathname, search, role, availableKeys, state) {
+  const parts = pathname.split('/')
+  const cur = parts[1] || 'home'
+  const sub = parts[2] || ''
+
+  if (role === 'coach') {
+    if (cur === 'professionals') {
+      if (search.includes('tab=nutrition') && availableKeys.has('nutrition')) {
+        return 'nutrition'
+      }
+      return 'professionals'
+    }
+    if (cur === 'home' || cur === 'checkin') return 'home'
+    if (cur === 'plan') return 'plan'
+    if (cur === 'scheduling') return 'scheduling'
+    if (cur === 'community' || cur === 'groups' || cur === 'challenges' || cur === 'group-programs' || (cur === 'coach' && ['groups', 'challenges', 'programs'].includes(sub))) {
+      return 'community'
+    }
+    if (cur === 'settings' || cur === 'admin') return 'settings'
+    if (availableKeys.has(cur)) return cur
+    return 'home'
+  }
+
+  if (role === 'athlete') {
+    if (cur === 'home' || cur === 'checkin') return 'home'
+    if (cur === 'plan') return 'plan'
+    if (['stats', 'history', 'structural-balance', 'progress-photos', 'measurements'].includes(cur)) return 'stats'
+    if (cur === 'muscles') return 'stats'
+    if (cur === 'community' || cur === 'join' || cur === 'groups' || cur === 'challenges' || cur === 'group-programs' || cur === 'athlete') {
+      return 'community'
+    }
+    if (cur === 'settings' || cur === 'professionals' || cur === 'scheduling' || cur === 'admin') return 'settings'
+    if (availableKeys.has(cur)) return cur
+    return 'home'
+  }
+
+  // Legacy resolution
+  if (cur === 'workout') return 'workout'
+  const PARENT = {
+    history: 'stats',
+    'structural-balance': 'stats',
+    'progress-photos': 'stats',
+    measurements: 'stats',
+    settings: 'home',
+    professionals: 'home',
+    scheduling: 'home',
+    checkin: 'home',
+    muscles: 'library',
+    coach: 'home',
+    athlete: 'home',
+    groups: 'home',
+    challenges: 'home',
+    'group-programs': 'home',
+    community: 'home',
+    join: 'home',
+  }
+  const parent = cur === 'muscles' && state?.from === '/stats' ? 'stats' : PARENT[cur]
+  if (availableKeys.has(cur)) return cur
+  if (parent && availableKeys.has(parent)) return parent
+  return 'home'
 }
 
 export default function TabBar({ onStart }) {
@@ -26,52 +94,119 @@ export default function TabBar({ onStart }) {
   const S = useStore(s => s.S)
   const user = useStore(s => s.user)
   const isGuest = useStore(s => s.isGuest())
-  // With the connection banner switched off, a sync problem shows as a dot on Home, the tab
-  // Settings lives under (#369, #330).
   const trouble = useConnectionTrouble()
-  if (!user && !isGuest) return null
-  const cur = loc.pathname.split('/')[1] || 'home'
-  // A screen without a tab of its own lights the tab it is opened from (Muscles from both).
-  const PARENT = { history: 'stats', 'structural-balance': 'stats', 'progress-photos': 'stats', measurements: 'stats', settings: 'home', professionals: 'home', scheduling: 'home', checkin: 'home', muscles: 'library', coach: 'home', athlete: 'home', groups: 'home', challenges: 'home', 'group-programs': 'home', community: 'home', join: 'home' }
-  const parent = cur === 'muscles' && loc.state?.from === '/stats' ? 'stats' : PARENT[cur]
-  const on = k => cur === k || parent === k
+  const [activeRole] = useActiveRole(user)
 
-  // Root tabs are peers, not another level to unwind with Android Back. The tab you are already
-  // on takes you to the top of its page instead (lib/scroll-top.js).
+  if (!user && !isGuest) return null
+
   const switchTab = path => {
     if (loc.pathname !== path || loc.search) nav(path, { replace: true })
     else retapTab(path)
   }
 
+  const cur = loc.pathname.split('/')[1] || 'home'
   const running = !!S.active && cur !== 'workout' && !S.active.editingWorkoutId && !S.active.backfill && S.active.start > 0
+
   const startWorkout = () => {
     if (!S.active) {
-      // A weekday can hold several routines; start the combined session if any of them has
-      // exercises, otherwise fall through to the picker.
-      if (effectiveRoutines(S, todayISO()).some(r => r.ex.length)) { onStart(effectiveRoutineIds(S, todayISO())); return }
+      if (effectiveRoutines(S, todayISO()).some(r => r.ex.length)) {
+        onStart(effectiveRoutineIds(S, todayISO()))
+        return
+      }
     }
     nav('/workout')
   }
 
+  // Determine role-based vs legacy structure
+  const hasProfileKind = Boolean(user?.profile?.kind)
+  const isCoach = hasProfileKind && activeRole === 'coach'
+  const isAthlete = hasProfileKind && activeRole === 'athlete'
+
+  if (isCoach) {
+    const hasNutrition = Boolean(
+      user?.profile?.coachSpecialties?.includes('nutrition') ||
+      user?.coachSpecialties?.includes('nutrition')
+    )
+
+    const coachTabs = [
+      { key: 'home', path: '/home', icon: 'house', label: t('Home'), tour: 'tab-home', dot: trouble },
+      { key: 'professionals', path: '/professionals', icon: 'person', label: t('Athletes'), tour: 'tab-athletes' },
+      { key: 'plan', path: '/plan', icon: 'calendar', label: t('Workouts'), tour: 'tab-plan' },
+      ...(hasNutrition ? [{ key: 'nutrition', path: '/professionals?tab=nutrition', icon: 'scale', label: t('Nutrition'), tour: 'tab-nutrition' }] : []),
+      { key: 'scheduling', path: '/scheduling', icon: 'clock', label: t('Schedule'), tour: 'tab-schedule' },
+      { key: 'community', path: '/community', icon: 'trophy', label: t('Community'), tour: 'tab-community' },
+      { key: 'settings', path: '/settings', icon: 'gear', label: t('Settings'), tour: 'tab-settings' },
+    ]
+
+    const availableKeys = new Set(coachTabs.map(t => t.key))
+    const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'coach', availableKeys, loc.state)
+
+    return (
+      <nav id="tabbar" className="coach-tabbar">
+        {coachTabs.map(tab => (
+          <Tab
+            key={tab.key}
+            active={tab.key === activeKey}
+            icon={tab.icon}
+            label={tab.label}
+            dot={tab.dot}
+            onClick={() => switchTab(tab.path)}
+            tour={tab.tour}
+          />
+        ))}
+      </nav>
+    )
+  }
+
+  if (isAthlete) {
+    const athleteTabs = [
+      { key: 'home', path: '/home', icon: 'house', label: t('Today'), tour: 'tab-home', dot: trouble },
+      { key: 'plan', path: '/plan', icon: 'calendar', label: t('My plan'), tour: 'tab-plan' },
+      { key: 'stats', path: '/stats', icon: 'chart', label: t('Evolution'), tour: 'tab-stats' },
+      { key: 'community', path: '/community', icon: 'trophy', label: t('Community'), tour: 'tab-community' },
+      { key: 'settings', path: '/settings', icon: 'person', label: t('Profile'), tour: 'tab-settings' },
+    ]
+
+    const availableKeys = new Set(athleteTabs.map(t => t.key))
+    const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'athlete', availableKeys, loc.state)
+
+    return (
+      <nav id="tabbar" className="athlete-tabbar">
+        {athleteTabs.map(tab => (
+          <Tab
+            key={tab.key}
+            active={tab.key === activeKey}
+            icon={tab.icon}
+            label={tab.label}
+            dot={tab.dot}
+            onClick={() => switchTab(tab.path)}
+            tour={tab.tour}
+          />
+        ))}
+      </nav>
+    )
+  }
+
+  // Legacy fallback for tests or unconfigured profiles
+  const legacyKeys = new Set(['home', 'plan', 'workout', 'stats', 'library'])
+  const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'legacy', legacyKeys, loc.state)
+
   return (
     <nav id="tabbar">
-      <Tab active={on('home')} icon="house" label={t('Home')} dot={trouble} onClick={() => switchTab('/home')} tour="tab-home" />
-      <Tab active={on('plan')} icon="calendar" label={t('Plan')} onClick={() => switchTab('/plan')} tour="tab-plan" />
-      {/* On the workout screen itself there is nothing to resume, so the button reads as the
-          tab it is and stays lit (#29); anywhere else it brings you back to the exercise you
-          were on — the marker is kept in S.active.cur and never moves on its own (#21). The
-          glyph is always play: start and resume are one concept, and an exercise is a dumbbell.
-          A live session you stepped away from shows its running time instead of a word, the
-          button still named Resume; a past workout being edited or logged after the fact has no
-          clock to run. */}
-      <button data-tour="start" className={'start' + (S.active ? ' rec' : '') + (S.active && cur === 'workout' ? ' on' : '')} onClick={startWorkout}
-        aria-label={running ? t('Resume') : undefined}>
+      <Tab active={activeKey === 'home'} icon="house" label={t('Home')} dot={trouble} onClick={() => switchTab('/home')} tour="tab-home" />
+      <Tab active={activeKey === 'plan'} icon="calendar" label={t('Plan')} onClick={() => switchTab('/plan')} tour="tab-plan" />
+      <button
+        data-tour="start"
+        className={'start' + (S.active ? ' rec' : '') + (activeKey === 'workout' ? ' on' : '')}
+        onClick={startWorkout}
+        aria-label={running ? t('Resume') : undefined}
+      >
         <span className="cir"><Icon name="play" /></span>
         {running ? <span className="tab-time"><Elapsed start={S.active.start} /></span>
           : <span>{S.active ? (cur === 'workout' ? t('Workout') : S.active.editingWorkoutId ? t('Edit workout') : t('Resume')) : t('Start')}</span>}
       </button>
-      <Tab active={on('stats')} icon="chart" label={t('Stats')} onClick={() => switchTab('/stats')} tour="tab-stats" />
-      <Tab active={on('library')} icon="dumbbell" label={t('Exercises')} onClick={() => switchTab('/library')} tour="tab-library" />
+      <Tab active={activeKey === 'stats'} icon="chart" label={t('Stats')} onClick={() => switchTab('/stats')} tour="tab-stats" />
+      <Tab active={activeKey === 'library'} icon="dumbbell" label={t('Exercises')} onClick={() => switchTab('/library')} tour="tab-library" />
     </nav>
   )
 }

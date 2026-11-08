@@ -10,8 +10,10 @@
 .pro-sched-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  min-height: 40px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 8px 16px;
   border-radius: var(--r-full, 999px);
   border: 1px solid var(--separator);

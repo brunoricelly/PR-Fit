@@ -20,8 +20,10 @@
 .gc-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  min-height: 42px;
+  min-height: 44px;
+  min-width: 44px;
   padding: 8px 18px;
   border-radius: var(--r-full, 999px);
   border: 1px solid var(--separator, #e5e7eb);
@@ -64,7 +66,12 @@
 }
 
 .gc-filter-btn {
-  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 8px 16px;
   border-radius: 999px;
   font-size: var(--fs-footnote, 13px);
   font-weight: 500;

@@ -39,6 +39,8 @@ import { useTour, tourState, openTour, readTour, shouldOffer, resumeAt } from '.
 import { exitWorkoutEdit, startFlow, beginWorkout, bwSheet } from './sheets.jsx'
 import Icon from './components/Icon.jsx'
 import TabBar from './components/TabBar.jsx'
+import RoleSwitcher from './components/RoleSwitcher.jsx'
+import { useActiveRole } from './lib/roles.js'
 import ScrollTopButton from './components/ScrollTopButton.jsx'
 import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
@@ -301,6 +303,7 @@ function Shell() {
   // The chat owns the bottom of the screen as well: its composer sits where the tabs would be.
   // The first-launch card has no tabs either: they changed the route behind it.
   const noTabs = inWorkout || loc.pathname === '/coach' || needsMobileOnboarding || permSteps
+  const [activeRole, setActiveRole, isDual] = useActiveRole(user)
 
   const authed = user || isGuest
   // The first setup is through (sign-in or "Use on this device", and the phone's permission
@@ -387,6 +390,16 @@ function Shell() {
 
   return (
     <>
+      {authed && isDual && !inWorkout && (
+        <aside className="shell-dual-role-bar" aria-label="Controle de papel do usuário">
+          <div className="shell-dual-role-inner">
+            <span className="shell-dual-role-current">
+              Modo ativo: <strong>{activeRole === 'coach' ? 'Treinador' : 'Aluno'}</strong>
+            </span>
+            <RoleSwitcher activeRole={activeRole} onSwitch={setActiveRole} />
+          </div>
+        </aside>
+      )}
       {/* One page per route, keyed on it: a view that throws is contained, and switching tabs
           re-mounts the boundary, so the tab bar is always a way out. While an edge swipe back
           is under way the page it goes back to sits underneath (Page `under`), and as the swipe
