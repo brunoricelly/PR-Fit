@@ -247,7 +247,7 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
     </div>
 
     <div className="pro-division-editors">{routine.divisions.map((division, divisionIndex) => <section key={divisionIndex} className="pro-division-editor">
-      <div className="pro-division-head" style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
+      <div className="pro-division-head">
         <Field label={p('Division')} required error={errors[`division-${divisionIndex}`]} style={{ flex: 1, margin: 0 }}>
           <TextField name={`division-${divisionIndex + 1}`} value={division.name} maxLength={80}
             onChange={event => {
@@ -271,7 +271,7 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
       <Button size="sm" icon="plus" onClick={() => addExercise(divisionIndex)}>{p('Add exercise')}</Button>
     </section>)}</div>
 
-    <div className="pro-editor-footer-actions" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, marginTop: 14 }}>
+    <div className="pro-editor-footer-actions">
       <Button size="sm" icon="plus" onClick={addDivision}>{p('Add division')}</Button>
       <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
     </div>

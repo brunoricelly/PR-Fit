@@ -2453,16 +2453,6 @@ export const PT_BR_OVERRIDES = {
   "Role switch": "Alternar papel",
   "Coach view": "Visão do treinador",
   "Athlete view": "Visão do aluno",
-  "Perceived effort (RPE)": "Esforço percebido (PSE)",
-  "Coach feedback": "Feedback para o treinador",
-  "How did the session feel? Leave feedback for your coach.": "Como foi o treino? Deixe um feedback para o seu treinador.",
-  "Send feedback": "Enviar feedback",
-  "Feedback sent to coach.": "Feedback enviado ao treinador.",
-  "Adopt as active routine": "Adotar como rotina ativa",
-  "Prescrito por {0}": "Prescrito por {0}",
-  "Treino do treinador": "Treino do treinador",
-  "Ao adotar, o treino prescrito se torna sua rotina ativa. Seu histórico anterior permanece 100% intacto.": "Ao adotar, o treino prescrito se torna sua rotina ativa. Seu histórico anterior permanece 100% intacto.",
-  "Adotar como rotina ativa": "Adotar como rotina ativa",
 }
 
 export default { ...pt, ...PT_BR_OVERRIDES }

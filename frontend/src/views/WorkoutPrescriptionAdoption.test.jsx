@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { DEF, useStore } from '../store/useStore.js'
+import { _setLangState } from '../lib/i18n-core.js'
 import { useUI } from '../store/useUI.js'
 import Workout from './Workout.jsx'
 
@@ -87,10 +88,10 @@ describe('Workout Prescription Adoption in StartChooser', () => {
     expect(host.querySelector('.pro-prescription-banner')).toBeTruthy()
     expect(host.textContent).toContain('Hipertrofia ABCD Avançado')
     expect(host.textContent).toContain('Coach Ricardo')
-    expect(host.textContent).toContain('3 divisões')
+    expect(host.textContent).toMatch(/3 divisões|3 divisions/)
     expect(host.textContent).toContain('A, B, C')
     expect(host.textContent).toContain('Priorizar amplitude e descanso.')
-    expect(host.textContent).toContain('Seu histórico anterior permanece 100% intacto.')
+    expect(host.textContent).toMatch(/Seu histórico anterior permanece 100% intacto|Your previous workout history remains 100% intact/)
 
     const adoptBtn = [...host.querySelectorAll('.pro-prescription-banner button')].find(b =>
       b.textContent.includes('Adotar como rotina ativa') || b.textContent.includes('Adopt as active routine')
@@ -113,5 +114,28 @@ describe('Workout Prescription Adoption in StartChooser', () => {
     const storeState = useStore.getState().S
     expect(storeState.workouts.length).toBe(1)
     expect(storeState.workouts[0].id).toBe('w_hist_1')
+  })
+
+  it('renderiza cópia canônica em português do Brasil quando pt-BR está ativo', async () => {
+    _setLangState('pt-BR', {}, null, null)
+    try {
+      await act(async () => {
+        root.render(
+          <MemoryRouter>
+            <Workout />
+          </MemoryRouter>
+        )
+      })
+      await settle()
+
+      expect(host.textContent).toContain('Treino do treinador')
+      expect(host.textContent).toContain('Prescrito por Coach Ricardo')
+      expect(host.textContent).toContain('3 divisões')
+      expect(host.textContent).toContain('Ao adotar, o treino prescrito se torna sua rotina ativa. Seu histórico anterior permanece 100% intacto.')
+      const btn = [...host.querySelectorAll('.pro-prescription-banner button')].find(b => b.textContent.includes('Adotar como rotina ativa'))
+      expect(btn).toBeTruthy()
+    } finally {
+      _setLangState('en', {}, null, null)
+    }
   })
 })

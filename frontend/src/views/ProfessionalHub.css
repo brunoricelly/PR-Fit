@@ -222,16 +222,38 @@
 }
 
 /* Checkpoint 4.2: Workout Prescription & Adoption Styling */
+.pro-routine-editor .btn {
+  min-height: 44px;
+}
+
 .pro-prescription-session-fields {
   margin-top: 14px;
 }
 
 .pro-division-head {
   display: flex;
-  align-items: flex-start;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 10px;
   margin-bottom: 12px;
+}
+
+.pro-division-head .btn,
+.pro-editor-head .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+.pro-division-editor > .btn {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pro-editor-footer-actions {
@@ -240,6 +262,13 @@
   justify-content: space-between;
   gap: 10px;
   margin-top: 16px;
+}
+
+.pro-editor-footer-actions .btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .pro-adoption-guarantee {
@@ -263,6 +292,44 @@
   display: flex;
   align-items: center;
   gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .pro-routine-editor .btn {
+    min-height: 44px;
+    padding: 10px 16px;
+  }
+
+  .pro-division-head {
+    flex-wrap: wrap;
+    align-items: stretch;
+  }
+
+  .pro-division-head .btn {
+    width: 100%;
+    min-height: 44px;
+    margin-top: 6px;
+  }
+
+  .pro-editor-head {
+    align-items: center;
+    gap: 8px;
+  }
+
+  .pro-editor-head .btn {
+    min-height: 44px;
+  }
+
+  .pro-editor-footer-actions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .pro-editor-footer-actions .btn {
+    width: 100%;
+    min-height: 44px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -120,11 +120,96 @@ describe('finish summary: effort rating and coach feedback', () => {
     expect(mocks.sendMessage).toHaveBeenCalledWith(expect.objectContaining({
       side: 'athlete',
       counterpartId: 'coach_1',
-      category: 'workout',
+      category: 'workout_feedback',
     }))
-    expect(mocks.toast).toHaveBeenCalledWith('Feedback enviado ao treinador com sucesso.')
+    expect(mocks.toast).toHaveBeenCalledWith(expect.stringMatching(/Feedback enviado ao treinador|Feedback sent to coach/))
 
     const savedWorkout = S().workouts.at(-1)
     expect(savedWorkout.coachFeedback).toBe('Treino muito bom, consegui manter a carga.')
+  })
+
+  it('lida com falha de requisição ou rede offline exibindo erro e permitindo tentar novamente', async () => {
+    install([clone(bench)])
+    mocks.sendMessage.mockRejectedValueOnce(new Error('Network offline'))
+    act(() => finishWorkoutNow())
+    renderTopSheet()
+    await settle()
+
+    const textarea = host.querySelector('.fin-feedback-section textarea')
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'Treino pesado, falha na conexão.')
+      textarea.dispatchEvent(new Event('input', { bubbles: true }))
+      textarea.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await settle()
+
+    const sendBtn = [...host.querySelectorAll('.fin-feedback-section button')].find(b =>
+      b.textContent.includes('Send feedback') || b.textContent.includes('Enviar feedback')
+    )
+
+    await act(async () => {
+      sendBtn.click()
+    })
+    await settle()
+
+    // Does NOT mark feedbackSent
+    expect(host.querySelector('.fin-feedback-section textarea')).toBeTruthy()
+    // Displays clear error toast
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.stringMatching(/Não foi possível enviar a mensagem ao treinador|Could not send message to coach/)
+    )
+    // Local persistence of workout notes is intact
+    const savedWorkout = S().workouts.at(-1)
+    expect(savedWorkout.coachFeedback).toBe('Treino pesado, falha na conexão.')
+
+    // Retry succeeds
+    mocks.sendMessage.mockResolvedValueOnce({ message: { id: 'msg_2' } })
+    await act(async () => {
+      sendBtn.click()
+    })
+    await settle()
+
+    expect(mocks.sendMessage).toHaveBeenCalledTimes(2)
+    expect(host.querySelector('.fin-feedback-section textarea')).toBeFalsy()
+    expect(mocks.toast).toHaveBeenCalledWith(
+      expect.stringMatching(/Feedback enviado ao treinador|Feedback sent to coach/)
+    )
+  })
+
+  it('impede envio quando navigator.onLine for falso mantendo persistência local e exibindo erro', async () => {
+    install([clone(bench)])
+    const origOnLine = navigator.onLine
+    Object.defineProperty(navigator, 'onLine', { configurable: true, value: false })
+    try {
+      act(() => finishWorkoutNow())
+      renderTopSheet()
+      await settle()
+
+      const textarea = host.querySelector('.fin-feedback-section textarea')
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value').set.call(textarea, 'Offline total no galpão.')
+        textarea.dispatchEvent(new Event('input', { bubbles: true }))
+        textarea.dispatchEvent(new Event('change', { bubbles: true }))
+      })
+      await settle()
+
+      const sendBtn = [...host.querySelectorAll('.fin-feedback-section button')].find(b =>
+        b.textContent.includes('Send feedback') || b.textContent.includes('Enviar feedback')
+      )
+
+      await act(async () => {
+        sendBtn.click()
+      })
+      await settle()
+
+      expect(mocks.sendMessage).not.toHaveBeenCalled()
+      expect(host.querySelector('.fin-feedback-section textarea')).toBeTruthy()
+      expect(mocks.toast).toHaveBeenCalledWith(
+        expect.stringMatching(/Não foi possível enviar a mensagem ao treinador|Could not send message to coach/)
+      )
+      expect(S().workouts.at(-1).coachFeedback).toBe('Offline total no galpão.')
+    } finally {
+      Object.defineProperty(navigator, 'onLine', { configurable: true, value: origOnLine })
+    }
   })
 })

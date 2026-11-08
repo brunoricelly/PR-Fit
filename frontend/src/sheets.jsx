@@ -50,6 +50,7 @@ import { buildPlanBundle, buildProgrammeBundle, parsePlan, mergePlan } from './l
 import PrintPlanSheet from './components/PrintPlanSheet.jsx'
 import { api } from './lib/api.js'
 import { communicationApi } from './lib/communication-api.js'
+import { professionalText as p } from './lib/professional-copy.js'
 import { printWorkout } from './lib/report-print.js'
 import { estimate1RM, best1RM, is1RMRecord, REP_CAP, formulaOf, FORMULA_NAMES } from './lib/onerm.js'
 import { setTrendOn, setTrendsFor, lastTimeBefore, trendGlyph, trendLabel } from './lib/set-trend.js'
@@ -4034,22 +4035,24 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
         saved.coachFeedback = feedback.trim()
         if (effort) saved.effort = effort
       })
-      try {
-        const coachesRes = await api('/api/athlete/coaches')
-        const activeLink = (coachesRes.links || []).find(l => l.status === 'active' && l.scopes?.includes('training'))
-        if (activeLink?.coach?.id) {
-          await communicationApi.sendMessage({
-            side: 'athlete',
-            counterpartId: activeLink.coach.id,
-            content: `[Feedback do Treino: ${w.name || 'Sessão'}] Esforço: ${effort ? `${effort}/10` : 'não informado'}. Comentário: ${feedback.trim()}`,
-            category: 'workout',
-          })
-        }
-      } catch {
-        // Communication is optional; workout local update is primary
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+        throw new Error('offline')
       }
+      const coachesRes = await api('/api/athlete/coaches')
+      const activeLink = (coachesRes?.links || []).find(l => l.status === 'active' && l.scopes?.includes('training'))
+      if (!activeLink?.coach?.id) {
+        throw new Error('no_coach')
+      }
+      await communicationApi.sendMessage({
+        side: 'athlete',
+        counterpartId: activeLink.coach.id,
+        content: `[Feedback do Treino: ${w.name || 'Sessão'}] Esforço: ${effort ? `${effort}/10` : 'não informado'}. Comentário: ${feedback.trim()}`,
+        category: 'workout_feedback',
+      })
       setFeedbackSent(true)
-      toast(t('Feedback enviado ao treinador com sucesso.'))
+      toast(p('Feedback sent to coach.'))
+    } catch {
+      toast(p('Could not send message to coach.'))
     } finally {
       setSendingFeedback(false)
     }
@@ -4073,8 +4076,8 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
 
     {/* Resumo de Esforço Percebido (PSE / RPE) */}
     <div className="fin-effort-section" style={{ textAlign: 'start', margin: '14px 0' }}>
-      <h4 className="sec">{t('Perceived effort (RPE)')}</h4>
-      <div className="fin-effort-grid" role="group" aria-label={t('Perceived effort (RPE)')}>
+      <h4 className="sec">{p('Perceived effort (RPE)')}</h4>
+      <div className="fin-effort-grid" role="group" aria-label={p('Perceived effort (RPE)')}>
         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(level => (
           <button
             key={level}
@@ -4094,20 +4097,20 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
         ))}
       </div>
       <div className="small dim" style={{ marginTop: 4 }}>
-        {effort ? t('Esforço avaliado: {0}/10', effort) : t('Selecione de 1 (muito leve) a 10 (esforço máximo)')}
+        {effort ? p('Rated effort: {0}/10', effort) : p('Select from 1 (very light) to 10 (maximum effort)')}
       </div>
     </div>
 
     {/* Feedback para o treinador */}
     <div className="fin-feedback-section" style={{ textAlign: 'start', margin: '14px 0' }}>
-      <h4 className="sec">{t('Coach feedback')}</h4>
+      <h4 className="sec">{p('Coach feedback')}</h4>
       <p className="small dim" style={{ margin: '0 0 8px' }}>
-        {t('How did the session feel? Leave feedback for your coach.')}
+        {p('How did the session feel? Leave feedback for your coach.')}
       </p>
       {feedbackSent ? (
         <div className="small accent row" style={{ gap: 6 }}>
           <Icon name="checkCircle" />
-          <span>{t('Feedback sent to coach.')}</span>
+          <span>{p('Feedback sent to coach.')}</span>
         </div>
       ) : (
         <div style={{ display: 'grid', gap: 8 }}>
@@ -4116,7 +4119,7 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
             rows={2}
             value={feedback}
             maxLength={500}
-            placeholder={t('Ex: Consegui progredir a carga no supino. Senti leve cansaço nos ombros.')}
+            placeholder={p('e.g. Managed to increase bench press weight. Felt slight fatigue in shoulders.')}
             onChange={e => setFeedback(e.target.value)}
           />
           <Button
@@ -4125,7 +4128,7 @@ function FinishSummary({ w, prs, e1prs = [], additions = [], close }) {
             disabled={!feedback.trim() || sendingFeedback}
             onClick={submitFeedback}
           >
-            {sendingFeedback ? t('Enviando…') : t('Send feedback')}
+            {sendingFeedback ? p('Sending…') : p('Send feedback')}
           </Button>
         </div>
       )}

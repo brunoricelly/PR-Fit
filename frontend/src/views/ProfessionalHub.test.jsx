@@ -431,4 +431,32 @@ describe('ProfessionalHub', () => {
     expect(create.body.routine.divisions[0].exercises[0].notes).toContain('[RPE: 8.5]')
     expect(mocks.toast).toHaveBeenCalledWith('Workout prescription saved.')
   })
+
+  it("ensures prescription secondary buttons (add exercise, remove division) exist in ergonomic containers", async () => {
+    const athlete = { id: "u_athlete_touch", name: "Lucas" }
+    mocks.user = { id: "u_coach", name: "Coach", admin: false, profile: { kind: "coach", coachSpecialties: ["training"] } }
+    mocks.answers["/api/coach/athletes"] = { links: [{ id: "cal_1", status: "active", scopes: ["training"], athlete }] }
+    mocks.answers[`/api/coach/athletes/${athlete.id}/routines`] = { routines: [] }
+    await mount("/professionals")
+
+    await act(async () => { button("Prescribe workout").click() })
+
+    // Check Add division button in footer
+    const addDivBtn = host.querySelector(".pro-editor-footer-actions .btn")
+    expect(addDivBtn).toBeTruthy()
+    expect(addDivBtn.textContent).toContain("Add division")
+
+    // Check Add exercise button in division editor
+    const addExBtns = host.querySelectorAll(".pro-division-editor > .btn")
+    expect(addExBtns.length).toBeGreaterThan(0)
+    expect(addExBtns[0].textContent).toContain("Add exercise")
+
+    // Add division to reveal Remove division button
+    await act(async () => { addDivBtn.click() })
+    await settle()
+
+    const removeDivBtn = host.querySelector(".pro-division-head .btn")
+    expect(removeDivBtn).toBeTruthy()
+    expect(removeDivBtn.textContent).toContain("Remove division")
+  })
 })

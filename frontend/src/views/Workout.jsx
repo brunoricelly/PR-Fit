@@ -17,6 +17,7 @@ import { clampIncline, hasIncline, inclineFits, inclineFrom, INCLINE_STEP } from
 import { beep, vibrate, unlock } from '../lib/sound.js'
 import { pinState } from '../lib/queue.js'
 import { t, tn, exerciseNameFor, exerciseNameClass } from '../lib/i18n.js'
+import { professionalText as p } from '../lib/professional-copy.js'
 import { api, beacon } from '../lib/api.js'
 import { pyramidRestFor, maxRecordAt, isPyramid, pyramidLabel } from '../lib/pyramid.js'
 import { insertionIndexAfterCurrentUnit, nextUnfinishedUnit, setProgressHighWater, supersetFlowStep, restAfterSet, restOnRecheck, restSecFor, warmupRestSecFor, sideRestFor, ownSetRest, ownExerciseRest, stepUnitIndex, advanceAfterTimedRest } from '../lib/supersetFlow.js'
@@ -124,10 +125,10 @@ function StartChooser() {
       <div key={cpr.id} className="card pro-prescription-banner" style={{ borderColor: 'var(--acc)', marginBottom: 14 }}>
         <div className="row between" style={{ alignItems: 'flex-start', marginBottom: 6 }}>
           <div>
-            <span className="tag acc" style={{ marginBottom: 4 }}>{t('Treino do treinador')}</span>
+            <span className="tag acc" style={{ marginBottom: 4 }}>{p('Coach workout')}</span>
             <h2 className="accent" style={{ margin: '4px 0' }}>{cpr.routine.name}</h2>
             <div className="muted small">
-              {t('Prescrito por {0}', cpr.coach?.name || t('Treinador'))} · {cpr.routine.divisions.length} {t('divisões')} ({cpr.routine.divisions.map(d => d.name).join(', ')})
+              {p('Prescribed by {0}', cpr.coach?.name || p('Coach'))} · {cpr.routine.divisions.length} {p('divisions')} ({cpr.routine.divisions.map(d => d.name).join(', ')})
             </div>
           </div>
           <span className="lrow-i" style={{ width: 38, height: 38, borderRadius: 9, fontSize: 'var(--fs-title2)' }}>
@@ -137,7 +138,7 @@ function StartChooser() {
         {cpr.routine.notes && <p className="muted small" style={{ margin: '8px 0' }}>{cpr.routine.notes}</p>}
         <p className="small dim" style={{ margin: '6px 0 12px' }}>
           <Icon name="checkCircle" style={{ verticalAlign: 'middle', marginRight: 4 }} />
-          {t('Ao adotar, o treino prescrito se torna sua rotina ativa. Seu histórico anterior permanece 100% intacto.')}
+          {p('When adopted, the prescribed workout becomes your active routine. Your previous workout history remains 100% intact.')}
         </p>
         <Button
           variant="primary"
@@ -145,7 +146,7 @@ function StartChooser() {
           disabled={adoptingId === cpr.id}
           onClick={() => adopt(cpr)}
         >
-          {adoptingId === cpr.id ? t('Adding…') : t('Adotar como rotina ativa')}
+          {adoptingId === cpr.id ? t('Adding…') : p('Adopt as active routine')}
         </Button>
       </div>
     ))}
