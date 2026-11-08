@@ -32,7 +32,7 @@ describe('professionalText', () => {
   })
 
   it('keeps every shipped professional UI string complete in PT-BR', () => {
-    const sources = ['views/ProfessionalHub.jsx', 'views/Settings.jsx']
+    const sources = ['views/ProfessionalHub.jsx', 'views/Settings.jsx', 'views/coach/CoachGroupsView.jsx']
       .flatMap(file => [...fs.readFileSync(path.join(SRC, file), 'utf8').matchAll(/\bp\('([^']+)'/g)].map(match => match[1]))
     expect([...new Set(sources)].filter(source => !PROFESSIONAL_PT_BR[source])).toEqual([])
   })

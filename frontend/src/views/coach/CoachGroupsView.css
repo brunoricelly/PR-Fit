@@ -1,0 +1,36 @@
+.gc-page.ds-scope { width:min(100%,72rem);margin-inline:auto;padding-bottom:var(--ds-space-12);color:var(--ds-text-primary) }
+.gc-page.ds-scope .pro-nav button { min-width:44px;min-height:44px;color:var(--ds-text-secondary) }
+.gc-page.ds-scope .gc-header { margin-bottom:var(--ds-space-2) }
+.gc-page.ds-scope .gc-toolbar { align-items:end;gap:var(--ds-space-3);margin-bottom:var(--ds-space-5) }
+.gc-page.ds-scope .gc-search-box { flex:1 1 18rem;max-width:32rem }
+.gc-page.ds-scope .gc-card-list { gap:var(--ds-space-3) }
+.gc-page.ds-scope .gc-card { gap:var(--ds-space-3);padding:var(--ds-space-4);border-color:var(--ds-border-subtle);box-shadow:none }
+.gc-page.ds-scope .gc-card-title-group h3 { margin-bottom:var(--ds-space-2);color:var(--ds-text-primary);font-size:var(--ds-font-size-lg);font-weight:var(--ds-font-weight-semibold) }
+.gc-page.ds-scope .pro-routine-note,.gc-page.ds-scope .gc-capacity-meter,.gc-page.ds-scope .gc-member-meta { color:var(--ds-text-secondary);line-height:var(--ds-line-height-body) }
+.gc-page.ds-scope .gc-progress-bar { min-width:5rem;height:8px;background:var(--ds-surface-subtle) }
+.gc-page.ds-scope .gc-progress-fill { background:var(--ds-color-brand) }
+.gc-page.ds-scope .gc-progress-fill.full { background:var(--ds-state-danger) }
+.gc-page.ds-scope .gc-card-actions { margin-top:0;padding-top:var(--ds-space-3);border-color:var(--ds-border-subtle) }
+.gc-page.ds-scope .ds-skeleton-card,.gc-details-skeleton,.gc-athlete-skeleton { display:grid;gap:var(--ds-space-3) }
+.gc-inline-actions,.gc-members-head { display:flex;align-items:center;gap:var(--ds-space-2) }
+.gc-members-head { justify-content:space-between;margin-top:var(--ds-space-4) }
+.gc-page.ds-scope .gc-invite-box { display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-3);padding:var(--ds-space-4);border-style:solid;background:var(--ds-surface-subtle) }
+.gc-page.ds-scope .gc-invite-code { color:var(--ds-text-primary);font-family:var(--ds-font-family-mono) }
+.gc-page.ds-scope .gc-member-list { gap:var(--ds-space-2) }
+.gc-page.ds-scope .gc-member-row { display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-3);padding:var(--ds-space-3);background:var(--ds-surface-subtle) }
+.gc-page.ds-scope .gc-member-name { color:var(--ds-text-primary) }
+.gc-page.ds-scope .pro-modal-form { display:grid;gap:var(--ds-space-4) }
+.gc-page.ds-scope .pro-actions { display:flex;flex-wrap:wrap;justify-content:flex-end;gap:var(--ds-space-2);margin-top:0!important }
+.gc-page.ds-scope .pro-routine-row { display:flex;align-items:center;justify-content:space-between;gap:var(--ds-space-4);padding:var(--ds-space-3) 0 }
+.gc-page.ds-scope .gc-autocomplete-dropdown { border-color:var(--ds-border-subtle);background:var(--ds-surface-base);box-shadow:none }
+.gc-page.ds-scope .gc-autocomplete-static { position:static;max-height:13.75rem;margin-top:0 }
+.gc-page.ds-scope .gc-autocomplete-option { width:100%;min-height:44px;border-radius:0;background:transparent;color:var(--ds-text-primary);text-align:start }
+.gc-page.ds-scope .gc-autocomplete-option:hover,.gc-page.ds-scope .gc-autocomplete-option.selected { background:var(--ds-surface-subtle) }
+.gc-selected-athlete { margin-top:var(--ds-space-2) }
+@media (max-width:30rem) {
+  .gc-page.ds-scope .gc-toolbar,.gc-page.ds-scope .gc-invite-box,.gc-page.ds-scope .gc-member-row,.gc-members-head { align-items:stretch;flex-direction:column }
+  .gc-page.ds-scope .gc-search-box,.gc-page.ds-scope .gc-toolbar>.ds-button,.gc-page.ds-scope .gc-card-actions .ds-button,.gc-page.ds-scope .gc-member-row .ds-button,.gc-page.ds-scope .gc-members-head .ds-button { width:100%;max-width:none }
+  .gc-inline-actions { flex-wrap:wrap }.gc-inline-actions .ds-button { flex:1 1 9rem }
+  .gc-page.ds-scope .gc-capacity-meter { flex-wrap:wrap }.gc-page.ds-scope .gc-progress-bar { flex-basis:100%;order:3 }
+}
+@media (min-width:48rem) { .gc-page.ds-scope .gc-card-list { grid-template-columns:repeat(2,minmax(0,1fr)) }.gc-page.ds-scope .gc-card-list>.pro-actions { grid-column:1/-1 } }

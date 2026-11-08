@@ -102,14 +102,14 @@ export const SearchField = forwardRef(function SearchField({ value, onChange, on
 
 /* ============================ switch ============================ */
 
-export function Switch({ checked, onChange, disabled, ...accessibility }) {
+export function Switch({ checked, onChange, disabled, className = '', ...accessibility }) {
   return (
     <button
       {...accessibility}
       role="switch"
       aria-checked={!!checked}
       disabled={disabled}
-      className={'sw' + (checked ? ' on' : '')}
+      className={'sw' + (checked ? ' on' : '') + (className ? ` ${className}` : '')}
       onClick={() => onChange(!checked)}
     >
       <span className="knob" />
@@ -523,12 +523,35 @@ function require_ui() {
 
 /* ============================ buttons ============================ */
 
-export function Button({ variant = 'plain', size, icon, trailingIcon, children, className = '', ...rest }) {
+export function Button({ variant = 'plain', size, icon, trailingIcon, children, className = '', loading = false, loadingLabel, ...rest }) {
+  const disabled = rest.disabled || loading
   return (
-    <button className={`btn ${variant}${size ? ' ' + size : ''} ${className}`} {...rest}>
-      {icon && <Icon name={icon} />}
+    <button
+      className={`btn ${variant}${size ? ' ' + size : ''}${className ? ` ${className}` : ''}`}
+      {...rest}
+      disabled={disabled}
+      aria-busy={loading || undefined}
+    >
+      {loading ? <span className="ds-button-spinner" aria-hidden="true" /> : (icon && <Icon name={icon} />)}
       {children && <span>{children}</span>}
+      {loading && loadingLabel && <span className="sr-only">{loadingLabel}</span>}
       {trailingIcon && <Icon name={trailingIcon} />}
+    </button>
+  )
+}
+
+export function IconButton({ icon, label, variant = 'secondary', className = '', loading = false, ...rest }) {
+  const disabled = rest.disabled || loading
+  return (
+    <button
+      type="button"
+      className={`ds-icon-button ${variant}${className ? ` ${className}` : ''}`}
+      aria-label={label}
+      aria-busy={loading || undefined}
+      {...rest}
+      disabled={disabled}
+    >
+      {loading ? <span className="ds-button-spinner" aria-hidden="true" /> : <Icon name={icon} />}
     </button>
   )
 }

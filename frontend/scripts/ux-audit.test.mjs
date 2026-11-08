@@ -48,8 +48,8 @@ describe('UX audit visible-English detector', () => {
     const findings = scanVisibleEnglish([file], { exact: new Set(['HH:MM']), patterns: [] })
     expect(findings.map(finding => [finding.kind, finding.value])).toEqual([
       ['aria-label', 'Back'],
-      ['professional-copy', 'No groups created yet'],
       ['jsx-text', 'Try again'],
+      ['professional-copy', 'Untranslated professional action'],
     ])
   })
 

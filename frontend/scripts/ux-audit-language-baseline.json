@@ -87,7 +87,6 @@
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:No active challenges",
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:No completed challenges",
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:Challenges created by your coaches will appear here when active.",
-    "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:Load more",
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:Loading leaderboard…",
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:Refresh",
     "frontend/src/views/athlete/AthleteChallengesView.jsx:professional-copy:No ranking data available yet.",
@@ -102,7 +101,6 @@
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:Programs published by your coach in your community groups will appear here.",
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:exercises",
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:View details",
-    "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:Load more",
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:reps",
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:rest",
     "frontend/src/views/athlete/AthleteGroupProgramsView.jsx:professional-copy:sets",
@@ -119,11 +117,8 @@
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:You are not in any groups yet",
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Join with an invite code from your coach or wait for an invitation.",
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:View members",
-    "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Load more",
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Loading group members…",
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:No other members in this group yet.",
-    "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Member",
-    "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Moderator",
     "frontend/src/views/athlete/AthleteGroupsView.jsx:professional-copy:Leaving…",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Challenge deleted.",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Enter a challenge title.",
@@ -140,7 +135,6 @@
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:All students",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Group",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Group scope",
-    "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Load more",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Loading leaderboard & feed…",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Refresh",
     "frontend/src/views/coach/CoachChallengesView.jsx:professional-copy:Delete challenge",
@@ -184,7 +178,6 @@
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:Published",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:exercises",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:View details",
-    "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:Load more",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:reps",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:rest",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:sets",
@@ -204,37 +197,6 @@
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:Publishing…",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:Are you sure you want to archive this collective program? Existing adoptions will be preserved.",
     "frontend/src/views/coach/CoachGroupProgramsView.jsx:professional-copy:Archiving…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Enter a group name.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Group created successfully.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Invite code rotated.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Code copied to clipboard.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Athlete added to group.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Member removed from group.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Create and manage community groups for your athletes, share challenges, and build team spirit.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Search groups…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:No groups created yet",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:No matching groups",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Create your first group to start building a community with your athletes.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Try a different search term.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Private",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Full",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Load more",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Loading group details…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:No active code",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Copied!",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:No members in this group yet.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Member",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Moderator",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Example: Barbell Elite Club",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Explain the focus, goals, or community guidelines…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Example: Powerlifting, Hypertrophy",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Require invite code or direct invitation to join.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Search among your active athletes with training scope to invite them into this group.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Type athlete name…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Loading athletes…",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:No active training athletes found.",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Selected",
-    "frontend/src/views/coach/CoachGroupsView.jsx:professional-copy:Removing…",
     "frontend/src/views/CommunicationHabits.jsx:professional-copy:No messages yet",
     "frontend/src/views/CommunityHub.jsx:professional-copy:Role switch",
     "frontend/src/views/CommunityHub.jsx:professional-copy:Coach view",
@@ -736,12 +698,6 @@
     },
     {
       "file": "frontend/src/views/athlete/AthleteChallengesView.jsx",
-      "line": 202,
-      "kind": "professional-copy",
-      "value": "Load more"
-    },
-    {
-      "file": "frontend/src/views/athlete/AthleteChallengesView.jsx",
       "line": 217,
       "kind": "professional-copy",
       "value": "Loading leaderboard…"
@@ -823,12 +779,6 @@
       "line": 157,
       "kind": "professional-copy",
       "value": "View details"
-    },
-    {
-      "file": "frontend/src/views/athlete/AthleteGroupProgramsView.jsx",
-      "line": 167,
-      "kind": "professional-copy",
-      "value": "Load more"
     },
     {
       "file": "frontend/src/views/athlete/AthleteGroupProgramsView.jsx",
@@ -928,12 +878,6 @@
     },
     {
       "file": "frontend/src/views/athlete/AthleteGroupsView.jsx",
-      "line": 327,
-      "kind": "professional-copy",
-      "value": "Load more"
-    },
-    {
-      "file": "frontend/src/views/athlete/AthleteGroupsView.jsx",
       "line": 342,
       "kind": "professional-copy",
       "value": "Loading group members…"
@@ -943,18 +887,6 @@
       "line": 355,
       "kind": "professional-copy",
       "value": "No other members in this group yet."
-    },
-    {
-      "file": "frontend/src/views/athlete/AthleteGroupsView.jsx",
-      "line": 362,
-      "kind": "professional-copy",
-      "value": "Member"
-    },
-    {
-      "file": "frontend/src/views/athlete/AthleteGroupsView.jsx",
-      "line": 362,
-      "kind": "professional-copy",
-      "value": "Moderator"
     },
     {
       "file": "frontend/src/views/athlete/AthleteGroupsView.jsx",
@@ -1051,12 +983,6 @@
       "line": 390,
       "kind": "professional-copy",
       "value": "Group scope"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachChallengesView.jsx",
-      "line": 453,
-      "kind": "professional-copy",
-      "value": "Load more"
     },
     {
       "file": "frontend/src/views/coach/CoachChallengesView.jsx",
@@ -1318,12 +1244,6 @@
     },
     {
       "file": "frontend/src/views/coach/CoachGroupProgramsView.jsx",
-      "line": 383,
-      "kind": "professional-copy",
-      "value": "Load more"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupProgramsView.jsx",
       "line": 415,
       "kind": "professional-copy",
       "value": "reps"
@@ -1435,192 +1355,6 @@
       "line": 641,
       "kind": "professional-copy",
       "value": "Archiving…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 135,
-      "kind": "professional-copy",
-      "value": "Enter a group name."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 148,
-      "kind": "professional-copy",
-      "value": "Group created successfully."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 174,
-      "kind": "professional-copy",
-      "value": "Invite code rotated."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 188,
-      "kind": "professional-copy",
-      "value": "Code copied to clipboard."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 212,
-      "kind": "professional-copy",
-      "value": "Athlete added to group."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 231,
-      "kind": "professional-copy",
-      "value": "Member removed from group."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 272,
-      "kind": "professional-copy",
-      "value": "Create and manage community groups for your athletes, share challenges, and build team spirit."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 283,
-      "kind": "professional-copy",
-      "value": "Search groups…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 307,
-      "kind": "professional-copy",
-      "value": "No groups created yet"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 307,
-      "kind": "professional-copy",
-      "value": "No matching groups"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 308,
-      "kind": "professional-copy",
-      "value": "Create your first group to start building a community with your athletes."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 308,
-      "kind": "professional-copy",
-      "value": "Try a different search term."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 334,
-      "kind": "professional-copy",
-      "value": "Private"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 348,
-      "kind": "professional-copy",
-      "value": "Full"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 363,
-      "kind": "professional-copy",
-      "value": "Load more"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 378,
-      "kind": "professional-copy",
-      "value": "Loading group details…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 390,
-      "kind": "professional-copy",
-      "value": "No active code"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 399,
-      "kind": "professional-copy",
-      "value": "Copied!"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 425,
-      "kind": "professional-copy",
-      "value": "No members in this group yet."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 432,
-      "kind": "professional-copy",
-      "value": "Member"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 432,
-      "kind": "professional-copy",
-      "value": "Moderator"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 471,
-      "kind": "professional-copy",
-      "value": "Example: Barbell Elite Club"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 483,
-      "kind": "professional-copy",
-      "value": "Explain the focus, goals, or community guidelines…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 494,
-      "kind": "professional-copy",
-      "value": "Example: Powerlifting, Hypertrophy"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 511,
-      "kind": "professional-copy",
-      "value": "Require invite code or direct invitation to join."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 546,
-      "kind": "professional-copy",
-      "value": "Search among your active athletes with training scope to invite them into this group."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 554,
-      "kind": "professional-copy",
-      "value": "Type athlete name…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 563,
-      "kind": "professional-copy",
-      "value": "Loading athletes…"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 568,
-      "kind": "professional-copy",
-      "value": "No active training athletes found."
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 593,
-      "kind": "professional-copy",
-      "value": "Selected"
-    },
-    {
-      "file": "frontend/src/views/coach/CoachGroupsView.jsx",
-      "line": 638,
-      "kind": "professional-copy",
-      "value": "Removing…"
     },
     {
       "file": "frontend/src/views/CommunicationHabits.jsx",

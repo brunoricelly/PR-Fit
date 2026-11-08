@@ -4,11 +4,14 @@ import Icon from './Icon.jsx'
 // where the list will appear, in a quiet frame the size of a first row or two. Before, the history's
 // "Log a past workout" sat above its empty message and the message floated in a screen of black.
 // `children` are the actions (Buttons); the first one is the way in.
-export default function EmptyState({ icon, title, text, children, className = '', tour }) {
-  return <div className={'empty empty-state' + (className ? ' ' + className : '')} data-tour={tour}>
-    {icon && <div className="ico"><Icon name={icon} /></div>}
-    {title && <div className="empty-t">{title}</div>}
-    {text && <div className="empty-x">{text}</div>}
-    {children && <div className="empty-acts">{children}</div>}
+export default function EmptyState({ icon, title, text, description, action, children, className = '', tour, designSystem = false }) {
+  const body = text ?? description
+  const actions = action ?? children
+  const stateClass = designSystem ? ' ds-state' : ''
+  return <div className={'empty empty-state' + stateClass + (className ? ' ' + className : '')} data-tour={tour}>
+    {icon && <div className={'ico' + (designSystem ? ' ds-state-icon' : '')}><Icon name={icon} /></div>}
+    {title && (designSystem ? <h2 className="empty-t ds-state-title">{title}</h2> : <div className="empty-t">{title}</div>)}
+    {body && <div className={'empty-x' + (designSystem ? ' ds-state-text' : '')}>{body}</div>}
+    {actions && <div className={'empty-acts' + (designSystem ? ' ds-state-actions' : '')}>{actions}</div>}
   </div>
 }
