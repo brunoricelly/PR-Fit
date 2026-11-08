@@ -48,6 +48,8 @@ import SchedulingView, {
   ReminderPreferencesView,
   RescheduleModal,
   CreateCoachAppointmentModal,
+  CancelModal,
+  NextAppointmentCard,
   civilTimeToIso,
 } from './SchedulingView.jsx'
 
@@ -821,5 +823,273 @@ describe('SchedulingView - Race Condition Prevention in Filters', () => {
     // Only 'Canceled Session Only' should be visible; 'Stale Scheduled Session' must be discarded
     expect(host.textContent).toContain('Canceled Session Only')
     expect(host.textContent).not.toContain('Stale Scheduled Session')
+  })
+})
+
+
+describe('SchedulingView - Modernized UX, Day/Week Breakdown, Optional Cancellation Reason, and A11y', () => {
+  it('highlights next appointment card for coach and athlete with quick actions', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    const futureDate = new Date(Date.now() + 86400000).toISOString()
+    const futureEnd = new Date(Date.now() + 86400000 + 3600000).toISOString()
+
+    mocks.answers['/api/coach/appointments'] = {
+      items: [
+        {
+          id: 'app_future',
+          title: 'Upcoming Coaching Session',
+          status: 'scheduled',
+          startAt: futureDate,
+          endAt: futureEnd,
+          timeZone: 'America/Sao_Paulo',
+          localDate: futureDate.slice(0, 10),
+          athlete: { id: 'ath_1', name: 'Aluno Marcos' },
+          lifecycle: { allowedActions: ['reschedule', 'cancel'], readOnly: false },
+        },
+      ],
+      hasMore: false,
+    }
+
+    await mount(<CoachAppointmentsView links={[]} />)
+
+    expect(host.querySelector('.pro-sched-next-card')).not.toBeNull()
+    expect(host.querySelector('.pro-sched-next-card').textContent).toContain('Upcoming Coaching Session')
+    expect(host.querySelector('.pro-sched-next-card').textContent).toContain('Aluno Marcos')
+    expect(button('Session details', host.querySelector('.pro-sched-next-card'))).not.toBeNull()
+    expect(button('Reschedule', host.querySelector('.pro-sched-next-card'))).not.toBeNull()
+    expect(button('Cancel session', host.querySelector('.pro-sched-next-card'))).not.toBeNull()
+  })
+
+  it('groups coach appointments by day and supports period filters', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    const d1 = '2026-11-10T14:00:00.000Z'
+    const d2 = '2026-11-12T14:00:00.000Z'
+
+    mocks.answers['/api/coach/appointments'] = {
+      items: [
+        {
+          id: 'app_1',
+          title: 'Session Day 1',
+          status: 'scheduled',
+          startAt: d1,
+          endAt: '2026-11-10T15:00:00.000Z',
+          timeZone: 'UTC',
+          localDate: '2026-11-10',
+          athlete: { id: 'ath_1', name: 'Aluno 1' },
+          lifecycle: { allowedActions: [] },
+        },
+        {
+          id: 'app_2',
+          title: 'Session Day 2',
+          status: 'scheduled',
+          startAt: d2,
+          endAt: '2026-11-12T15:00:00.000Z',
+          timeZone: 'UTC',
+          localDate: '2026-11-12',
+          athlete: { id: 'ath_2', name: 'Aluno 2' },
+          lifecycle: { allowedActions: [] },
+        },
+      ],
+      hasMore: false,
+    }
+
+    await mount(<CoachAppointmentsView links={[]} />)
+
+    const dayGroups = host.querySelectorAll('.pro-sched-day-group')
+    expect(dayGroups.length).toBe(2)
+    expect(dayGroups[0].textContent).toContain('Session Day 1')
+    expect(dayGroups[1].textContent).toContain('Session Day 2')
+
+    // Click quick period 'Today'
+    const todayPill = button('Today')
+    expect(todayPill).not.toBeNull()
+    await act(async () => { todayPill.click() })
+    await settle()
+    expect(mocks.calls.some(c => c.path.includes('/api/coach/appointments') && c.path.includes('from='))).toBe(true)
+  })
+
+  it('allows canceling with optional reason by submitting default fallback when empty', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    let cancelPayload = null
+
+    mocks.answers['/api/coach/appointments/app_cancel/cancel'] = body => {
+      cancelPayload = body
+      return { appointment: { id: 'app_cancel', status: 'canceled' } }
+    }
+
+    const testAppt = {
+      id: 'app_cancel',
+      title: 'Session to Cancel',
+      status: 'scheduled',
+      startAt: '2026-11-15T10:00:00.000Z',
+      endAt: '2026-11-15T11:00:00.000Z',
+      timeZone: 'UTC',
+      localDate: '2026-11-15',
+    }
+
+    let closed = false
+    let saved = false
+
+    await mount(
+      <CancelModal
+        appointment={testAppt}
+        isCoach={true}
+        onClose={() => { closed = true }}
+        onSave={() => { saved = true }}
+      />
+    )
+
+    // Form should have label marked optional
+    expect(host.textContent).toContain('Reason for cancellation (optional)')
+
+    // Click submit button directly without filling textarea
+    const cancelSubmitBtn = button('Cancel appointment')
+    await act(async () => { cancelSubmitBtn.click() })
+    await settle()
+
+    expect(cancelPayload).not.toBeNull()
+    expect(cancelPayload.reason).toBe('Cancellation requested by coach')
+    expect(saved).toBe(true)
+    expect(closed).toBe(true)
+  })
+
+  it('separates athlete upcoming sessions and read-only session history', async () => {
+    mocks.user = { id: 'ath_1', name: 'Atleta Maria', profile: { kind: 'athlete' } }
+    const futureDate = new Date(Date.now() + 86400000).toISOString()
+    const pastDate = '2026-10-01T10:00:00.000Z'
+
+    mocks.answers['/api/athlete/appointments'] = {
+      items: [
+        {
+          id: 'app_active',
+          title: 'Active Future Session',
+          status: 'scheduled',
+          startAt: futureDate,
+          endAt: new Date(Date.now() + 86400000 + 3600000).toISOString(),
+          timeZone: 'America/Sao_Paulo',
+          localDate: futureDate.slice(0, 10),
+          coach: { name: 'Coach Bruno' },
+          lifecycle: { allowedActions: ['reschedule', 'cancel'], readOnly: false },
+        },
+        {
+          id: 'app_past',
+          title: 'Past Completed Session',
+          status: 'completed',
+          startAt: pastDate,
+          endAt: '2026-10-01T11:00:00.000Z',
+          timeZone: 'America/Sao_Paulo',
+          localDate: '2026-10-01',
+          coach: { name: 'Coach Bruno' },
+          lifecycle: { allowedActions: [], readOnly: true, historical: true },
+        },
+      ],
+      hasMore: false,
+    }
+
+    await mount(<AthleteAppointmentsView />)
+
+    // Next session highlight card
+    expect(host.querySelector('.pro-sched-next-card')).not.toBeNull()
+    expect(host.querySelector('.pro-sched-next-card').textContent).toContain('Active Future Session')
+
+    // Filter to Session history
+    const historyPill = button('Session history')
+    expect(historyPill).not.toBeNull()
+    await act(async () => { historyPill.click() })
+    await settle()
+
+    expect(host.textContent).toContain('Past Completed Session')
+    expect(host.textContent).not.toContain('Active Future Session')
+    // No reschedule or cancel buttons in read-only history
+    expect(button('Reschedule', host.querySelector('.pro-sched-grid'))).toBeUndefined()
+    expect(button('Cancel session', host.querySelector('.pro-sched-grid'))).toBeUndefined()
+  })
+
+  it('handles partial failures gracefully without dropping other tabs and provides retry', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/coach/appointments'] = new Error('Appointments unavailable')
+    mocks.answers['/api/coach/availability'] = {
+      availability: {
+        timeZone: 'America/Sao_Paulo',
+        sessionDurationMinutes: 60,
+        bufferMinutes: 0,
+        minNoticeHours: 2,
+        maxAdvanceDays: 30,
+        windows: [{ dayOfWeek: 1, start: '09:00', end: '17:00' }],
+        exceptions: [],
+        _rev: 1,
+      },
+    }
+    mocks.answers['/api/scheduling/reminder-preferences'] = { enabled: true, offsetsMinutes: [60] }
+
+    await mount(<SchedulingView />)
+
+    // Error in appointments view
+    expect(host.textContent).toContain('Could not load appointments.')
+    const retryBtn = button('Try again')
+    expect(retryBtn).not.toBeNull()
+
+    // Switch to Availability tab: should work without issues!
+    const availabilityTab = [...host.querySelectorAll('nav button[role=tab]')][1]
+    await act(async () => { availabilityTab.click() })
+    await settle()
+
+    expect(host.textContent).toContain('Weekly windows')
+    expect(host.textContent).toContain('Save availability')
+
+    // Switch back to Appointments and retry
+    const apptsTab = [...host.querySelectorAll('nav button[role=tab]')][0]
+    await act(async () => { apptsTab.click() })
+    await settle()
+
+    mocks.answers['/api/coach/appointments'] = { items: [], hasMore: false }
+    await act(async () => { button('Try again').click() })
+    await settle()
+
+    expect(host.textContent).toContain('No appointments found')
+  })
+
+  it('supports APG tab navigation with Arrow keys', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+    mocks.answers['/api/coach/availability'] = { availability: null }
+    mocks.answers['/api/scheduling/reminder-preferences'] = { enabled: true, offsetsMinutes: [60] }
+
+    await mount(<SchedulingView />)
+
+    const tabs = [...host.querySelectorAll('nav button[role=tab]')]
+    expect(tabs.length).toBe(3)
+
+    // Navigate right from Appointments (0) -> Availability (1)
+    await act(async () => {
+      tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await settle()
+    expect(tabs[1].getAttribute('aria-selected')).toBe('true')
+
+    // Navigate right from Availability (1) -> Reminders (2)
+    await act(async () => {
+      tabs[1].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await settle()
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true')
+
+    // Navigate right from Reminders (2) -> wraps to Appointments (0)
+    await act(async () => {
+      tabs[2].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }))
+    })
+    await settle()
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true')
+
+    // Navigate left from Appointments (0) -> wraps to Reminders (2)
+    await act(async () => {
+      tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true }))
+    })
+    await settle()
+    expect(tabs[2].getAttribute('aria-selected')).toBe('true')
   })
 })

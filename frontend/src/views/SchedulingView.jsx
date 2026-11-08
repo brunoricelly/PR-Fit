@@ -22,12 +22,21 @@ import {
   updateReminderPreferences,
   ConflictError,
 } from '../lib/scheduling-api.js'
-import { dateLocale } from '../lib/i18n.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
 import { useActiveRole } from '../lib/roles.js'
 import Icon from '../components/Icon.jsx'
-import EmptyState from '../components/EmptyState.jsx'
-import { Button, TextArea, TextField } from '../components/ui.jsx'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Select,
+  Textarea,
+} from '../components/design-system.jsx'
 import './SchedulingView.css'
 
 const WEEKDAYS = [
@@ -128,13 +137,18 @@ export function AccessibleModal({ id, title, onClose, children, className = '' }
   )
 }
 
-function formatSlotTime(isoString, timeZone) {
+// ==========================================
+// Civil Time and Formatting Helpers
+// ==========================================
+
+export function formatSlotTime(isoString, timeZone) {
   if (!isoString) return ''
   try {
     const d = new Date(isoString)
-    return new Intl.DateTimeFormat(dateLocale(), {
+    return new Intl.DateTimeFormat('pt-BR', {
       hour: '2-digit',
       minute: '2-digit',
+      hour12: false,
       timeZone: timeZone || undefined,
     }).format(d)
   } catch {
@@ -142,34 +156,47 @@ function formatSlotTime(isoString, timeZone) {
   }
 }
 
-function formatFullDateTime(isoString, timeZone) {
+export function formatDateOnly(isoString, timeZone) {
   if (!isoString) return ''
   try {
     const d = new Date(isoString)
-    return new Intl.DateTimeFormat(dateLocale(), {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
+    const parts = new Intl.DateTimeFormat('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
       year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
       timeZone: timeZone || undefined,
-    }).format(d)
+    }).formatToParts(d)
+    const day = parts.find(p => p.type === 'day')?.value || ''
+    const month = parts.find(p => p.type === 'month')?.value || ''
+    const year = parts.find(p => p.type === 'year')?.value || ''
+    return `${day}/${month}/${year}`
+  } catch {
+    return isoString.slice(0, 10)
+  }
+}
+
+export function formatFullDateTime(isoString, timeZone) {
+  if (!isoString) return ''
+  try {
+    const dateFormatted = formatDateOnly(isoString, timeZone)
+    const timeFormatted = formatSlotTime(isoString, timeZone)
+    return timeZone ? `${dateFormatted} às ${timeFormatted} (${timeZone})` : `${dateFormatted} às ${timeFormatted}`
   } catch {
     return isoString
   }
 }
 
-function formatDateOnly(isoString, timeZone) {
+export function formatDayHeader(isoString, timeZone) {
   if (!isoString) return ''
   try {
     const d = new Date(isoString)
-    return new Intl.DateTimeFormat(dateLocale(), {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
+    const dateFormatted = formatDateOnly(isoString, timeZone)
+    const weekday = new Intl.DateTimeFormat('pt-BR', {
+      weekday: 'long',
       timeZone: timeZone || undefined,
     }).format(d)
+    const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1)
+    return `${dateFormatted} · ${capitalizedWeekday}`
   } catch {
     return isoString.slice(0, 10)
   }
@@ -309,6 +336,61 @@ export function getZonedTimeStr(isoString, timeZone) {
 }
 
 // ==========================================
+// Next Appointment Card
+// ==========================================
+export function NextAppointmentCard({ appointment, isCoach, onDetails, onReschedule, onCancel }) {
+  if (!appointment) return null
+  const participantName = isCoach
+    ? (appointment.athlete?.name || p('Unavailable account'))
+    : (appointment.coach?.name || p('Unavailable account'))
+  const allowed = appointment.lifecycle?.allowedActions || []
+  const readOnly = !!appointment.lifecycle?.readOnly
+
+  return (
+    <Card className="pro-sched-next-card" tone="default">
+      <div className="pro-sched-next-head">
+        <div>
+          <span className="pro-kicker">{isCoach ? p('Next appointment') : p('Next session')}</span>
+          <h3 className="pro-sched-next-title">{appointment.title || p('New session')}</h3>
+          <p className="pro-sched-next-meta">
+            <strong>{participantName}</strong> · <span>{formatFullDateTime(appointment.startAt, appointment.timeZone)}</span>
+          </p>
+        </div>
+        <div className="pro-sched-badges">
+          <Badge tone="info">{p(appointment.type === 'in_person' ? 'In person' : 'Online')}</Badge>
+          <Badge tone="primary">{p('Scheduled')}</Badge>
+        </div>
+      </div>
+
+      {appointment.location && (
+        <div className="small dim">{p('Location')}: {appointment.location}</div>
+      )}
+      {appointment.meetingUrl && (
+        <div className="small dim">
+          {p('Meeting link')}: <a href={appointment.meetingUrl} target="_blank" rel="noreferrer">{appointment.meetingUrl}</a>
+        </div>
+      )}
+
+      <div className="pro-sched-actions" style={{ marginTop: 8 }}>
+        <Button size="sm" onClick={() => onDetails(appointment)}>
+          {p('Session details')}
+        </Button>
+        {!readOnly && allowed.includes('reschedule') && (
+          <Button size="sm" onClick={() => onReschedule(appointment)}>
+            {p('Reschedule')}
+          </Button>
+        )}
+        {!readOnly && allowed.includes('cancel') && (
+          <Button size="sm" variant="danger" onClick={() => onCancel(appointment)}>
+            {p('Cancel session')}
+          </Button>
+        )}
+      </div>
+    </Card>
+  )
+}
+
+// ==========================================
 // Coach Availability Editor
 // ==========================================
 export function CoachAvailabilityEditor() {
@@ -316,6 +398,7 @@ export function CoachAvailabilityEditor() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [saveConflict, setSaveConflict] = useState(false)
   const [availability, setAvailability] = useState(null)
   const [futureConflicts, setFutureConflicts] = useState([])
 
@@ -330,6 +413,7 @@ export function CoachAvailabilityEditor() {
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(false)
+    setSaveConflict(false)
     setFutureConflicts([])
     try {
       const res = await getCoachAvailability()
@@ -410,6 +494,7 @@ export function CoachAvailabilityEditor() {
 
   const handleSave = async () => {
     setSaving(true)
+    setSaveConflict(false)
     setFutureConflicts([])
     try {
       const payload = {
@@ -431,6 +516,7 @@ export function CoachAvailabilityEditor() {
       toast(p('Availability saved.'))
     } catch (err) {
       if (err instanceof ConflictError || err?.status === 409) {
+        setSaveConflict(true)
         toast(p('Revision conflict. Your availability was updated elsewhere. Please refresh and try again.'))
       } else {
         toast(professionalError(err))
@@ -441,38 +527,45 @@ export function CoachAvailabilityEditor() {
   }
 
   if (loading && !availability) {
-    return <div className="pro-loading">{p('Loading…')}</div>
+    return <div className="pro-loading" role="status">{p('Loading…')}</div>
   }
 
   if (loadError) {
     return (
-      <div className="card pro-load-error" role="alert">
-        <p>{p('Could not load availability.')}</p>
-        <Button size="sm" onClick={load}>{p('Try again')}</Button>
-      </div>
+      <ErrorState
+        title={p('Could not load availability.')}
+        text={p('Could not reach PR Fit. Check your connection and try again.')}
+        action={<Button onClick={load}>{p('Try again')}</Button>}
+      />
     )
   }
 
   return (
     <section className="pro-sched-section" aria-labelledby="coach-availability-heading">
       <div className="pro-panel-head">
-        <h2 id="coach-availability-heading" className="pro-section-title">{p('Availability')}</h2>
+        <div>
+          <h2 id="coach-availability-heading" className="pro-section-title">{p('Availability')}</h2>
+          <span className="small dim">{p('Timezone')}: {availability.timeZone || defaultTz}</span>
+        </div>
         <Button variant="primary" disabled={saving} onClick={handleSave}>
           {saving ? p('Saving availability…') : p('Save availability')}
         </Button>
       </div>
 
-      {futureConflicts.length > 0 && (
-        <div className="pro-sched-conflict-alert" role="alert">
-          {p('Future conflicts detected: {0} appointment(s) may be impacted.', futureConflicts.length)}
-        </div>
+      {saveConflict && (
+        <Alert tone="error" title={p('Revision conflict. Your availability was updated elsewhere. Please refresh and try again.')} action={<Button size="sm" onClick={load}>{p('Try again')}</Button>} />
       )}
 
-      <div className="card pro-sched-form">
+      {futureConflicts.length > 0 && (
+        <Alert tone="warning" title={p('Future conflicts detected: {0} appointment(s) may be impacted.', futureConflicts.length)}>
+          <p className="small" style={{ margin: 0 }}>{p('Review the appointment details and try again.')}</p>
+        </Alert>
+      )}
+
+      <Card className="pro-sched-form">
         <div className="pro-grid-fields">
-          <label className="pro-field">
-            <span>{p('Session duration (minutes)')}</span>
-            <TextField
+          <Field label={p('Session duration (minutes)')}>
+            <Input
               name="sessionDurationMinutes"
               type="number"
               min="15"
@@ -481,10 +574,9 @@ export function CoachAvailabilityEditor() {
               value={availability.sessionDurationMinutes ?? 60}
               onChange={e => handleFieldChange('sessionDurationMinutes', parseInt(e.target.value, 10))}
             />
-          </label>
-          <label className="pro-field">
-            <span>{p('Buffer (minutes)')}</span>
-            <TextField
+          </Field>
+          <Field label={p('Buffer (minutes)')}>
+            <Input
               name="bufferMinutes"
               type="number"
               min="0"
@@ -493,10 +585,9 @@ export function CoachAvailabilityEditor() {
               value={availability.bufferMinutes ?? 0}
               onChange={e => handleFieldChange('bufferMinutes', parseInt(e.target.value, 10))}
             />
-          </label>
-          <label className="pro-field">
-            <span>{p('Minimum notice (hours)')}</span>
-            <TextField
+          </Field>
+          <Field label={p('Minimum notice (hours)')}>
+            <Input
               name="minNoticeHours"
               type="number"
               min="0"
@@ -504,10 +595,9 @@ export function CoachAvailabilityEditor() {
               value={availability.minNoticeHours ?? 2}
               onChange={e => handleFieldChange('minNoticeHours', parseInt(e.target.value, 10))}
             />
-          </label>
-          <label className="pro-field">
-            <span>{p('Maximum advance notice (days)')}</span>
-            <TextField
+          </Field>
+          <Field label={p('Maximum advance notice (days)')}>
+            <Input
               name="maxAdvanceDays"
               type="number"
               min="1"
@@ -515,20 +605,19 @@ export function CoachAvailabilityEditor() {
               value={availability.maxAdvanceDays ?? 30}
               onChange={e => handleFieldChange('maxAdvanceDays', parseInt(e.target.value, 10))}
             />
-          </label>
+          </Field>
         </div>
 
-        <label className="pro-field">
-          <span>{p('Default timezone')}</span>
-          <TextField
+        <Field label={p('Default timezone')} help={p('Times shown in professional timezone ({0})', availability.timeZone || defaultTz)}>
+          <Input
             name="timeZone"
             value={availability.timeZone || defaultTz}
             onChange={e => handleFieldChange('timeZone', e.target.value)}
           />
-        </label>
-      </div>
+        </Field>
+      </Card>
 
-      <div className="card">
+      <Card>
         <h3 className="pro-card-title">{p('Weekly windows')}</h3>
         <div className="pro-sched-windows">
           {WEEKDAYS.map(weekday => {
@@ -550,14 +639,14 @@ export function CoachAvailabilityEditor() {
                   <div className="pro-sched-day-windows">
                     {dayWindows.map(w => (
                       <div key={w.originalIndex} className="pro-sched-window-item">
-                        <input
+                        <Input
                           type="time"
                           aria-label={`${p(weekday.key)} ${p('Start')}`}
                           value={w.start}
                           onChange={e => updateWindow(w.originalIndex, 'start', e.target.value)}
                         />
                         <span>–</span>
-                        <input
+                        <Input
                           type="time"
                           aria-label={`${p(weekday.key)} ${p('End')}`}
                           value={w.end}
@@ -579,9 +668,9 @@ export function CoachAvailabilityEditor() {
             )
           })}
         </div>
-      </div>
+      </Card>
 
-      <div className="card">
+      <Card>
         <div className="pro-panel-head">
           <h3 className="pro-card-title">{p('Date exceptions')}</h3>
           <Button size="sm" onClick={addException}>
@@ -596,7 +685,7 @@ export function CoachAvailabilityEditor() {
             {availability.exceptions.map((ex, index) => (
               <div key={index} className="pro-sched-exception-item">
                 <div className="pro-panel-head">
-                  <TextField
+                  <Input
                     type="date"
                     name={`exception-date-${index}`}
                     aria-label={p('Date')}
@@ -624,7 +713,7 @@ export function CoachAvailabilityEditor() {
             ))}
           </div>
         )}
-      </div>
+      </Card>
     </section>
   )
 }
@@ -644,10 +733,12 @@ export function AppointmentDetailModal({ appointment, onClose, onReschedule, onC
     <AccessibleModal id="appointment-detail" title={p('Session details')} onClose={onClose}>
       <div className="pro-sched-card-details">
         <div className="pro-sched-badges" style={{ marginBottom: 10 }}>
-          <span className={`pro-sched-badge ${appointment.status}`}>{p(appointment.status === 'scheduled' ? 'Scheduled' : appointment.status === 'completed' ? 'Completed' : appointment.status === 'canceled' ? 'Canceled' : 'No-show')}</span>
-          <span className="pro-sched-badge info">{p(appointment.type === 'in_person' ? 'In person' : 'Online')}</span>
-          {lifecycle.historical && <span className="pro-sched-badge historical">{p('Historical')}</span>}
-          {readOnly && <span className="pro-sched-badge readonly">{p('Read-only')}</span>}
+          <Badge tone={appointment.status === 'scheduled' ? 'primary' : appointment.status === 'completed' ? 'success' : appointment.status === 'canceled' ? 'danger' : 'neutral'}>
+            {p(appointment.status === 'scheduled' ? 'Scheduled' : appointment.status === 'completed' ? 'Completed' : appointment.status === 'canceled' ? 'Canceled' : 'No-show')}
+          </Badge>
+          <Badge tone="info">{p(appointment.type === 'in_person' ? 'In person' : 'Online')}</Badge>
+          {lifecycle.historical && <Badge tone="neutral">{p('Historical')}</Badge>}
+          {readOnly && <Badge tone="neutral">{p('Read-only')}</Badge>}
         </div>
 
         <div className="detail-row">
@@ -770,26 +861,33 @@ export function RescheduleModal({ appointment, onClose, onSave, isCoach = true }
   return (
     <AccessibleModal id="reschedule-modal" title={p('Reschedule session')} onClose={onClose}>
       <form onSubmit={handleSubmit} className="pro-sched-form">
-        <label className="pro-sched-form-row">
-          <span>{p('Date')}</span>
-          <TextField
+        <p className="dim small">
+          {p('Rescheduling preserves session data and recalculates reminders for the new time in the appointment timezone.')}
+        </p>
+        <div className="pro-sched-card-details">
+          <div className="detail-row">
+            <span className="detail-label">{p('Timezone')}:</span>
+            <span>{appointment?.timeZone || 'America/Sao_Paulo'}</span>
+          </div>
+        </div>
+        <Field label={p('Date')} required>
+          <Input
             type="date"
             name="rescheduleDate"
             value={newDate}
             onChange={e => setNewDate(e.target.value)}
             required
           />
-        </label>
-        <label className="pro-sched-form-row">
-          <span>{p('Start time')}</span>
-          <TextField
+        </Field>
+        <Field label={p('Start time')} required>
+          <Input
             type="time"
             name="rescheduleTime"
             value={newTime}
             onChange={e => setNewTime(e.target.value)}
             required
           />
-        </label>
+        </Field>
         <div className="pro-actions">
           <Button type="button" onClick={onClose}>{p('Cancel')}</Button>
           <Button variant="primary" type="submit" disabled={submitting || !newDate || !newTime}>
@@ -808,16 +906,13 @@ export function CancelModal({ appointment, onClose, onSave, isCoach = true }) {
 
   const handleSubmit = async e => {
     e?.preventDefault()
-    if (!reason.trim()) {
-      toast(p('Provide a reason for cancellation.'))
-      return
-    }
     setSubmitting(true)
     try {
+      const finalReason = reason.trim() || (isCoach ? p('Cancellation requested by coach') : p('Cancellation requested by athlete'))
       if (isCoach) {
-        await cancelCoachAppointment(appointment.id, { reason: reason.trim() })
+        await cancelCoachAppointment(appointment.id, { reason: finalReason })
       } else {
-        await cancelAthleteAppointment(appointment.id, { reason: reason.trim() })
+        await cancelAthleteAppointment(appointment.id, { reason: finalReason })
       }
       toast(p('Appointment canceled.'))
       onSave()
@@ -832,21 +927,22 @@ export function CancelModal({ appointment, onClose, onSave, isCoach = true }) {
   return (
     <AccessibleModal id="cancel-modal" title={p('Cancel appointment')} onClose={onClose}>
       <form onSubmit={handleSubmit} className="pro-sched-form">
-        <label className="pro-sched-form-row">
-          <span>{p('Reason for cancellation')}</span>
-          <TextArea
+        <p className="dim small">
+          {p('Cancellations of scheduled sessions are recorded in history and notify participants. You may provide an optional reason.')}
+        </p>
+        <Field label={p('Reason for cancellation (optional)')}>
+          <Textarea
             name="cancelReason"
             value={reason}
             placeholder={p('Enter cancellation reason')}
             maxLength={500}
             rows={3}
             onChange={e => setReason(e.target.value)}
-            required
           />
-        </label>
+        </Field>
         <div className="pro-actions">
           <Button type="button" onClick={onClose}>{p('Close')}</Button>
-          <Button variant="danger" type="submit" disabled={submitting || !reason.trim()}>
+          <Button variant="danger" type="submit" disabled={submitting}>
             {submitting ? p('Canceling…') : p('Cancel appointment')}
           </Button>
         </div>
@@ -882,13 +978,12 @@ export function AttendanceModal({ appointment, onClose, onSave }) {
   return (
     <AccessibleModal id="attendance-modal" title={p('Record attendance')} onClose={onClose}>
       <form onSubmit={handleSubmit} className="pro-sched-form">
-        <label className="pro-sched-form-row">
-          <span>{p('Status')}</span>
-          <select value={status} onChange={e => setStatus(e.target.value)}>
+        <Field label={p('Status')}>
+          <Select value={status} onChange={e => setStatus(e.target.value)}>
             <option value="completed">{p('Attended')}</option>
             <option value="no_show">{p('No-show')}</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
         <div className="pro-actions">
           <Button type="button" onClick={onClose}>{p('Cancel')}</Button>
           <Button variant="primary" type="submit" disabled={submitting}>
@@ -982,36 +1077,39 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
   return (
     <AccessibleModal id="coach-create-appointment" title={p('Schedule session')} onClose={onClose}>
       <form onSubmit={handleSubmit} className="pro-sched-form">
-        <label className="pro-sched-form-row">
-          <span>{p('Athlete')}</span>
-          <select value={athleteId} onChange={e => setAthleteId(e.target.value)} required>
+        <Field label={p('Athlete')} required>
+          <Select value={athleteId} onChange={e => setAthleteId(e.target.value)} required>
             {links.map(l => (
               <option key={l.athlete?.id || l.id} value={l.athlete?.id}>
                 {l.athlete?.name || p('Unavailable account')}
               </option>
             ))}
-          </select>
-        </label>
+          </Select>
+        </Field>
 
-        <label className="pro-sched-form-row">
-          <span>{p('Date')}</span>
-          <TextField
+        <Field label={p('Date')} required>
+          <Input
             type="date"
             name="createDate"
             value={date}
             onChange={e => setDate(e.target.value)}
             required
           />
-        </label>
+        </Field>
 
         <div className="pro-sched-form-row">
-          <span>{p('Available slots')}</span>
+          <span className="pro-field-label">{p('Available slots')}</span>
+          {effectiveTimeZone && (
+            <p className="dim small" style={{ margin: '2px 0 6px' }}>
+              {p('Times shown in professional timezone ({0})', effectiveTimeZone)}
+            </p>
+          )}
           {slotsLoading ? (
-            <div className="pro-loading">{p('Loading…')}</div>
+            <div className="pro-loading" role="status">{p('Loading…')}</div>
           ) : slots.length === 0 ? (
             <div className="pro-sched-manual-time">
               <p className="dim small">{p('No free slots available for this period.')}</p>
-              <TextField
+              <Input
                 type="time"
                 name="manualTime"
                 placeholder="HH:MM"
@@ -1040,52 +1138,47 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
           )}
         </div>
 
-        <label className="pro-sched-form-row">
-          <span>{p('Type')}</span>
-          <select value={type} onChange={e => setType(e.target.value)}>
+        <Field label={p('Type')}>
+          <Select value={type} onChange={e => setType(e.target.value)}>
             <option value="in_person">{p('In person')}</option>
             <option value="online">{p('Online')}</option>
-          </select>
-        </label>
+          </Select>
+        </Field>
 
         {type === 'in_person' ? (
-          <label className="pro-sched-form-row">
-            <span>{p('Location')}</span>
-            <TextField
+          <Field label={p('Location')}>
+            <Input
               name="location"
               value={location}
               placeholder={p('Location')}
               maxLength={200}
               onChange={e => setLocation(e.target.value)}
             />
-          </label>
+          </Field>
         ) : (
-          <label className="pro-sched-form-row">
-            <span>{p('Meeting link')}</span>
-            <TextField
+          <Field label={p('Meeting link')}>
+            <Input
               name="meetingUrl"
               value={meetingUrl}
               placeholder="https://..."
               maxLength={500}
               onChange={e => setMeetingUrl(e.target.value)}
             />
-          </label>
+          </Field>
         )}
 
-        <label className="pro-sched-form-row">
-          <span>{p('Title')}</span>
-          <TextField
+        <Field label={p('Title')}>
+          <Input
             name="title"
             value={title}
             placeholder={p('Session title')}
             maxLength={120}
             onChange={e => setTitle(e.target.value)}
           />
-        </label>
+        </Field>
 
-        <label className="pro-sched-form-row">
-          <span>{p('Notes')}</span>
-          <TextArea
+        <Field label={p('Notes')}>
+          <Textarea
             name="notes"
             value={notes}
             placeholder={p('Notes')}
@@ -1093,7 +1186,7 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
             rows={2}
             onChange={e => setNotes(e.target.value)}
           />
-        </label>
+        </Field>
 
         <div className="pro-actions">
           <Button type="button" onClick={onClose}>{p('Cancel')}</Button>
@@ -1109,12 +1202,13 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
 // ==========================================
 // Coach Appointments View
 // ==========================================
-export function CoachAppointmentsView({ links = [] }) {
+export function CoachAppointmentsView({ links = [], defaultAthleteId = '' }) {
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
-  const [athleteFilter, setAthleteFilter] = useState('')
+  const [athleteFilter, setAthleteFilter] = useState(defaultAthleteId)
   const [statusFilter, setStatusFilter] = useState('')
+  const [periodPreset, setPeriodPreset] = useState('all')
   const [fromDate, setFromDate] = useState('')
   const [toDate, setToDate] = useState('')
   const [viewMode, setViewMode] = useState('list') // 'list' | 'calendar'
@@ -1172,6 +1266,55 @@ export function CoachAppointmentsView({ links = [] }) {
     loadAppointments(false)
   }, [athleteFilter, statusFilter, fromDate, toDate])
 
+  const nextAppointment = useMemo(() => {
+    const now = Date.now()
+    const upcoming = appointments.filter(
+      item => item.status === 'scheduled' && Date.parse(item.endAt || item.startAt) >= now
+    )
+    return upcoming.sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0] || null
+  }, [appointments])
+
+  const handlePeriodChange = preset => {
+    setPeriodPreset(preset)
+    if (preset === 'all') {
+      setFromDate('')
+      setToDate('')
+    } else if (preset === 'today') {
+      const now = new Date()
+      const dStr = now.toISOString().slice(0, 10)
+      setFromDate(`${dStr}T00:00:00.000Z`)
+      setToDate(`${dStr}T23:59:59.999Z`)
+    } else if (preset === 'week') {
+      const now = new Date()
+      const day = now.getDay()
+      const diffToMonday = (day + 6) % 7
+      const startOfWeek = new Date(now)
+      startOfWeek.setDate(now.getDate() - diffToMonday)
+      startOfWeek.setHours(0, 0, 0, 0)
+
+      const endOfWeek = new Date(startOfWeek)
+      endOfWeek.setDate(startOfWeek.getDate() + 6)
+      endOfWeek.setHours(23, 59, 59, 999)
+
+      setFromDate(startOfWeek.toISOString())
+      setToDate(endOfWeek.toISOString())
+    }
+  }
+
+  const groupedDays = useMemo(() => {
+    const groups = new Map()
+    for (const item of appointments) {
+      const key = item.localDate || (item.startAt ? getZonedDateStr(item.startAt, item.timeZone) : 'other')
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key).push(item)
+    }
+    return Array.from(groups.entries()).map(([dateStr, items]) => ({
+      dateStr,
+      items,
+      header: items[0]?.startAt ? formatDayHeader(items[0].startAt, items[0].timeZone) : dateStr,
+    }))
+  }, [appointments])
+
   return (
     <section className="pro-sched-section" aria-labelledby="coach-appointments-heading">
       <div className="pro-panel-head">
@@ -1182,6 +1325,16 @@ export function CoachAppointmentsView({ links = [] }) {
           </Button>
         )}
       </div>
+
+      {nextAppointment && (
+        <NextAppointmentCard
+          appointment={nextAppointment}
+          isCoach={true}
+          onDetails={setDetailItem}
+          onReschedule={setRescheduleItem}
+          onCancel={setCancelItem}
+        />
+      )}
 
       <div className="pro-sched-filters">
         <label>
@@ -1207,13 +1360,40 @@ export function CoachAppointmentsView({ links = [] }) {
           </select>
         </label>
 
+        <div className="pro-sched-quick-periods" role="group" aria-label={p('Filter by period')}>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${periodPreset === 'all' ? 'active' : ''}`}
+            onClick={() => handlePeriodChange('all')}
+          >
+            {p('All')}
+          </button>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${periodPreset === 'today' ? 'active' : ''}`}
+            onClick={() => handlePeriodChange('today')}
+          >
+            {p('Today')}
+          </button>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${periodPreset === 'week' ? 'active' : ''}`}
+            onClick={() => handlePeriodChange('week')}
+          >
+            {p('This week')}
+          </button>
+        </div>
+
         <label>
           <span>{p('Date')} ({p('Start')})</span>
           <input
             type="date"
             aria-label={`${p('Date')} ${p('Start')}`}
-            value={fromDate}
-            onChange={e => setFromDate(e.target.value)}
+            value={fromDate ? fromDate.slice(0, 10) : ''}
+            onChange={e => {
+              setPeriodPreset('custom')
+              setFromDate(e.target.value)
+            }}
           />
         </label>
 
@@ -1222,8 +1402,11 @@ export function CoachAppointmentsView({ links = [] }) {
           <input
             type="date"
             aria-label={`${p('Date')} ${p('End')}`}
-            value={toDate}
-            onChange={e => setToDate(e.target.value)}
+            value={toDate ? toDate.slice(0, 10) : ''}
+            onChange={e => {
+              setPeriodPreset('custom')
+              setToDate(e.target.value)
+            }}
           />
         </label>
 
@@ -1248,12 +1431,13 @@ export function CoachAppointmentsView({ links = [] }) {
       </div>
 
       {loading && appointments.length === 0 ? (
-        <div className="pro-loading">{p('Loading…')}</div>
+        <div className="pro-loading" role="status">{p('Loading…')}</div>
       ) : loadError ? (
-        <div className="card pro-load-error" role="alert">
-          <p>{p('Could not load appointments.')}</p>
-          <Button size="sm" onClick={() => loadAppointments(false)}>{p('Try again')}</Button>
-        </div>
+        <ErrorState
+          title={p('Could not load appointments.')}
+          text={p('Could not reach PR Fit. Check your connection and try again.')}
+          action={<Button onClick={() => loadAppointments(false)}>{p('Try again')}</Button>}
+        />
       ) : appointments.length === 0 ? (
         <EmptyState
           icon="calendar"
@@ -1278,13 +1462,13 @@ export function CoachAppointmentsView({ links = [] }) {
               {appointments.map(item => (
                 <tr key={item.id}>
                   <td>{formatDateOnly(item.startAt, item.timeZone)}</td>
-                  <td>{formatSlotTime(item.startAt, item.timeZone)} – {formatSlotTime(item.endAt, item.timeZone)}</td>
+                  <td>{formatSlotTime(item.startAt, item.timeZone)} – {formatSlotTime(item.endAt, item.timeZone)} ({item.timeZone})</td>
                   <td>{item.athlete?.name || p('Unavailable account')}</td>
                   <td>{p(item.type === 'in_person' ? 'In person' : 'Online')}</td>
                   <td>
-                    <span className={`pro-sched-badge ${item.status}`}>
+                    <Badge tone={item.status === 'scheduled' ? 'primary' : item.status === 'completed' ? 'success' : item.status === 'canceled' ? 'danger' : 'neutral'}>
                       {p(item.status === 'scheduled' ? 'Scheduled' : item.status === 'completed' ? 'Completed' : item.status === 'canceled' ? 'Canceled' : 'No-show')}
-                    </span>
+                    </Badge>
                   </td>
                   <td>
                     <Button size="sm" onClick={() => setDetailItem(item)}>{p('Session details')}</Button>
@@ -1295,60 +1479,70 @@ export function CoachAppointmentsView({ links = [] }) {
           </table>
         </div>
       ) : (
-        <div className="pro-sched-grid">
-          {appointments.map(item => {
-            const ended = Date.now() >= Date.parse(item.endAt)
-            const allowed = item.lifecycle?.allowedActions || []
-            const readOnly = !!item.lifecycle?.readOnly
+        <div className="pro-sched-day-groups">
+          {groupedDays.map(group => (
+            <div key={group.dateStr} className="pro-sched-day-group">
+              <div className="pro-sched-day-group-header">
+                <h4>{group.header}</h4>
+                <Badge tone="neutral">{group.items.length}</Badge>
+              </div>
+              <div className="pro-sched-grid">
+                {group.items.map(item => {
+                  const ended = Date.now() >= Date.parse(item.endAt)
+                  const allowed = item.lifecycle?.allowedActions || []
+                  const readOnly = !!item.lifecycle?.readOnly
 
-            return (
-              <article key={item.id} className="pro-sched-card">
-                <div className="pro-sched-card-head">
-                  <div>
-                    <h3 className="pro-sched-card-title">{item.title || p('New session')}</h3>
-                    <div className="pro-sched-card-meta">
-                      <span>{item.athlete?.name}</span>
-                      <span>·</span>
-                      <span>{formatFullDateTime(item.startAt, item.timeZone)}</span>
-                    </div>
-                  </div>
-                  <div className="pro-sched-badges">
-                    <span className={`pro-sched-badge ${item.status}`}>
-                      {p(item.status === 'scheduled' ? 'Scheduled' : item.status === 'completed' ? 'Completed' : item.status === 'canceled' ? 'Canceled' : 'No-show')}
-                    </span>
-                    <span className="pro-sched-badge info">{p(item.type === 'in_person' ? 'In person' : 'Online')}</span>
-                    {item.lifecycle?.historical && <span className="pro-sched-badge historical">{p('Historical')}</span>}
-                    {readOnly && <span className="pro-sched-badge readonly">{p('Read-only')}</span>}
-                  </div>
-                </div>
+                  return (
+                    <article key={item.id} className="pro-sched-card">
+                      <div className="pro-sched-card-head">
+                        <div>
+                          <h3 className="pro-sched-card-title">{item.title || p('New session')}</h3>
+                          <div className="pro-sched-card-meta">
+                            <span>{item.athlete?.name}</span>
+                            <span>·</span>
+                            <span>{formatSlotTime(item.startAt, item.timeZone)} – {formatSlotTime(item.endAt, item.timeZone)} ({item.timeZone})</span>
+                          </div>
+                        </div>
+                        <div className="pro-sched-badges">
+                          <span className={`pro-sched-badge ${item.status}`}>
+                            {p(item.status === 'scheduled' ? 'Scheduled' : item.status === 'completed' ? 'Completed' : item.status === 'canceled' ? 'Canceled' : 'No-show')}
+                          </span>
+                          <span className="pro-sched-badge info">{p(item.type === 'in_person' ? 'In person' : 'Online')}</span>
+                          {item.lifecycle?.historical && <span className="pro-sched-badge historical">{p('Historical')}</span>}
+                          {readOnly && <span className="pro-sched-badge readonly">{p('Read-only')}</span>}
+                        </div>
+                      </div>
 
-                {item.location && <div className="small dim">{p('Location')}: {item.location}</div>}
-                {item.meetingUrl && <div className="small dim">{p('Meeting link')}: <a href={item.meetingUrl} target="_blank" rel="noreferrer">{item.meetingUrl}</a></div>}
-                {item.cancellation && <div className="small" style={{ color: 'var(--red)' }}>{p('Canceled by {0}', item.cancellation.actor)}: {item.cancellation.reason}</div>}
+                      {item.location && <div className="small dim">{p('Location')}: {item.location}</div>}
+                      {item.meetingUrl && <div className="small dim">{p('Meeting link')}: <a href={item.meetingUrl} target="_blank" rel="noreferrer">{item.meetingUrl}</a></div>}
+                      {item.cancellation && <div className="small" style={{ color: 'var(--red)' }}>{p('Canceled by {0}', item.cancellation.actor)}: {item.cancellation.reason}</div>}
 
-                <div className="pro-sched-actions">
-                  <Button size="sm" onClick={() => setDetailItem(item)}>
-                    {p('Session details')}
-                  </Button>
-                  {!readOnly && allowed.includes('reschedule') && (
-                    <Button size="sm" onClick={() => setRescheduleItem(item)}>
-                      {p('Reschedule')}
-                    </Button>
-                  )}
-                  {!readOnly && allowed.includes('cancel') && (
-                    <Button size="sm" variant="danger" onClick={() => setCancelItem(item)}>
-                      {p('Cancel session')}
-                    </Button>
-                  )}
-                  {!readOnly && allowed.includes('attendance') && ended && (
-                    <Button size="sm" variant="tinted" onClick={() => setAttendanceItem(item)}>
-                      {p('Record attendance')}
-                    </Button>
-                  )}
-                </div>
-              </article>
-            )
-          })}
+                      <div className="pro-sched-actions">
+                        <Button size="sm" onClick={() => setDetailItem(item)}>
+                          {p('Session details')}
+                        </Button>
+                        {!readOnly && allowed.includes('reschedule') && (
+                          <Button size="sm" onClick={() => setRescheduleItem(item)}>
+                            {p('Reschedule')}
+                          </Button>
+                        )}
+                        {!readOnly && allowed.includes('cancel') && (
+                          <Button size="sm" variant="danger" onClick={() => setCancelItem(item)}>
+                            {p('Cancel session')}
+                          </Button>
+                        )}
+                        {!readOnly && allowed.includes('attendance') && ended && (
+                          <Button size="sm" variant="tinted" onClick={() => setAttendanceItem(item)}>
+                            {p('Record attendance')}
+                          </Button>
+                        )}
+                      </div>
+                    </article>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -1428,6 +1622,7 @@ export function AthleteBookingView({ links = [], onBookSuccess }) {
   const [title, setTitle] = useState('')
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [effectiveTimeZone, setEffectiveTimeZone] = useState(null)
 
   const slotsRequestIdRef = useRef(0)
 
@@ -1446,6 +1641,7 @@ export function AthleteBookingView({ links = [], onBookSuccess }) {
       const res = await getAthleteSlots(coachId, { date })
       if (reqId !== slotsRequestIdRef.current) return
       setSlots(res?.items || [])
+      if (res?.timeZone) setEffectiveTimeZone(res.timeZone)
     } catch {
       if (reqId !== slotsRequestIdRef.current) return
       setLoadError(true)
@@ -1536,15 +1732,24 @@ export function AthleteBookingView({ links = [], onBookSuccess }) {
         </label>
       </div>
 
-      <div className="card">
-        <h3 className="pro-card-title">{p('Available slots')}</h3>
+      <Card>
+        <div className="pro-panel-head">
+          <h3 className="pro-card-title">{p('Available slots')}</h3>
+          {effectiveTimeZone && (
+            <span className="small dim">
+              {p('Times shown in professional timezone ({0})', effectiveTimeZone)}
+            </span>
+          )}
+        </div>
+
         {loading ? (
-          <div className="pro-loading">{p('Loading…')}</div>
+          <div className="pro-loading" role="status">{p('Loading…')}</div>
         ) : loadError ? (
-          <div className="card pro-load-error" role="alert">
-            <p>{p('Could not load availability slots.')}</p>
-            <Button size="sm" onClick={loadSlots}>{p('Try again')}</Button>
-          </div>
+          <ErrorState
+            title={p('Could not load availability slots.')}
+            text={p('Could not reach PR Fit. Check your connection and try again.')}
+            action={<Button size="sm" onClick={loadSlots}>{p('Try again')}</Button>}
+          />
         ) : slots.length === 0 ? (
           <p className="dim small">{p('No free slots available for this period.')}</p>
         ) : (
@@ -1562,44 +1767,43 @@ export function AthleteBookingView({ links = [], onBookSuccess }) {
             ))}
           </div>
         )}
-      </div>
+      </Card>
 
       {bookingOpen && selectedSlot && (
         <AccessibleModal id="athlete-confirm-booking" title={p('Confirm booking')} onClose={() => setBookingOpen(false)}>
           <form onSubmit={handleConfirmBooking} className="pro-sched-form">
-            <div className="pro-sched-form-row">
-              <span>{p('Time')}:</span>
-              <strong>{formatDateOnly(selectedSlot.startAt, selectedSlot.timeZone)} · {formatSlotTime(selectedSlot.startAt, selectedSlot.timeZone)} – {formatSlotTime(selectedSlot.endAt, selectedSlot.timeZone)}</strong>
+            <div className="pro-sched-card-details">
+              <div className="detail-row">
+                <span className="detail-label">{p('Date and time')}:</span>
+                <strong>{formatDateOnly(selectedSlot.startAt, selectedSlot.timeZone)} · {formatSlotTime(selectedSlot.startAt, selectedSlot.timeZone)} – {formatSlotTime(selectedSlot.endAt, selectedSlot.timeZone)} ({selectedSlot.timeZone})</strong>
+              </div>
             </div>
 
-            <label className="pro-sched-form-row">
-              <span>{p('Type')}</span>
-              <select value={type} onChange={e => setType(e.target.value)}>
+            <Field label={p('Type')}>
+              <Select value={type} onChange={e => setType(e.target.value)}>
                 <option value="in_person">{p('In person')}</option>
                 <option value="online">{p('Online')}</option>
-              </select>
-            </label>
+              </Select>
+            </Field>
 
-            <label className="pro-sched-form-row">
-              <span>{p('Title')}</span>
-              <TextField
+            <Field label={p('Title')}>
+              <Input
                 name="bookingTitle"
                 value={title}
                 maxLength={120}
                 onChange={e => setTitle(e.target.value)}
               />
-            </label>
+            </Field>
 
-            <label className="pro-sched-form-row">
-              <span>{p('Notes')}</span>
-              <TextArea
+            <Field label={p('Notes')}>
+              <Textarea
                 name="bookingNotes"
                 value={notes}
                 maxLength={1000}
                 rows={2}
                 onChange={e => setNotes(e.target.value)}
               />
-            </label>
+            </Field>
 
             <div className="pro-actions">
               <Button type="button" onClick={() => setBookingOpen(false)}>{p('Cancel')}</Button>
@@ -1621,6 +1825,7 @@ export function AthleteAppointmentsView() {
   const [appointments, setAppointments] = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(false)
+  const [sectionFilter, setSectionFilter] = useState('all') // 'all' | 'upcoming' | 'history'
   const [cursor, setCursor] = useState(null)
   const [hasMore, setHasMore] = useState(false)
   const [loadingMore, setLoadingMore] = useState(false)
@@ -1667,18 +1872,74 @@ export function AthleteAppointmentsView() {
     loadAppointments(false)
   }, [])
 
+  const nextAppointment = useMemo(() => {
+    const now = Date.now()
+    const upcoming = appointments.filter(
+      item => item.status === 'scheduled' && Date.parse(item.endAt || item.startAt) >= now
+    )
+    return upcoming.sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0] || null
+  }, [appointments])
+
+  const visibleAppointments = useMemo(() => {
+    const now = Date.now()
+    if (sectionFilter === 'upcoming') {
+      return appointments.filter(item => item.status === 'scheduled' && Date.parse(item.endAt || item.startAt) >= now)
+    }
+    if (sectionFilter === 'history') {
+      return appointments.filter(item => item.status !== 'scheduled' || Date.parse(item.endAt || item.startAt) < now)
+    }
+    return appointments
+  }, [appointments, sectionFilter])
+
   return (
     <section className="pro-sched-section" aria-labelledby="athlete-appointments-heading">
       <h2 id="athlete-appointments-heading" className="pro-section-title">{p('My appointments')}</h2>
 
-      {loading && appointments.length === 0 ? (
-        <div className="pro-loading">{p('Loading…')}</div>
-      ) : loadError ? (
-        <div className="card pro-load-error" role="alert">
-          <p>{p('Could not load appointments.')}</p>
-          <Button size="sm" onClick={() => loadAppointments(false)}>{p('Try again')}</Button>
+      {nextAppointment && sectionFilter !== 'history' && (
+        <NextAppointmentCard
+          appointment={nextAppointment}
+          isCoach={false}
+          onDetails={setDetailItem}
+          onReschedule={setRescheduleItem}
+          onCancel={setCancelItem}
+        />
+      )}
+
+      {appointments.length > 0 && (
+        <div className="pro-sched-section-tabs" role="group" aria-label={p('Filter by period')}>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${sectionFilter === 'all' ? 'active' : ''}`}
+            onClick={() => setSectionFilter('all')}
+          >
+            {p('All')} ({appointments.length})
+          </button>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${sectionFilter === 'upcoming' ? 'active' : ''}`}
+            onClick={() => setSectionFilter('upcoming')}
+          >
+            {p('Upcoming sessions')}
+          </button>
+          <button
+            type="button"
+            className={`pro-sched-filter-pill ${sectionFilter === 'history' ? 'active' : ''}`}
+            onClick={() => setSectionFilter('history')}
+          >
+            {p('Session history')}
+          </button>
         </div>
-      ) : appointments.length === 0 ? (
+      )}
+
+      {loading && appointments.length === 0 ? (
+        <div className="pro-loading" role="status">{p('Loading…')}</div>
+      ) : loadError ? (
+        <ErrorState
+          title={p('Could not load appointments.')}
+          text={p('Could not reach PR Fit. Check your connection and try again.')}
+          action={<Button size="sm" onClick={() => loadAppointments(false)}>{p('Try again')}</Button>}
+        />
+      ) : visibleAppointments.length === 0 ? (
         <EmptyState
           icon="calendar"
           title={p('No appointments found')}
@@ -1686,7 +1947,7 @@ export function AthleteAppointmentsView() {
         />
       ) : (
         <div className="pro-sched-grid">
-          {appointments.map(item => {
+          {visibleAppointments.map(item => {
             const allowed = item.lifecycle?.allowedActions || []
             const readOnly = !!item.lifecycle?.readOnly
 
@@ -1843,28 +2104,32 @@ export function ReminderPreferencesView() {
   }
 
   if (loading && !preferences) {
-    return <div className="pro-loading">{p('Loading…')}</div>
+    return <div className="pro-loading" role="status">{p('Loading…')}</div>
   }
 
   if (loadError) {
     return (
-      <div className="card pro-load-error" role="alert">
-        <p>{p('Could not load reminder preferences.')}</p>
-        <Button size="sm" onClick={load}>{p('Try again')}</Button>
-      </div>
+      <ErrorState
+        title={p('Could not load reminder preferences.')}
+        text={p('Could not reach PR Fit. Check your connection and try again.')}
+        action={<Button size="sm" onClick={load}>{p('Try again')}</Button>}
+      />
     )
   }
 
   return (
     <section className="pro-sched-section" aria-labelledby="reminder-preferences-heading">
       <div className="pro-panel-head">
-        <h2 id="reminder-preferences-heading" className="pro-section-title">{p('Reminders')}</h2>
+        <div>
+          <h2 id="reminder-preferences-heading" className="pro-section-title">{p('Reminders')}</h2>
+          <span className="small dim">{p('Timezone')}: {preferences.timeZone || defaultTz}</span>
+        </div>
         <Button variant="primary" disabled={saving} onClick={handleSave}>
           {saving ? p('Saving reminders…') : p('Save reminders')}
         </Button>
       </div>
 
-      <div className="pro-sched-reminders-box">
+      <Card className="pro-sched-reminders-box">
         <label className="pro-check">
           <input
             type="checkbox"
@@ -1873,10 +2138,6 @@ export function ReminderPreferencesView() {
           />
           <strong>{p('Enable reminders')}</strong>
         </label>
-
-        <div>
-          <span className="small dim">{p('Timezone')}: {preferences.timeZone || defaultTz}</span>
-        </div>
 
         <div className="pro-sched-offsets-grid">
           <span className="pro-field-label">{p('Reminder offsets')}</span>
@@ -1892,7 +2153,7 @@ export function ReminderPreferencesView() {
             </label>
           ))}
         </div>
-      </div>
+      </Card>
     </section>
   )
 }
@@ -1910,13 +2171,10 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
 
   const isCoach = user?.profile?.kind === 'coach'
 
-  const queryRole = useMemo(() => {
-    return new URLSearchParams(location.search).get('role') || ''
-  }, [location.search])
-
-  const queryTab = useMemo(() => {
-    return initialTab || new URLSearchParams(location.search).get('tab') || ''
-  }, [initialTab, location.search])
+  const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search])
+  const queryRole = useMemo(() => searchParams.get('role') || '', [searchParams])
+  const queryTab = useMemo(() => initialTab || searchParams.get('tab') || '', [initialTab, searchParams])
+  const queryAthleteId = useMemo(() => searchParams.get('athleteId') || '', [searchParams])
 
   const [globalRole, setGlobalRole] = useActiveRole(user)
 
@@ -1990,6 +2248,33 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
     }
   }
 
+  const tabs = currentRole === 'coach'
+    ? [
+        { id: 'appointments', label: p('Appointments'), icon: 'calendar' },
+        { id: 'availability', label: p('Availability'), icon: 'clock' },
+        { id: 'reminders', label: p('Reminders'), icon: 'bell' },
+      ]
+    : [
+        { id: 'book', label: p('Book session'), icon: 'plus' },
+        { id: 'appointments', label: p('My appointments'), icon: 'calendar' },
+        { id: 'reminders', label: p('Reminders'), icon: 'bell' },
+      ]
+
+  const handleTabKeyDown = (event, index) => {
+    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const nextIndex = event.key === 'Home'
+      ? 0
+      : event.key === 'End'
+        ? tabs.length - 1
+        : event.key === 'ArrowRight'
+          ? (index + 1) % tabs.length
+          : (index - 1 + tabs.length) % tabs.length
+    setActiveTab(tabs[nextIndex].id)
+    const targetButton = event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[nextIndex]
+    targetButton?.focus()
+  }
+
   return (
     <main className={`narrow pro-page ${embedded ? 'embedded' : ''}`}>
       {!embedded && (
@@ -2033,87 +2318,52 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
         </div>
       )}
 
-      <nav className="pro-sched-nav" role="tablist">
-        {currentRole === 'coach' ? (
-          <>
+      <nav className="pro-sched-nav" role="tablist" aria-label={p('Scheduling')}>
+        {tabs.map((tab, index) => {
+          const isSelected = activeTab === tab.id
+          return (
             <button
+              key={tab.id}
               role="tab"
-              aria-selected={activeTab === 'appointments'}
-              className={`pro-sched-tab ${activeTab === 'appointments' ? 'active' : ''}`}
-              onClick={() => setActiveTab('appointments')}
+              id={`tab-${tab.id}`}
+              aria-selected={isSelected}
+              aria-controls={`panel-${tab.id}`}
+              tabIndex={isSelected ? 0 : -1}
+              className={`pro-sched-tab ${isSelected ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+              onKeyDown={e => handleTabKeyDown(e, index)}
             >
-              <Icon name="calendar" />
-              <span>{p('Appointments')}</span>
+              <Icon name={tab.icon} />
+              <span>{tab.label}</span>
             </button>
-            <button
-              role="tab"
-              aria-selected={activeTab === 'availability'}
-              className={`pro-sched-tab ${activeTab === 'availability' ? 'active' : ''}`}
-              onClick={() => setActiveTab('availability')}
-            >
-              <Icon name="clock" />
-              <span>{p('Availability')}</span>
-            </button>
-            <button
-              role="tab"
-              aria-selected={activeTab === 'reminders'}
-              className={`pro-sched-tab ${activeTab === 'reminders' ? 'active' : ''}`}
-              onClick={() => setActiveTab('reminders')}
-            >
-              <Icon name="bell" />
-              <span>{p('Reminders')}</span>
-            </button>
-          </>
-        ) : (
-          <>
-            <button
-              role="tab"
-              aria-selected={activeTab === 'book'}
-              className={`pro-sched-tab ${activeTab === 'book' ? 'active' : ''}`}
-              onClick={() => setActiveTab('book')}
-            >
-              <Icon name="plus" />
-              <span>{p('Book session')}</span>
-            </button>
-            <button
-              role="tab"
-              aria-selected={activeTab === 'appointments'}
-              className={`pro-sched-tab ${activeTab === 'appointments' ? 'active' : ''}`}
-              onClick={() => setActiveTab('appointments')}
-            >
-              <Icon name="calendar" />
-              <span>{p('My appointments')}</span>
-            </button>
-            <button
-              role="tab"
-              aria-selected={activeTab === 'reminders'}
-              className={`pro-sched-tab ${activeTab === 'reminders' ? 'active' : ''}`}
-              onClick={() => setActiveTab('reminders')}
-            >
-              <Icon name="bell" />
-              <span>{p('Reminders')}</span>
-            </button>
-          </>
-        )}
+          )
+        })}
       </nav>
 
-      {currentRole === 'coach' ? (
-        activeTab === 'appointments' ? (
-          <CoachAppointmentsView links={coachLinks} />
-        ) : activeTab === 'availability' ? (
-          <CoachAvailabilityEditor />
+      <div
+        id={`panel-${activeTab}`}
+        role="tabpanel"
+        aria-labelledby={`tab-${activeTab}`}
+        tabIndex={0}
+      >
+        {currentRole === 'coach' ? (
+          activeTab === 'appointments' ? (
+            <CoachAppointmentsView links={coachLinks} defaultAthleteId={queryAthleteId} />
+          ) : activeTab === 'availability' ? (
+            <CoachAvailabilityEditor />
+          ) : (
+            <ReminderPreferencesView />
+          )
         ) : (
-          <ReminderPreferencesView />
-        )
-      ) : (
-        activeTab === 'book' ? (
-          <AthleteBookingView links={athleteLinks} onBookSuccess={() => setActiveTab('appointments')} />
-        ) : activeTab === 'appointments' ? (
-          <AthleteAppointmentsView />
-        ) : (
-          <ReminderPreferencesView />
-        )
-      )}
+          activeTab === 'book' ? (
+            <AthleteBookingView links={athleteLinks} onBookSuccess={() => setActiveTab('appointments')} />
+          ) : activeTab === 'appointments' ? (
+            <AthleteAppointmentsView />
+          ) : (
+            <ReminderPreferencesView />
+          )
+        )}
+      </div>
     </main>
   )
 }

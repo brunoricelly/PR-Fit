@@ -332,7 +332,7 @@ export default function AthleteToday() {
 
           {nextAppointment && <Card className="athlete-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Próximo compromisso</span><h3>{nextAppointment.title || 'Sessão'}</h3></div><Icon name="calendar" aria-hidden="true" /></div>
-            <p>{new Date(nextAppointment.startAt).toLocaleString('pt-BR', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</p>
+            <p>{new Date(nextAppointment.startAt).toLocaleString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: nextAppointment.timeZone || undefined })}{nextAppointment.timeZone ? ' (' + nextAppointment.timeZone + ')' : ''}</p>
             <p className="dashboard-muted">{nextAppointment.coach?.name || 'Profissional'}</p>
             <Button variant="ghost" onClick={() => navigate('/scheduling')}>Ver agenda</Button>
           </Card>}

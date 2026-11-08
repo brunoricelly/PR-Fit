@@ -1,4 +1,5 @@
 /* Scheduling & Calendar Styles */
+
 .pro-sched-nav {
   display: flex;
   gap: 8px;
@@ -7,19 +8,21 @@
   scrollbar-width: none;
 }
 .pro-sched-nav::-webkit-scrollbar { display: none; }
+
 .pro-sched-tab {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
   min-height: 44px;
   min-width: 44px;
-  padding: 8px 16px;
+  padding: 8px 18px;
   border-radius: var(--r-full, 999px);
   border: 1px solid var(--separator);
   background: var(--surface);
   color: var(--label);
   font-weight: 500;
+  font-size: var(--fs-subhead);
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.15s ease;
@@ -40,11 +43,37 @@
   margin-top: 8px;
 }
 
+/* Next Appointment Highlight Card */
+.pro-sched-next-card {
+  border-left: 4px solid var(--acc, #0284c7);
+  background: var(--surface);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+.pro-sched-next-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+.pro-sched-next-title {
+  margin: 4px 0 2px;
+  font-size: var(--fs-title3, 1.25rem);
+  font-weight: 700;
+}
+.pro-sched-next-meta {
+  margin: 0;
+  font-size: var(--fs-footnote);
+  color: var(--label-2);
+}
+
+/* Filters */
 .pro-sched-filters {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 12px;
   background: var(--surface);
   border-radius: var(--r-sm);
@@ -59,19 +88,73 @@
 }
 .pro-sched-filters select,
 .pro-sched-filters input {
-  min-height: 38px;
-  padding: 6px 10px;
+  min-height: 44px;
+  padding: 8px 12px;
   border: 1px solid var(--separator);
   border-radius: var(--r-xs);
   background: var(--surface-2);
   color: var(--label);
   font-size: var(--fs-footnote);
+  box-sizing: border-box;
+}
+
+.pro-sched-quick-periods,
+.pro-sched-section-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pro-sched-filter-pill {
+  min-height: 44px;
+  padding: 6px 14px;
+  border-radius: var(--r-full, 999px);
+  border: 1px solid var(--separator);
+  background: var(--surface-2);
+  color: var(--label);
+  font-size: var(--fs-footnote);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.pro-sched-filter-pill:hover {
+  background: var(--surface-3);
+}
+.pro-sched-filter-pill.active {
+  background: var(--acc);
+  color: var(--on-acc, #fff);
+  border-color: var(--acc);
 }
 
 .pro-sched-view-toggle {
   margin-left: auto;
   display: flex;
-  gap: 4px;
+  gap: 6px;
+}
+.pro-sched-view-toggle button {
+  min-height: 44px;
+  min-width: 44px;
+}
+
+/* Day Groups and Grid */
+.pro-sched-day-groups {
+  display: grid;
+  gap: 16px;
+}
+.pro-sched-day-group {
+  display: grid;
+  gap: 8px;
+}
+.pro-sched-day-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 2px;
+}
+.pro-sched-day-group-header h4 {
+  margin: 0;
+  font-size: var(--fs-subhead);
+  font-weight: 600;
+  color: var(--label-2);
 }
 
 .pro-sched-grid {
@@ -150,6 +233,9 @@
   gap: 8px;
   margin-top: 4px;
 }
+.pro-sched-actions button {
+  min-height: 44px;
+}
 
 /* Slots Grid */
 .pro-sched-slots {
@@ -163,6 +249,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  min-height: 48px;
   padding: 10px 8px;
   border-radius: var(--r-sm);
   border: 1px solid var(--separator);
@@ -221,12 +308,17 @@
   gap: 8px;
 }
 .pro-sched-window-item input[type="time"] {
-  min-height: 38px;
-  padding: 4px 8px;
+  min-height: 44px;
+  padding: 6px 10px;
   border: 1px solid var(--separator);
   border-radius: var(--r-xs);
   background: var(--surface-2);
   color: var(--label);
+  box-sizing: border-box;
+}
+.pro-sched-window-item button {
+  min-height: 44px;
+  min-width: 44px;
 }
 
 /* Exceptions */
@@ -243,6 +335,9 @@
   border: 1px solid var(--separator);
   border-radius: var(--r-sm);
   background: var(--surface);
+}
+.pro-sched-exception-item input[type="date"] {
+  min-height: 44px;
 }
 
 /* Table Calendar */
@@ -271,6 +366,7 @@
 .pro-sched-form-row textarea {
   width: 100%;
   box-sizing: border-box;
+  min-height: 44px;
 }
 
 .pro-sched-conflict-alert {
@@ -286,9 +382,6 @@
   display: grid;
   gap: 12px;
   padding: 14px;
-  background: var(--surface);
-  border: 1px solid var(--separator);
-  border-radius: var(--r-sm);
 }
 .pro-sched-offsets-grid {
   display: grid;
@@ -300,4 +393,37 @@
   gap: 8px;
   align-items: center;
   margin-bottom: 12px;
+}
+.pro-sched-role-switcher button {
+  min-height: 44px;
+}
+
+.pro-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.pro-check input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+}
+
+/* Focus and Keyboard Accessibility */
+.pro-sched-tab:focus-visible,
+.pro-sched-slot-btn:focus-visible,
+.pro-sched-filter-pill:focus-visible {
+  outline: 2px solid var(--acc, #0284c7);
+  outline-offset: 2px;
+}
+
+/* Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .pro-sched-tab,
+  .pro-sched-slot-btn,
+  .pro-sched-filter-pill {
+    transition: none !important;
+  }
 }
