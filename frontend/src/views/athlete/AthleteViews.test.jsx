@@ -25,6 +25,9 @@ const mocks = vi.hoisted(() => ({
   listCoachGroups: vi.fn(),
   listCoachChallenges: vi.fn(),
   listCoachGroupPrograms: vi.fn(),
+  activeRole: 'athlete',
+  isDualRole: false,
+  setActiveRole: vi.fn(),
 }))
 
 vi.mock('../../store/useStore.js', () => {
@@ -44,6 +47,14 @@ vi.mock('../../store/useUI.js', () => {
 vi.mock('../../lib/api.js', () => ({
   api: (...args) => mocks.api(...args),
 }))
+
+vi.mock('../../lib/roles.js', async () => {
+  const actual = await vi.importActual('../../lib/roles.js')
+  return {
+    ...actual,
+    useActiveRole: () => [mocks.activeRole, mocks.setActiveRole, mocks.isDualRole],
+  }
+})
 
 vi.mock('../../lib/group-challenges-api.js', async () => {
   const actual = await vi.importActual('../../lib/group-challenges-api.js')
@@ -76,6 +87,8 @@ let host, root
 beforeEach(() => {
   vi.clearAllMocks()
   mocks.user = { id: 'u_athlete_1', name: 'Alice Silva', profile: { kind: 'athlete' } }
+  mocks.activeRole = 'athlete'
+  mocks.isDualRole = false
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
@@ -479,8 +492,69 @@ describe('AthleteGroupProgramsView', () => {
 })
 
 describe('CommunityHub dual-role and navigation', () => {
+  it('keeps a standard athlete in athlete views when the URL requests coach mode', async () => {
+    mocks.listAthleteGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+
+    await mount(<CommunityHub />, '/community?role=coach')
+
+    expect(host.textContent).toContain('My groups')
+    expect(mocks.listAthleteGroups).toHaveBeenCalled()
+    expect(mocks.listCoachGroups).not.toHaveBeenCalled()
+    expect(mocks.listCoachChallenges).not.toHaveBeenCalled()
+    expect(mocks.listCoachGroupPrograms).not.toHaveBeenCalled()
+    expect(mocks.setActiveRole).not.toHaveBeenCalled()
+  })
+
+  it('keeps a standard athlete in athlete views when defaultRole requests coach mode', async () => {
+    mocks.listAthleteGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+
+    await mount(<CommunityHub defaultRole="coach" />)
+
+    expect(host.textContent).toContain('My groups')
+    expect(mocks.listAthleteGroups).toHaveBeenCalled()
+    expect(mocks.listCoachGroups).not.toHaveBeenCalled()
+    expect(mocks.setActiveRole).not.toHaveBeenCalled()
+  })
+
+  it('keeps a non-dual coach in coach views when the URL requests athlete mode', async () => {
+    mocks.user = { id: 'u_coach_standard', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.activeRole = 'coach'
+    mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+
+    await mount(<CommunityHub />, '/community?role=athlete')
+
+    expect(host.textContent).toContain('Groups')
+    expect(host.textContent).not.toContain('My groups')
+    expect(mocks.listCoachGroups).toHaveBeenCalled()
+    expect(mocks.listAthleteGroups).not.toHaveBeenCalled()
+    expect(mocks.setActiveRole).not.toHaveBeenCalled()
+  })
+
+  it('preserves an authorized athlete deep link for dual-role users and still allows switching', async () => {
+    mocks.user = { id: 'u_coach_deep_link', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.activeRole = 'coach'
+    mocks.isDualRole = true
+    mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+    mocks.listAthleteGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+
+    await mount(<CommunityHub />, '/community?role=athlete')
+
+    expect(mocks.listAthleteGroups).toHaveBeenCalled()
+    expect(mocks.listCoachGroups).not.toHaveBeenCalled()
+
+    await act(async () => {
+      button('Coach view').click()
+    })
+    await settle()
+
+    expect(mocks.listCoachGroups).toHaveBeenCalled()
+    expect(mocks.setActiveRole).toHaveBeenCalledWith('coach')
+  })
+
   it('supports dual-role switching between coach and athlete view modes', async () => {
     mocks.user = { id: 'u_coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.activeRole = 'coach'
+    mocks.isDualRole = true
     mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
     mocks.listAthleteGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
 
@@ -499,6 +573,15 @@ describe('CommunityHub dual-role and navigation', () => {
     await settle()
 
     expect(mocks.listAthleteGroups).toHaveBeenCalled()
+    expect(mocks.setActiveRole).toHaveBeenCalledWith('athlete')
+
+    await act(async () => {
+      button('Coach view').click()
+    })
+    await settle()
+
+    expect(mocks.listCoachGroups).toHaveBeenCalledTimes(2)
+    expect(mocks.setActiveRole).toHaveBeenLastCalledWith('coach')
   })
 
   it('switches between section tabs (groups, challenges, programs)', async () => {

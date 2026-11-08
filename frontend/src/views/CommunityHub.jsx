@@ -12,12 +12,20 @@ import AthleteChallengesView from './athlete/AthleteChallengesView.jsx'
 import AthleteGroupProgramsView from './athlete/AthleteGroupProgramsView.jsx'
 import './GroupChallenges.css'
 
+const isCommunityRole = role => role === 'coach' || role === 'athlete'
+
+const normalizeCommunityRole = (requestedRole, baseRole, isDual) => {
+  if (!isDual) return baseRole
+  return isCommunityRole(requestedRole) ? requestedRole : baseRole
+}
+
 export default function CommunityHub({ embedded = false, defaultSection = 'groups', defaultRole }) {
   const user = useStore(state => state.user)
   const location = useLocation()
   const navigate = useNavigate()
 
   const isCoach = user?.profile?.kind === 'coach'
+  const baseRole = isCoach ? 'coach' : 'athlete'
 
   const querySection = useMemo(() => {
     return new URLSearchParams(location.search).get('section') || defaultSection
@@ -28,23 +36,37 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
   }, [location.search])
 
   const [globalRole, setGlobalRole, isDual] = useActiveRole(user)
+  const explicitRole = isCommunityRole(defaultRole)
+    ? defaultRole
+    : isCommunityRole(queryRole)
+      ? queryRole
+      : null
 
   const [roleMode, setRoleMode] = useState(() => {
-    if (defaultRole) return defaultRole
-    if (queryRole === 'coach') return 'coach'
-    if (queryRole === 'athlete') return 'athlete'
-    return globalRole || (isCoach ? 'coach' : 'athlete')
+    return normalizeCommunityRole(explicitRole || globalRole, baseRole, isDual)
   })
 
   React.useEffect(() => {
-    if (!defaultRole && !queryRole && globalRole && globalRole !== roleMode) {
-      setRoleMode(globalRole)
-    }
-  }, [globalRole, defaultRole, queryRole, roleMode])
+    setRoleMode(currentRole => {
+      const nextRole = normalizeCommunityRole(explicitRole || currentRole, baseRole, isDual)
+      return nextRole === currentRole ? currentRole : nextRole
+    })
+  }, [explicitRole, baseRole, isDual])
+
+  React.useEffect(() => {
+    if (explicitRole) return
+    setRoleMode(currentRole => {
+      const nextRole = normalizeCommunityRole(globalRole, baseRole, isDual)
+      return nextRole === currentRole ? currentRole : nextRole
+    })
+  }, [globalRole, explicitRole, baseRole, isDual])
+
+  const authorizedRoleMode = normalizeCommunityRole(roleMode, baseRole, isDual)
 
   const handleRoleSwitch = mode => {
-    setRoleMode(mode)
-    setGlobalRole(mode)
+    const nextRole = normalizeCommunityRole(mode, baseRole, isDual)
+    setRoleMode(currentRole => currentRole === nextRole ? currentRole : nextRole)
+    if (isDual && isCommunityRole(mode)) setGlobalRole(nextRole)
   }
 
   const [section, setSection] = useState(querySection)
@@ -69,8 +91,8 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
             <button
               type="button"
               role="tab"
-              aria-selected={roleMode === 'coach'}
-              className={`gc-filter-btn ${roleMode === 'coach' ? 'active' : ''}`}
+              aria-selected={authorizedRoleMode === 'coach'}
+              className={`gc-filter-btn ${authorizedRoleMode === 'coach' ? 'active' : ''}`}
               onClick={() => handleRoleSwitch('coach')}
             >
               {p('Coach view') || 'Coach view'}
@@ -78,8 +100,8 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
             <button
               type="button"
               role="tab"
-              aria-selected={roleMode === 'athlete'}
-              className={`gc-filter-btn ${roleMode === 'athlete' ? 'active' : ''}`}
+              aria-selected={authorizedRoleMode === 'athlete'}
+              className={`gc-filter-btn ${authorizedRoleMode === 'athlete' ? 'active' : ''}`}
               onClick={() => handleRoleSwitch('athlete')}
             >
               {p('Athlete view') || 'Athlete view'}
@@ -98,7 +120,7 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
           onClick={() => setSection('groups')}
         >
           <Icon name="person" />
-          <span>{roleMode === 'coach' ? p('Groups') : p('My groups')}</span>
+          <span>{authorizedRoleMode === 'coach' ? p('Groups') : p('My groups')}</span>
         </button>
         <button
           type="button"
@@ -123,7 +145,7 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
       </nav>
 
       {/* Section View */}
-      {roleMode === 'coach' ? (
+      {authorizedRoleMode === 'coach' ? (
         section === 'groups' ? (
           <CoachGroupsView embedded />
         ) : section === 'challenges' ? (
