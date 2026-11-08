@@ -1,4 +1,5 @@
 import React, { useEffect, useId, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import Icon from './Icon.jsx'
 
 const modalStack = []
@@ -7,13 +8,48 @@ let savedBodyOverflow = ''
 let savedBodyPaddingRight = ''
 
 const focusableSelector = [
-  'button:not([disabled])',
-  '[href]',
-  'input:not([disabled])',
-  'select:not([disabled])',
-  'textarea:not([disabled])',
-  '[tabindex]:not([tabindex="-1"])',
+  'button:not([disabled]):not([aria-hidden="true"])',
+  '[href]:not([aria-hidden="true"])',
+  'input:not([disabled]):not([type="hidden"]):not([aria-hidden="true"])',
+  'select:not([disabled]):not([aria-hidden="true"])',
+  'textarea:not([disabled]):not([aria-hidden="true"])',
+  '[tabindex]:not([tabindex="-1"]):not([aria-hidden="true"])',
 ].join(', ')
+
+function isElementVisible(element) {
+  if (!element || element.nodeType !== 1) return false
+  if (element.hasAttribute('hidden') || element.getAttribute('aria-hidden') === 'true') return false
+  if (element.closest?.('[aria-hidden="true"], [hidden]')) return false
+  if (element.tagName === 'INPUT' && element.type === 'hidden') return false
+
+  if (typeof window !== 'undefined') {
+    let current = element
+    while (current && current !== document.body && current !== document.documentElement) {
+      if (current.hasAttribute('hidden') || current.getAttribute('aria-hidden') === 'true') return false
+      if (current.style && (current.style.display === 'none' || current.style.visibility === 'hidden')) return false
+      if (typeof window.getComputedStyle === 'function') {
+        const computed = window.getComputedStyle(current)
+        if (computed && (computed.display === 'none' || computed.visibility === 'hidden')) return false
+      }
+      current = current.parentElement
+    }
+  }
+
+  if (typeof element.checkVisibility === 'function') {
+    try {
+      if (!element.checkVisibility({ checkOpacity: false, checkVisibilityCSS: true })) return false
+    } catch {
+      // ignore
+    }
+  }
+
+  return true
+}
+
+function getFocusableElements(container) {
+  if (!container) return []
+  return Array.from(container.querySelectorAll(focusableSelector)).filter(isElementVisible)
+}
 
 function lockScroll() {
   if (scrollLockCount === 0) {
@@ -57,8 +93,9 @@ export default function Modal({
     modalStack.push(dialog)
     lockScroll()
 
-    const focusable = dialog?.querySelectorAll(focusableSelector)
-    const preferredFocus = dialog?.querySelector('[autofocus]') || focusable?.[0]
+    const focusable = getFocusableElements(dialog)
+    const autofocusTarget = dialog?.querySelector('[autofocus]')
+    const preferredFocus = (autofocusTarget && isElementVisible(autofocusTarget)) ? autofocusTarget : focusable[0]
     if (preferredFocus) preferredFocus.focus()
     else dialog?.focus()
 
@@ -70,7 +107,7 @@ export default function Modal({
         return
       }
       if (event.key !== 'Tab') return
-      const nodes = Array.from(dialog?.querySelectorAll(focusableSelector) || [])
+      const nodes = getFocusableElements(dialog)
       if (!nodes.length) {
         event.preventDefault()
         dialog?.focus()
@@ -104,7 +141,7 @@ export default function Modal({
   const titleId = `${modalId}-title`
   const descriptionId = description ? `${modalId}-description` : undefined
 
-  return (
+  const content = (
     <div
       className="ds-modal-backdrop"
       onClick={event => {
@@ -133,6 +170,12 @@ export default function Modal({
       </div>
     </div>
   )
+
+  const portalTarget = typeof document !== 'undefined'
+    ? (document.getElementById('modal-root') || document.body)
+    : null
+
+  return portalTarget ? createPortal(content, portalTarget) : content
 }
 
 export function Drawer(props) {

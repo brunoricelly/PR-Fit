@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { _setLangState } from './i18n-core.js'
-import { PROFESSIONAL_PT_BR, professionalText } from './professional-copy.js'
+import { PROFESSIONAL_PT_BR, professionalError, professionalText } from './professional-copy.js'
 
 const SRC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -35,5 +35,16 @@ describe('professionalText', () => {
     const sources = ['views/ProfessionalHub.jsx', 'views/Settings.jsx', 'views/coach/CoachGroupsView.jsx']
       .flatMap(file => [...fs.readFileSync(path.join(SRC, file), 'utf8').matchAll(/\bp\('([^']+)'/g)].map(match => match[1]))
     expect([...new Set(sources)].filter(source => !PROFESSIONAL_PT_BR[source])).toEqual([])
+  })
+
+  it('translates group_limit_reached error specifically', () => {
+    _setLangState('pt-BR', {}, null, null)
+    expect(professionalError({ status: 409, code: 'group_limit_reached' }))
+      .toBe('Limite de grupos atingido para o seu perfil (máximo 50 grupos).')
+    expect(professionalError({ status: 409, data: { code: 'group_limit_reached' } }))
+      .toBe('Limite de grupos atingido para o seu perfil (máximo 50 grupos).')
+    _setLangState('en', {}, null, null)
+    expect(professionalError({ status: 409, code: 'group_limit_reached' }))
+      .toBe('Group limit reached for your profile (maximum 50 groups).')
   })
 })

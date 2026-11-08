@@ -61,6 +61,7 @@ export default function CoachGroupsView({ embedded = false }) {
   const [addMemberError, setAddMemberError] = useState(null)
   const [memberToRemove, setMemberToRemove] = useState(null)
   const [removingMember, setRemovingMember] = useState(false)
+  const [loadingMoreMembers, setLoadingMoreMembers] = useState(false)
 
   const loadGroups = useCallback(async (cursor = null) => {
     if (!cursor) setLoading(true)
@@ -116,6 +117,11 @@ export default function CoachGroupsView({ embedded = false }) {
       setCreateError(p('Enter a group name.'))
       return
     }
+    const maxMembers = Number(createForm.maxMembers)
+    if (isNaN(maxMembers) || maxMembers < 1 || maxMembers > 500) {
+      setCreateError(p('Choose a limit between 1 and 500 athletes.'))
+      return
+    }
     setCreating(true)
     setCreateError(null)
     try {
@@ -123,7 +129,7 @@ export default function CoachGroupsView({ embedded = false }) {
         name: createForm.name.trim(),
         description: createForm.description.trim(),
         category: createForm.category.trim(),
-        maxMembers: Number(createForm.maxMembers) || 50,
+        maxMembers,
         isPrivate: Boolean(createForm.isPrivate),
       })
       toast(p('Group created successfully.'))
@@ -206,6 +212,26 @@ export default function CoachGroupsView({ embedded = false }) {
     }
   }
 
+  const handleLoadMoreMembers = async () => {
+    if (!selectedGroupId || !groupDetails?.page?.hasMore || loadingMoreMembers) return
+    setLoadingMoreMembers(true)
+    try {
+      const response = await getCoachGroup(selectedGroupId, {
+        cursor: groupDetails.page.nextCursor,
+        limit: 100,
+      })
+      setGroupDetails(previous => previous ? {
+        ...previous,
+        members: [...(previous.members || []), ...(response.members || [])],
+        page: response.page || null,
+      } : previous)
+    } catch (requestError) {
+      toast(professionalError(requestError))
+    } finally {
+      setLoadingMoreMembers(false)
+    }
+  }
+
   const filteredAthletes = useMemo(() => {
     if (!athleteQuery.trim()) return coachAthletes
     const query = athleteQuery.toLowerCase()
@@ -218,8 +244,12 @@ export default function CoachGroupsView({ embedded = false }) {
     return groups.filter(group => group.name.toLowerCase().includes(query) || group.category?.toLowerCase().includes(query))
   }, [groups, search])
 
+  const Container = embedded ? 'div' : 'main'
+  const maxMembersNum = Number(createForm.maxMembers)
+  const isMaxMembersValid = createForm.maxMembers !== '' && !isNaN(maxMembersNum) && maxMembersNum >= 1 && maxMembersNum <= 500
+
   return (
-    <main className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
+    <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && <div className="pro-nav"><button type="button" onClick={() => navigate('/professionals')}><Icon name="chevronLeft" /><span>{p('My athletes')}</span></button></div>}
       <PageHeader className="gc-header" eyebrow={p('Community')} title={p('Groups')} description={p('Create and manage community groups for your athletes, share challenges, and build team spirit.')} />
 
@@ -262,6 +292,13 @@ export default function CoachGroupsView({ embedded = false }) {
               <Surface className="gc-invite-box"><div><span className="pro-kicker">{p('Invite code')}</span><div className="gc-invite-code">{groupDetails.group?.invite?.code || groupDetails.group?.inviteCode || p('No active code')}</div></div><div className="gc-inline-actions"><Button size="sm" icon="copy" onClick={() => handleCopyInvite(groupDetails.group?.invite?.code || groupDetails.group?.inviteCode)}>{copiedCode ? p('Copied!') : p('Copy code')}</Button><Button size="sm" icon="arrowPath" loading={rotatingInvite} loadingLabel={p('Rotating code…')} onClick={handleRotateInvite}>{p('Rotate code')}</Button></div></Surface>
               <div className="gc-members-head"><strong>{p('Members')} ({groupDetails.members?.length || 0} / {groupDetails.group?.maxMembers || 50})</strong><Button size="sm" variant="primary" icon="plus" onClick={handleOpenAddMember}>{p('Add athlete')}</Button></div>
               <div className="gc-member-list">{(!groupDetails.members || groupDetails.members.length === 0) ? <div className="pro-empty-inline">{p('No members in this group yet.')}</div> : groupDetails.members.map(member => <Surface key={member.id} className="gc-member-row"><div className="gc-member-info"><span className="gc-member-name">{member.displayName || member.athleteName || member.name || p('Athlete')}</span><span className="gc-member-meta">{member.role === 'moderator' ? p('Moderator') : p('Member')} · {member.status === 'pending' ? p('Pending') : p('Active')}</span></div><Button size="sm" variant="destructive" onClick={() => setMemberToRemove(member)}>{p('Remove member')}</Button></Surface>)}</div>
+              {groupDetails.page?.hasMore && (
+                <div className="pro-actions">
+                  <Button size="sm" loading={loadingMoreMembers} loadingLabel={p('Loading…')} onClick={handleLoadMoreMembers}>
+                    {p('Load more members')}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </Modal>
@@ -274,9 +311,9 @@ export default function CoachGroupsView({ embedded = false }) {
             <Field label={p('Group name')} required><Input name="name" value={createForm.name} onChange={event => setCreateForm(previous => ({ ...previous, name: event.target.value }))} placeholder={p('Example: Barbell Elite Club')} autoFocus /></Field>
             <Field label={p('Description')} help={p('Describe the focus and expectations for this group.')}><Textarea name="description" value={createForm.description} onChange={event => setCreateForm(previous => ({ ...previous, description: event.target.value }))} placeholder={p('Explain the focus, goals, or community guidelines…')} rows={3} /></Field>
             <Field label={p('Category')}><Input name="category" value={createForm.category} onChange={event => setCreateForm(previous => ({ ...previous, category: event.target.value }))} placeholder={p('Example: Powerlifting, Hypertrophy')} /></Field>
-            <Field label={p('Max members')} help={p('Choose a limit between 2 and 500 athletes.')}><NumberInput name="maxMembers" value={createForm.maxMembers} onChange={value => setCreateForm(previous => ({ ...previous, maxMembers: value }))} min={2} max={500} /></Field>
+            <Field label={p('Max members')} help={p('Choose a limit between 1 and 500 athletes.')} error={!isMaxMembersValid ? p('Choose a limit between 1 and 500 athletes.') : undefined}><NumberInput name="maxMembers" value={createForm.maxMembers} onChange={value => setCreateForm(previous => ({ ...previous, maxMembers: value }))} min={1} max={500} /></Field>
             <div className="pro-routine-row"><div><strong>{p('Private group')}</strong><p className="pro-routine-note">{p('Require invite code or direct invitation to join.')}</p></div><Switch aria-label={p('Private group')} checked={createForm.isPrivate} onChange={value => setCreateForm(previous => ({ ...previous, isPrivate: value }))} /></div>
-            <div className="pro-actions"><Button type="button" onClick={() => setShowCreateModal(false)}>{p('Cancel')}</Button><Button type="submit" variant="primary" loading={creating} loadingLabel={p('Creating…')} disabled={!createForm.name.trim()}>{p('Create group')}</Button></div>
+            <div className="pro-actions"><Button type="button" onClick={() => setShowCreateModal(false)}>{p('Cancel')}</Button><Button type="submit" variant="primary" loading={creating} loadingLabel={p('Creating…')} disabled={!createForm.name.trim() || !isMaxMembersValid}>{p('Create group')}</Button></div>
           </form>
         </Modal>
       )}
@@ -295,6 +332,6 @@ export default function CoachGroupsView({ embedded = false }) {
       )}
 
       {memberToRemove && <Modal id="remove-member-confirm" title={p('Remove member')} closeLabel={p('Close')} onClose={() => setMemberToRemove(null)}><div className="pro-modal-form"><p>{p('Are you sure you want to remove this member?')}<br /><strong>{memberToRemove.displayName || memberToRemove.athleteName || memberToRemove.name}</strong></p><div className="pro-actions"><Button type="button" onClick={() => setMemberToRemove(null)}>{p('Cancel')}</Button><Button type="button" variant="destructive" loading={removingMember} loadingLabel={p('Removing…')} onClick={handleConfirmRemoveMember}>{p('Remove member')}</Button></div></div></Modal>}
-    </main>
+    </Container>
   )
 }

@@ -103,6 +103,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  document.querySelectorAll('.ds-modal-backdrop, #modal-root').forEach(el => el.remove())
 })
 
 const settle = () => act(async () => {
@@ -122,10 +123,10 @@ const mount = async (component) => {
   await settle()
 }
 
-const button = (label, container = host) =>
+const button = (label, container = document.body) =>
   [...container.querySelectorAll('button')].find(item => item.textContent.trim().includes(label))
 
-const input = (name, container = host) =>
+const input = (name, container = document.body) =>
   container.querySelector(`input[name="${name}"], textarea[name="${name}"], select[name="${name}"]`)
 
 const changeInput = async (element, value) => {
@@ -192,7 +193,7 @@ describe('CoachGroupsView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#create-group-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#create-group-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     await changeInput(input('name', modal), 'Novo Grupo Teste')
@@ -225,8 +226,8 @@ describe('CoachGroupsView', () => {
     await settle()
 
     expect(mocks.getCoachGroup).toHaveBeenCalledWith('grp_1', { limit: 100 })
-    expect(host.textContent).toContain('Alice Silva')
-    expect(host.textContent).toContain('GRP-ABC12345')
+    expect(document.body.textContent).toContain('Alice Silva')
+    expect(document.body.textContent).toContain('GRP-ABC12345')
 
     await act(async () => {
       button('Copy code').click()
@@ -277,7 +278,7 @@ describe('CoachGroupsView', () => {
     expect(mocks.api).toHaveBeenCalledWith('/api/coach/athletes')
 
     // Click on athlete option
-    const option = [...host.querySelectorAll('.gc-autocomplete-option')].find(el => el.textContent.includes('Bob Souza'))
+    const option = [...document.body.querySelectorAll('.gc-autocomplete-option')].find(el => el.textContent.includes('Bob Souza'))
     expect(option).toBeTruthy()
 
     await act(async () => {
@@ -285,7 +286,7 @@ describe('CoachGroupsView', () => {
     })
     await settle()
 
-    const addBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Add athlete') && !b.disabled && b.type === 'button')
+    const addBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent.includes('Add athlete') && !b.disabled && b.type === 'button')
     await act(async () => {
       addBtn.click()
     })
@@ -317,7 +318,7 @@ describe('CoachGroupsView', () => {
     })
     await settle()
 
-    const confirmModal = host.querySelector('#remove-member-confirm-title')?.closest('.pro-modal-container')
+    const confirmModal = document.querySelector('#remove-member-confirm-title')?.closest('.pro-modal-container')
     expect(confirmModal).toBeTruthy()
 
     const confirmBtn = button('Remove member', confirmModal)
@@ -347,19 +348,130 @@ describe('CoachGroupsView', () => {
     })
     await settle()
 
-    const option = [...host.querySelectorAll('.gc-autocomplete-option')].find(el => el.textContent.includes('Bob Souza'))
+    const option = [...document.body.querySelectorAll('.gc-autocomplete-option')].find(el => el.textContent.includes('Bob Souza'))
     await act(async () => {
       option.click()
     })
     await settle()
 
-    const addBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Add athlete') && !b.disabled && b.type === 'button')
+    const addBtn = [...document.body.querySelectorAll('button')].find(b => b.textContent.includes('Add athlete') && !b.disabled && b.type === 'button')
     await act(async () => {
       addBtn.click()
     })
     await settle()
 
-    expect(host.textContent).toContain('maximum member capacity')
+    expect(document.body.textContent).toContain('maximum member capacity')
+  })
+  it('renders a semantic <main> tag standalone and a <div> tag when embedded', async () => {
+    mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+    await mount(<CoachGroupsView />)
+    expect(host.querySelector('main.gc-page')).toBeTruthy()
+    expect(host.querySelector('div.gc-page')).toBeNull()
+
+    await mount(<CoachGroupsView embedded />)
+    expect(host.querySelector('main.gc-page')).toBeNull()
+    expect(host.querySelector('div.gc-page.embedded')).toBeTruthy()
+  })
+
+  it('validates member capacity bounds (min 1, max 500) and displays inline error', async () => {
+    mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+    mocks.createCoachGroup.mockResolvedValueOnce({ group: fakeGroup })
+    mocks.getCoachGroup.mockResolvedValueOnce({ group: fakeGroup, members: [] })
+
+    await mount(<CoachGroupsView />)
+
+    await act(async () => {
+      button('New group').click()
+    })
+    await settle()
+
+    const modal = document.querySelector('#create-group-title')?.closest('.pro-modal-container')
+    expect(modal).toBeTruthy()
+
+    const maxMembersInput = input('maxMembers', modal)
+    expect(maxMembersInput.getAttribute('min')).toBe('1')
+    expect(maxMembersInput.getAttribute('max')).toBe('500')
+    expect(modal.textContent).toContain('Choose a limit between 1 and 500 athletes.')
+
+    await changeInput(input('name', modal), 'Grupo Validação')
+
+    // Set invalid max members: 0
+    await changeInput(maxMembersInput, '0')
+    expect(button('Create group', modal).disabled).toBe(true)
+    expect(modal.querySelector('.ds-field-error')).toBeTruthy()
+
+    // Set valid max members: 1
+    await changeInput(maxMembersInput, '1')
+    expect(button('Create group', modal).disabled).toBe(false)
+    expect(modal.querySelector('.ds-field-error')).toBeNull()
+
+    await act(async () => {
+      button('Create group', modal).click()
+    })
+    await settle()
+
+    expect(mocks.createCoachGroup).toHaveBeenCalledWith(expect.objectContaining({
+      name: 'Grupo Validação',
+      maxMembers: 1,
+    }))
+  })
+
+  it('supports pagination of members in group details modal', async () => {
+    mocks.listCoachGroups.mockResolvedValueOnce({ groups: [fakeGroup], page: { hasMore: false } })
+    mocks.getCoachGroup.mockResolvedValueOnce({
+      group: fakeGroup,
+      members: [{ id: 'm_1', athleteId: 'ath_1', displayName: 'Atleta 1', role: 'member', status: 'active' }],
+      page: { hasMore: true, nextCursor: 'cur_page_2' },
+    })
+    mocks.getCoachGroup.mockResolvedValueOnce({
+      group: fakeGroup,
+      members: [{ id: 'm_2', athleteId: 'ath_2', displayName: 'Atleta 2', role: 'member', status: 'active' }],
+      page: { hasMore: false },
+    })
+
+    await mount(<CoachGroupsView />)
+
+    await act(async () => {
+      button('Group details').click()
+    })
+    await settle()
+
+    expect(document.body.textContent).toContain('Atleta 1')
+    expect(document.body.textContent).not.toContain('Atleta 2')
+
+    const loadMoreBtn = button('Load more members')
+    expect(loadMoreBtn).toBeTruthy()
+
+    await act(async () => {
+      loadMoreBtn.click()
+    })
+    await settle()
+
+    expect(mocks.getCoachGroup).toHaveBeenCalledWith('grp_1', { cursor: 'cur_page_2', limit: 100 })
+    expect(document.body.textContent).toContain('Atleta 1')
+    expect(document.body.textContent).toContain('Atleta 2')
+  })
+
+  it('displays specific group limit reached error (409 group_limit_reached)', async () => {
+    mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
+    mocks.createCoachGroup.mockRejectedValueOnce(new ConflictError('group quota reached', 'group_limit_reached'))
+
+    await mount(<CoachGroupsView />)
+
+    await act(async () => {
+      button('New group').click()
+    })
+    await settle()
+
+    const modal = document.querySelector('#create-group-title')?.closest('.pro-modal-container')
+    await changeInput(input('name', modal), 'Grupo 51')
+
+    await act(async () => {
+      button('Create group', modal).click()
+    })
+    await settle()
+
+    expect(document.body.textContent).toContain('Group limit reached for your profile (maximum 50 groups).')
   })
 })
 
@@ -407,7 +519,7 @@ describe('CoachChallengesView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#create-challenge-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#create-challenge-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     await changeInput(input('title', modal), 'Desafio Supino de Ouro')
@@ -447,10 +559,10 @@ describe('CoachChallengesView', () => {
     await settle()
 
     expect(mocks.getCoachChallengeLeaderboard).toHaveBeenCalledWith('ch_1', expect.anything())
-    expect(host.textContent).toContain('Alice')
-    expect(host.textContent).toContain('120')
-    expect(host.textContent).toContain('Bob')
-    expect(host.textContent).toContain('Treino finalizado')
+    expect(document.body.textContent).toContain('Alice')
+    expect(document.body.textContent).toContain('120')
+    expect(document.body.textContent).toContain('Bob')
+    expect(document.body.textContent).toContain('Treino finalizado')
   })
 
   it('awards custom points with idempotency and justification', async () => {
@@ -474,7 +586,7 @@ describe('CoachChallengesView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#award-points-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#award-points-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     await changeInput(input('athleteId', modal), 'ath_1')
@@ -559,7 +671,7 @@ describe('CoachGroupProgramsView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#create-program-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#create-program-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     await changeInput(input('title', modal), 'Programa Força Básica')
@@ -598,7 +710,7 @@ describe('CoachGroupProgramsView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#publish-confirm-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#publish-confirm-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     const publishBtn = button('Publish version', modal)
@@ -622,7 +734,7 @@ describe('CoachGroupProgramsView', () => {
     })
     await settle()
 
-    const modal = host.querySelector('#archive-confirm-title')?.closest('.pro-modal-container')
+    const modal = document.querySelector('#archive-confirm-title')?.closest('.pro-modal-container')
     expect(modal).toBeTruthy()
 
     const archiveBtn = button('Archive program', modal)

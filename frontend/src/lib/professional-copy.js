@@ -53,6 +53,7 @@ export const PROFESSIONAL_PT_BR = {
   'Full': 'Lotado',
   'Group capacity': 'Capacidade do grupo',
   'Load more': 'Carregar mais',
+  'Load more members': 'Carregar mais membros',
   'Loading group details…': 'Carregando detalhes do grupo…',
   'No active code': 'Nenhum código ativo',
   'Copied!': 'Copiado!',
@@ -65,6 +66,8 @@ export const PROFESSIONAL_PT_BR = {
   'Explain the focus, goals, or community guidelines…': 'Explique o foco, as metas ou as regras de convivência…',
   'Example: Powerlifting, Hypertrophy': 'Exemplo: Levantamento de peso, Hipertrofia',
   'Choose a limit between 2 and 500 athletes.': 'Escolha um limite entre 2 e 500 alunos.',
+  'Choose a limit between 1 and 500 athletes.': 'Escolha um limite entre 1 e 500 alunos.',
+  'Group limit reached for your profile (maximum 50 groups).': 'Limite de grupos atingido para o seu perfil (máximo 50 grupos).',
   'Require invite code or direct invitation to join.': 'Exige código de convite ou convite direto para entrar.',
   'Search among your active athletes with training scope to invite them into this group.': 'Busque entre seus alunos ativos com acesso a treinos para adicioná-los ao grupo.',
   'Type athlete name…': 'Digite o nome do aluno…',
@@ -698,6 +701,7 @@ export function professionalText(source, ...args) {
 }
 
 const ERROR_COPY = {
+  group_limit_reached: 'Group limit reached for your profile (maximum 50 groups).',
   group_full: 'This group has reached its maximum member capacity.',
   group_not_found: 'This group is no longer available.',
   invite_expired: 'This invitation has expired.',

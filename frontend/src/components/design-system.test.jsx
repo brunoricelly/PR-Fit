@@ -122,7 +122,7 @@ describe('PR Fit design-system keyboard behavior', () => {
     opener.focus()
     act(() => opener.click())
 
-    const dialog = host.querySelector('[role="dialog"]')
+    const dialog = document.querySelector('[role="dialog"]')
     const closeButton = dialog.querySelector('[aria-label="Fechar"]')
     const lastAction = dialog.querySelector('#last-action')
     expect(document.body.style.overflow).toBe('hidden')
@@ -135,9 +135,50 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(document.activeElement).toBe(lastAction)
 
     act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
-    expect(host.querySelector('[role="dialog"]')).toBeNull()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
     expect(document.body.style.overflow).toBe('')
     expect(document.activeElement).toBe(opener)
+  })
+
+  it('portals modal content to #modal-root when present, otherwise to document.body', () => {
+    const modalRoot = document.createElement('div')
+    modalRoot.id = 'modal-root'
+    document.body.appendChild(modalRoot)
+    try {
+      render(<Modal id="portal-modal" title="Portal test"><div>Conteúdo</div></Modal>)
+      expect(modalRoot.querySelector('[role="dialog"]')).toBeTruthy()
+    } finally {
+      modalRoot.remove()
+    }
+  })
+
+  it('skips hidden elements when trapping focus', () => {
+    render(
+      <Modal id="hidden-nodes-modal" title="Teste Ocultos">
+        <button type="button" style={{ display: 'none' }} id="btn-display-none">Invisível</button>
+        <button type="button" aria-hidden="true" id="btn-aria-hidden">Oculto</button>
+        <button type="button" id="visible-btn-1">Visível 1</button>
+        <button type="button" id="visible-btn-2">Visível 2</button>
+        <button type="button" hidden id="btn-hidden">Hidden attr</button>
+        <input type="hidden" name="hidden-input" id="inp-hidden" />
+      </Modal>
+    )
+    const dialog = document.querySelector('[role="dialog"]')
+    const closeBtn = dialog.querySelector('[aria-label="Fechar"]')
+    const btn1 = dialog.querySelector('#visible-btn-1')
+    const btn2 = dialog.querySelector('#visible-btn-2')
+
+    act(() => {
+      closeBtn.focus()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true }))
+    })
+    expect(document.activeElement).toBe(btn2)
+
+    act(() => {
+      btn2.focus()
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(closeBtn)
   })
 
   it('moves accessible tabs with arrow, Home and End keys', () => {
