@@ -158,7 +158,7 @@ test('cancellation and rescheduling before a tick prevent stale delivery', async
   const h = harness({ db, deliver: async item => { deliveries.push(item); return { status: 'delivered' }; } });
   await h.dispatcher.tick();
   assert.equal(deliveries.length, 0);
-  assert.equal(outbox(h).scheduledFor, '2026-11-07T14:00:00.000Z');
+  assert.equal(h.db().schedulingReminderOutbox.find(item => item.status === 'pending').scheduledFor, '2026-11-07T14:00:00.000Z');
 
   const canceledDb = structuredClone(h.db());
   canceledDb.coachAppointments[0].status = 'canceled';
@@ -166,7 +166,7 @@ test('cancellation and rescheduling before a tick prevent stale delivery', async
   const canceled = harness({ db: canceledDb, deliver: async item => { deliveries.push(item); return { status: 'delivered' }; }, now: Date.parse('2026-11-07T15:00:00.000Z') });
   await canceled.dispatcher.tick();
   assert.equal(deliveries.length, 0);
-  assert.equal(outbox(canceled).status, 'canceled');
+  assert.equal(canceled.db().schedulingReminderOutbox.every(item => item.status === 'canceled'), true);
 });
 
 test('save failures never publish an uncommitted claim or completion', async () => {
@@ -196,6 +196,24 @@ test('save failures never publish an uncommitted claim or completion', async () 
   await completionFailure.dispatcher.tick();
   assert.equal(deliveriesAfterCompletionFailure, 1);
   assert.equal(outbox(completionFailure).status, 'delivery_uncertain');
+});
+
+test('confirmed provider rejection followed by a completion save failure becomes uncertain', async () => {
+  let failRetrySave = true;
+  const h = harness({
+    deliver: async () => ({ status: 'retry', confirmed: true }),
+    commitHook: async ({ candidate }) => {
+      if (failRetrySave && candidate.schedulingReminderOutbox[0].status === 'retry') {
+        failRetrySave = false;
+        throw new Error('retry save failed');
+      }
+    },
+  });
+  await assert.rejects(h.dispatcher.tick(), /retry save failed/);
+  h.setNow(start + 2000);
+  await h.dispatcher.tick();
+  assert.equal(outbox(h).status, 'delivery_uncertain');
+  assert.equal(outbox(h).attempts, 1);
 });
 
 test('confirmed provider rejection retries, while an ambiguous transport result becomes uncertain', async () => {

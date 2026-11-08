@@ -298,6 +298,5 @@ test('reminder outbox validation rejects cross-user and cross-appointment refere
   assert.throws(() => scheduling.validateSchedulingState(db), /outbox|reminder/i);
 
   valid.schedulingReminderOutbox[0].appointmentId = 'appointment_2';
-  valid.schedulingReminderOutbox[0].payload.appointmentId = 'appointment_2';
   assert.throws(() => scheduling.validateSchedulingState(valid), /outbox|reminder/i);
 });

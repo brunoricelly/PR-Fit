@@ -269,6 +269,5 @@ test('cross-user reminder outbox refuses boot without rewriting primary or backu
 test('cross-appointment reminder outbox refuses boot without rewriting primary or backup', async t => {
   const db = reminderFixture();
   db.schedulingReminderOutbox[0].appointmentId = 'capp_2';
-  db.schedulingReminderOutbox[0].payload.appointmentId = 'capp_2';
   await assertSchedulingBootRefused(t, db);
 });

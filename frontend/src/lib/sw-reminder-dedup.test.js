@@ -9,9 +9,10 @@ const SW = readFileSync(fileURLToPath(new URL('../../public/sw.js', import.meta.
 
 class MemoryCache {
   constructor() { this.rows = new Map() }
-  async match(key) { return this.rows.get(String(key)) }
-  async put(key, response) { this.rows.set(String(key), response) }
-  async delete(key) { return this.rows.delete(String(key)) }
+  key(value) { return typeof value === 'string' ? value : value.url }
+  async match(key) { return this.rows.get(this.key(key)) }
+  async put(key, response) { this.rows.set(this.key(key), response) }
+  async delete(key) { return this.rows.delete(this.key(key)) }
   async keys() { return [...this.rows.keys()].map(url => ({ url })) }
 }
 

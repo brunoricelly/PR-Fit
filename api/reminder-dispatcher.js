@@ -2,7 +2,8 @@ import crypto from 'node:crypto';
 
 const clone = value => structuredClone(value);
 const iso = value => new Date(value).toISOString();
-const activeStatuses = new Set(['pending', 'processing', 'retry']);
+const cancelableStatuses = new Set(['pending', 'processing', 'retry']);
+const leasedStatuses = new Set(['processing', 'delivery_started']);
 
 export const REMINDER_DISPATCH_DEFAULTS = Object.freeze({
   tickMs: 10_000,
@@ -11,6 +12,9 @@ export const REMINDER_DISPATCH_DEFAULTS = Object.freeze({
   maxRetryMs: 30 * 60_000,
   maxAttempts: 5,
   batchSize: 100,
+  lockLeaseMs: 30_000,
+  lockTimeoutMs: 5_000,
+  lockRetryMs: 10,
 });
 
 function retryDelay(attempts, config) {
@@ -40,75 +44,110 @@ function eligible(db, item) {
     && !!user && !user.disabled && !!preference?.enabled && preference.offsetsMinutes.includes(item.offsetMinutes);
 }
 
+function clearLease(item) {
+  item.leaseId = null;
+  item.leaseExpiresAt = null;
+}
+
+function clearDeliveryAttempt(item) {
+  item.deliveryAttemptId = null;
+  item.deliveryStartedAt = null;
+}
+
 function cancelItem(db, item, nowIso) {
   const state = stateFor(db, item);
   item.status = 'canceled';
   item.nextAttemptAt = null;
-  item.leaseId = null;
-  item.leaseExpiresAt = null;
+  clearLease(item);
+  clearDeliveryAttempt(item);
   item.canceledAt = nowIso;
   item.updatedAt = nowIso;
-  if (state && activeStatuses.has(state.status)) {
+  if (state && cancelableStatuses.has(state.status)) {
     state.status = 'canceled';
     state.updatedAt = nowIso;
   }
 }
 
+function deliveryOutcome(result) {
+  if (result?.status === 'delivered') return 'delivered';
+  if (result?.status === 'retry' && result.confirmed !== false) return 'retry';
+  if (result?.status === 'failed' && result.confirmed === true) return 'failed';
+  return 'delivery_uncertain';
+}
+
 export function createReminderDispatcher({
+  transaction,
   getDb,
   commit,
   deliver,
   now = () => Date.now(),
-  randomId = () => `lease_${crypto.randomBytes(18).toString('base64url')}`,
+  randomId = prefix => `${prefix}_${crypto.randomBytes(18).toString('base64url')}`,
   setIntervalFn = setInterval,
   clearIntervalFn = clearInterval,
   logger = console,
   config: configured = {},
 }) {
-  if (typeof getDb !== 'function' || typeof commit !== 'function' || typeof deliver !== 'function') {
-    throw new TypeError('getDb, commit, and deliver are required');
+  if (typeof deliver !== 'function' || (typeof transaction !== 'function' && (typeof getDb !== 'function' || typeof commit !== 'function'))) {
+    throw new TypeError('deliver and either transaction or getDb/commit are required');
   }
   const config = { ...REMINDER_DISPATCH_DEFAULTS, ...configured };
   for (const [key, value] of Object.entries(config)) {
     if (!Number.isInteger(value) || value < 1) throw new RangeError(`${key} must be a positive integer`);
   }
-  const counters = { claimed: 0, delivered: 0, retried: 0, failed: 0, canceled: 0, saveErrors: 0, deliveryErrors: 0 };
+  const counters = {
+    claimed: 0, deliveryStarted: 0, delivered: 0, retried: 0, failed: 0, canceled: 0,
+    deliveryUncertain: 0, saveErrors: 0, deliveryErrors: 0, ticks: 0, tickErrors: 0,
+  };
   let timer = null;
+  let bootImmediate = null;
   let activeTick = null;
+  let lastTickAt = null;
+  let lastSuccessAt = null;
+  let lastErrorAt = null;
 
-  const mutate = async transform => {
+  const localTransaction = async transform => {
     const candidate = clone(getDb());
     const result = transform(candidate);
-    if (!result?.changed) return result;
-    try {
-      await commit(candidate);
-    } catch (error) {
-      counters.saveErrors++;
-      throw error;
-    }
-    for (const [name, count] of Object.entries(result.counters || {})) counters[name] += count;
+    if (result?.changed) await commit(candidate);
     return result;
+  };
+  const transact = transaction || localTransaction;
+
+  const mutate = async transform => {
+    let result;
+    try { result = await transact(transform); }
+    catch (error) { counters.saveErrors++; throw error; }
+    for (const [name, count] of Object.entries(result?.counters || {})) counters[name] += count;
+    return result || { changed: false };
   };
 
   const recoverExpiredLeases = nowMs => mutate(candidate => {
     const nowIso = iso(nowMs);
     let changed = false;
-    const delta = { retried: 0, failed: 0 };
+    const delta = { retried: 0, failed: 0, deliveryUncertain: 0 };
     for (const item of candidate.schedulingReminderOutbox) {
-      if (item.status !== 'processing' || Date.parse(item.leaseExpiresAt) > nowMs) continue;
+      if (!leasedStatuses.has(item.status) || Date.parse(item.leaseExpiresAt) > nowMs) continue;
       const state = stateFor(candidate, item);
-      item.status = item.attempts >= config.maxAttempts ? 'failed' : 'retry';
-      item.leaseId = null;
-      item.leaseExpiresAt = null;
-      item.updatedAt = nowIso;
-      if (item.status === 'failed') {
-        item.failedAt = nowIso;
+      if (item.status === 'delivery_started') {
+        item.status = 'delivery_uncertain';
+        item.deliveryUncertainAt = nowIso;
         item.nextAttemptAt = null;
-        delta.failed++;
+        clearLease(item);
+        delta.deliveryUncertain++;
       } else {
-        item.nextAttemptAt = iso(nowMs + retryDelay(item.attempts, config));
-        delta.retried++;
+        item.status = item.attempts >= config.maxAttempts ? 'failed' : 'retry';
+        clearLease(item);
+        clearDeliveryAttempt(item);
+        if (item.status === 'failed') {
+          item.failedAt = nowIso;
+          item.nextAttemptAt = null;
+          delta.failed++;
+        } else {
+          item.nextAttemptAt = iso(nowMs + retryDelay(item.attempts, config));
+          delta.retried++;
+        }
       }
+      item.updatedAt = nowIso;
       if (state) { state.status = item.status; state.updatedAt = nowIso; }
       changed = true;
     }
@@ -134,19 +173,19 @@ export function createReminderDispatcher({
         continue;
       }
       const state = stateFor(candidate, item);
-      const leaseId = randomId();
+      const leaseId = randomId('lease');
       item.status = 'processing';
       item.attempts++;
       item.lastAttemptAt = nowIso;
       item.nextAttemptAt = null;
       item.leaseId = leaseId;
       item.leaseExpiresAt = iso(nowMs + config.leaseMs);
+      clearDeliveryAttempt(item);
       item.updatedAt = nowIso;
       state.status = 'processing';
       state.updatedAt = nowIso;
       claims.push({
         id: item.id,
-        reminderStateId: item.reminderStateId,
         appointmentId: item.appointmentId,
         userId: item.userId,
         offsetMinutes: item.offsetMinutes,
@@ -159,36 +198,61 @@ export function createReminderDispatcher({
     return { changed, claims, counters: { claimed: claims.length, canceled } };
   });
 
-  const claimStillCurrent = claim => {
-    const item = getDb().schedulingReminderOutbox.find(candidate => candidate.id === claim.id);
-    return !!item && item.status === 'processing' && item.leaseId === claim.leaseId
-      && item.appointmentId === claim.appointmentId && item.userId === claim.userId
-      && item.offsetMinutes === claim.offsetMinutes && item.scheduledFor === claim.scheduledFor;
-  };
-
-  const finalize = (claim, result, nowMs) => mutate(candidate => {
+  const beginDelivery = (claim, nowMs) => mutate(candidate => {
     const item = candidate.schedulingReminderOutbox.find(candidateItem => candidateItem.id === claim.id);
-    if (!item || item.status !== 'processing' || item.leaseId !== claim.leaseId) return { changed: false };
+    if (!item || item.status !== 'processing' || item.leaseId !== claim.leaseId) return { changed: false, delivery: null };
+    const nowIso = iso(nowMs);
+    if (!eligible(candidate, item)) {
+      cancelItem(candidate, item, nowIso);
+      return { changed: true, delivery: null, counters: { canceled: 1 } };
+    }
+    const state = stateFor(candidate, item);
+    const deliveryAttemptId = randomId('delivery');
+    item.status = 'delivery_started';
+    item.deliveryAttemptId = deliveryAttemptId;
+    item.deliveryStartedAt = nowIso;
+    item.leaseExpiresAt = iso(nowMs + config.leaseMs);
+    item.updatedAt = nowIso;
+    state.status = 'delivery_started';
+    state.updatedAt = nowIso;
+    return {
+      changed: true,
+      delivery: { ...claim, deliveryAttemptId },
+      counters: { deliveryStarted: 1 },
+    };
+  });
+
+  const finalize = (delivery, outcome, nowMs) => mutate(candidate => {
+    const item = candidate.schedulingReminderOutbox.find(candidateItem => candidateItem.id === delivery.id);
+    if (!item || item.status !== 'delivery_started' || item.leaseId !== delivery.leaseId
+        || item.deliveryAttemptId !== delivery.deliveryAttemptId) return { changed: false };
     const state = stateFor(candidate, item);
     const nowIso = iso(nowMs);
-    item.leaseId = null;
-    item.leaseExpiresAt = null;
+    clearLease(item);
     item.updatedAt = nowIso;
-    if (result?.status === 'delivered') {
+    if (outcome === 'delivered') {
       item.status = 'delivered';
       item.deliveredAt = nowIso;
       item.nextAttemptAt = null;
       return finishState({ delivered: 1 });
-    } else if (item.attempts >= config.maxAttempts) {
+    }
+    if (outcome === 'delivery_uncertain') {
+      item.status = 'delivery_uncertain';
+      item.deliveryUncertainAt = nowIso;
+      item.nextAttemptAt = null;
+      return finishState({ deliveryUncertain: 1 });
+    }
+    clearDeliveryAttempt(item);
+    if (outcome === 'failed' || item.attempts >= config.maxAttempts) {
       item.status = 'failed';
       item.failedAt = nowIso;
       item.nextAttemptAt = null;
       return finishState({ failed: 1 });
-    } else {
-      item.status = 'retry';
-      item.nextAttemptAt = iso(nowMs + retryDelay(item.attempts, config));
-      return finishState({ retried: 1 });
     }
+    item.status = 'retry';
+    item.nextAttemptAt = iso(nowMs + retryDelay(item.attempts, config));
+    return finishState({ retried: 1 });
+
     function finishState(delta) {
       if (state) { state.status = item.status; state.updatedAt = nowIso; }
       return { changed: true, counters: delta };
@@ -197,26 +261,38 @@ export function createReminderDispatcher({
 
   const runTick = async () => {
     const tickNow = now();
-    await recoverExpiredLeases(tickNow);
-    const claimed = await claimDue(tickNow);
-    for (const claim of claimed.claims || []) {
-      if (!claimStillCurrent(claim)) continue;
-      let result;
-      try {
-        result = await deliver({
-          userId: claim.userId,
-          appointmentId: claim.appointmentId,
-          offsetMinutes: claim.offsetMinutes,
-          scheduledFor: claim.scheduledFor,
-          idempotencyKey: claim.idempotencyKey,
-        });
-      } catch {
-        counters.deliveryErrors++;
-        result = { status: 'retry' };
+    lastTickAt = iso(tickNow);
+    counters.ticks++;
+    try {
+      await recoverExpiredLeases(tickNow);
+      const claimed = await claimDue(tickNow);
+      for (const claim of claimed.claims || []) {
+        const started = await beginDelivery(claim, now());
+        const delivery = started.delivery;
+        if (!delivery) continue;
+        let outcome;
+        try { outcome = deliveryOutcome(await deliver({
+          userId: delivery.userId,
+          appointmentId: delivery.appointmentId,
+          offsetMinutes: delivery.offsetMinutes,
+          scheduledFor: delivery.scheduledFor,
+          idempotencyKey: delivery.idempotencyKey,
+          deliveryAttemptId: delivery.deliveryAttemptId,
+        })); }
+        catch { counters.deliveryErrors++; outcome = 'delivery_uncertain'; }
+        try { await finalize(delivery, outcome, now()); }
+        catch (error) {
+          try { await finalize(delivery, 'delivery_uncertain', now()); } catch { /* recovery handles the persisted delivery_started lease */ }
+          throw error;
+        }
       }
-      await finalize(claim, result, now());
+      lastSuccessAt = iso(now());
+      return { ...counters };
+    } catch (error) {
+      counters.tickErrors++;
+      lastErrorAt = iso(now());
+      throw error;
     }
-    return { ...counters };
   };
 
   const tick = () => {
@@ -227,19 +303,38 @@ export function createReminderDispatcher({
 
   const start = () => {
     if (timer) return;
-    timer = setIntervalFn(() => tick().catch(error => logger.error('appointment reminder dispatcher tick failed', error?.message || 'unknown')), config.tickMs);
+    timer = setIntervalFn(() => tick().catch(() => logger.error('appointment reminder dispatcher tick failed')), config.tickMs);
     timer?.unref?.();
+  };
+
+  const startTick = () => {
+    if (!timer) return;
+    bootImmediate = setImmediate(() => {
+      bootImmediate = null;
+      tick().catch(() => logger.error('appointment reminder dispatcher boot tick failed'));
+    });
+    bootImmediate?.unref?.();
   };
 
   const stop = async () => {
     if (timer) { clearIntervalFn(timer); timer = null; }
+    if (bootImmediate) { clearImmediate(bootImmediate); bootImmediate = null; }
     if (activeTick) await activeTick;
   };
 
   return {
     start,
+    startTick,
     stop,
     tick,
     metrics: () => ({ ...counters }),
+    status: () => ({
+      running: !!timer,
+      tickActive: !!activeTick,
+      lastTickAt,
+      lastSuccessAt,
+      lastErrorAt,
+      counters: { ...counters },
+    }),
   };
 }

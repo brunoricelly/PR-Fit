@@ -437,13 +437,18 @@ test('/api/config carries the caps; MEDIA_UPLOADS=0 takes the block and every ro
 
 test('boot removes the temp files of uploads the previous process was receiving', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-media-boot-'));
-  t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
+  t.after(async () => {
+    if (child.exitCode === null) {
+      child.kill('SIGKILL');
+      await new Promise(resolve => child.once('exit', resolve));
+    }
+    fs.rmSync(dataDir, { recursive: true, force: true });
+  });
   const tmp = path.join(dataDir, 'uploads', U1, '.tmp');
   fs.mkdirSync(tmp, { recursive: true });
   fs.writeFileSync(path.join(tmp, 'half-an-upload'), 'x');
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET);
   const child = spawn(process.execPath, ['server.js'], { cwd: API, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, PORT: '0', DATA_DIR: dataDir } });
-  t.after(() => child.kill('SIGKILL'));
   await boundPort(child);
   assert.deepEqual(fs.readdirSync(tmp), []);
 });

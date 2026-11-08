@@ -59,10 +59,11 @@ import {
   calculateAssessmentResults, createProgressRoutes, PROGRESS_LIMITS, reconcileProgressScopes, validateProgressState,
 } from './progress-analytics.js';
 import {
-  cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS,
+  cancelFutureAppointmentsForLink, createSchedulingRoutes, reconcileAppointmentReminders, SCHEDULING_LIMITS, validateSchedulingState,
 } from './scheduling.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
+import { createInterprocessLock, mergeDbCandidate } from './db-coordinator.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -196,11 +197,22 @@ const B2B2C_RATE = {
   progressExportIp: envInt('B2B2C_PROGRESS_EXPORT_IP_MAX', 600, { min: 1, max: 100000 }),
   schedulingMutationAccount: envInt('B2B2C_SCHEDULING_MUTATION_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
   schedulingMutationIp: envInt('B2B2C_SCHEDULING_MUTATION_IP_MAX', 300, { min: 1, max: 100000 }),
-  schedulingStatusAccount: envInt('B2B2C_SCHEDULING_STATUS_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
-  schedulingStatusIp: envInt('B2B2C_SCHEDULING_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
+  schedulingStatusAccount: envInt('B2B2C_SCHEDULING_REMINDER_STATUS_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
+  schedulingStatusIp: envInt('B2B2C_SCHEDULING_REMINDER_STATUS_IP_MAX', 600, { min: 1, max: 100000 }),
   schedulingReadAccount: envInt('B2B2C_SCHEDULING_READ_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   schedulingReadIp: envInt('B2B2C_SCHEDULING_READ_IP_MAX', 3000, { min: 1, max: 100000 }),
 };
+const REMINDER_DISPATCH_CONFIG = Object.freeze({
+  tickMs: envInt('B2B2C_SCHEDULING_REMINDER_TICK_MS', REMINDER_DISPATCH_DEFAULTS.tickMs, { min: 50, max: 3600000 }),
+  leaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.leaseMs, { min: 1000, max: 86400000 }),
+  baseRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_BASE_MS', REMINDER_DISPATCH_DEFAULTS.baseRetryMs, { min: 1000, max: 86400000 }),
+  maxRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_MAX_MS', REMINDER_DISPATCH_DEFAULTS.maxRetryMs, { min: 1000, max: 7 * 86400000 }),
+  maxAttempts: envInt('B2B2C_SCHEDULING_REMINDER_MAX_ATTEMPTS', REMINDER_DISPATCH_DEFAULTS.maxAttempts, { min: 1, max: 100 }),
+  batchSize: envInt('B2B2C_SCHEDULING_REMINDER_BATCH_SIZE', REMINDER_DISPATCH_DEFAULTS.batchSize, { min: 1, max: 10000 }),
+  lockLeaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.lockLeaseMs, { min: 1000, max: 300000 }),
+  lockTimeoutMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_TIMEOUT_MS', REMINDER_DISPATCH_DEFAULTS.lockTimeoutMs, { min: 50, max: 300000 }),
+  lockRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_LOCK_RETRY_MS', REMINDER_DISPATCH_DEFAULTS.lockRetryMs, { min: 1, max: 10000 }),
+});
 const ASSESSMENT_FUTURE_SKEW_MS = envInt('B2B2C_ASSESSMENT_FUTURE_SKEW_SECONDS', 300, { min: 0, max: 3600 }) * 1000;
 const ASSESSMENT_MAX_AGE_YEARS = envInt('B2B2C_ASSESSMENT_MAX_AGE_YEARS', 100, { min: 1, max: 150 });
 // 90 days keeps someone who trains a few times a week permanently signed in without a stolen
@@ -236,6 +248,12 @@ const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 const integrations = createIntegrations({ dataDir: DATA, secret: SECRET, version: '1' });
 
 const dbFile = path.join(DATA, 'db.json');
+const dbWriteLock = createInterprocessLock({
+  lockPath: dbFile + '.lock',
+  leaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
+  acquireTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
+  retryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+});
 const dbTxnFile = dbFile + '.txn';
 const dbTxnOldFile = dbFile + '.txn.old';
 const dbTxnNewFile = dbFile + '.txn.new';
@@ -294,7 +312,8 @@ function loadDb() {
     }
   }
 }
-let db = loadDb();
+let db = dbWriteLock.withLockSync(() => loadDb());
+let persistedDb = structuredClone(db);
 let b2b2cMigrated = false;
 try {
   for (const key of ['users', 'creds', 'subs', 'invites', 'deviceLinks']) {
@@ -331,7 +350,7 @@ const isOwner = user => !!user && isAdmin(user) && user.id === ownerId();
 // way: loadDb falls back to it. A copy of the version being replaced, as it used to be, lost
 // whatever the last save wrote (a profile just created) when db.json was later found unreadable.
 // A write cut short leaves the previous db.json.bak whole (temporary file and rename).
-function saveDb(candidate = db) {
+function saveDbUnlocked(candidate = db) {
   const failMarker = process.env.B2B2C_DB_FAIL_FILE;
   if (failMarker && fs.existsSync(failMarker)) {
     fs.unlinkSync(failMarker);
@@ -356,9 +375,19 @@ function saveDb(candidate = db) {
   atomicWrite(dbTxnFile, JSON.stringify({ phase: 'committed' }), 0o600);
   removeDbTransactionFiles();
 }
+function replaceDbObject(target, source) {
+  for (const key of Object.keys(target)) delete target[key];
+  Object.assign(target, structuredClone(source));
+}
+function saveDb(candidate = db) {
+  return dbWriteLock.withLockSync(() => {
+    saveDbUnlocked(candidate);
+    persistedDb = structuredClone(candidate);
+  });
+}
 function publishDb(candidate) {
-  for (const key of Object.keys(db)) delete db[key];
-  Object.assign(db, candidate);
+  replaceDbObject(db, candidate);
+  persistedDb = structuredClone(candidate);
 }
 if (b2b2cMigrated) saveDb();
 // Flushed before and after the rename (durable.js): a host reset must not bring back the file
@@ -2755,25 +2784,78 @@ const progressRoutes = createProgressRoutes({
   },
 });
 const schedulingDbWrites = new SerialWriteQueue();
-const commitSchedulingDb = candidate => schedulingDbWrites.run(() => { saveDb(candidate); publishDb(candidate); });
+const schedulingCollections = [
+  'coachAvailability', 'coachAppointments', 'schedulingReminderPreferences', 'appointmentReminderStates', 'schedulingReminderOutbox',
+];
+const latestSchedulingDb = () => {
+  const latest = loadDb();
+  migrateB2B2C(latest);
+  compactB2B2C(latest, B2B2C_LIMITS);
+  return latest;
+};
+const withSchedulingDbTransaction = transform => schedulingDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestSchedulingDb();
+  const result = transform(latest);
+  if (result?.changed) {
+    validateSchedulingState(latest, B2B2C_LIMITS);
+    saveDbUnlocked(latest);
+    publishDb(latest);
+  }
+  return result;
+}));
+const commitSchedulingDb = (candidate, base = persistedDb, keys = schedulingCollections) => schedulingDbWrites.run(() => dbWriteLock.withLock(async () => {
+  const latest = latestSchedulingDb();
+  const merged = mergeDbCandidate(latest, base, candidate, { keys });
+  validateSchedulingState(merged, B2B2C_LIMITS);
+  saveDbUnlocked(merged);
+  publishDb(merged);
+}));
 const schedulingRoutes = createSchedulingRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb, publishDb, cursorSecret: SECRET,
   commitCandidate: commitSchedulingDb,
 });
 const appointmentReminderDispatcher = createReminderDispatcher({
-  getDb: () => db,
-  commit: commitSchedulingDb,
-  deliver: ({ userId, idempotencyKey }) => sendPush(userId, appointmentReminderPush(idempotencyKey)),
-  config: {
-    tickMs: envInt('B2B2C_SCHEDULING_REMINDER_TICK_MS', REMINDER_DISPATCH_DEFAULTS.tickMs, { min: 50, max: 3600000 }),
-    leaseMs: envInt('B2B2C_SCHEDULING_REMINDER_LEASE_MS', REMINDER_DISPATCH_DEFAULTS.leaseMs, { min: 1000, max: 86400000 }),
-    baseRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_BASE_MS', REMINDER_DISPATCH_DEFAULTS.baseRetryMs, { min: 1000, max: 86400000 }),
-    maxRetryMs: envInt('B2B2C_SCHEDULING_REMINDER_RETRY_MAX_MS', REMINDER_DISPATCH_DEFAULTS.maxRetryMs, { min: 1000, max: 7 * 86400000 }),
-    maxAttempts: envInt('B2B2C_SCHEDULING_REMINDER_MAX_ATTEMPTS', REMINDER_DISPATCH_DEFAULTS.maxAttempts, { min: 1, max: 100 }),
-    batchSize: envInt('B2B2C_SCHEDULING_REMINDER_BATCH_SIZE', REMINDER_DISPATCH_DEFAULTS.batchSize, { min: 1, max: 10000 }),
+  transaction: withSchedulingDbTransaction,
+  deliver: async ({ userId, idempotencyKey }) => {
+    const result = await sendPush(userId, appointmentReminderPush(idempotencyKey));
+    if (result.status === 'delivered') return result;
+    if (result.status === 'unavailable') return { status: 'retry', confirmed: true };
+    return { status: 'uncertain' };
   },
+  logger: { error: message => console.error(message) },
+  config: REMINDER_DISPATCH_CONFIG,
 });
+const REMINDER_STATUS_ACCOUNT = createWindow({ max: B2B2C_RATE.schedulingStatusAccount, windowMs: B2B2C_RATE.windowMs });
+const REMINDER_STATUS_IP = createWindow({ max: B2B2C_RATE.schedulingStatusIp, windowMs: B2B2C_RATE.windowMs });
+const reminderBacklog = (nowMs = Date.now()) => {
+  const backlog = {};
+  let oldestDue = null;
+  let activeLeases = 0;
+  let expiredLeases = 0;
+  for (const item of db.schedulingReminderOutbox) {
+    backlog[item.status] = (backlog[item.status] || 0) + 1;
+    if ((item.status === 'pending' || item.status === 'retry') && Date.parse(item.nextAttemptAt || item.scheduledFor) <= nowMs) {
+      const due = Date.parse(item.nextAttemptAt || item.scheduledFor);
+      oldestDue = oldestDue === null ? due : Math.min(oldestDue, due);
+    }
+    if (item.status === 'processing' || item.status === 'delivery_started') {
+      if (Date.parse(item.leaseExpiresAt) > nowMs) activeLeases++;
+      else expiredLeases++;
+    }
+  }
+  for (const status of ['pending', 'processing', 'delivery_started', 'retry', 'delivered', 'delivery_uncertain', 'failed', 'canceled']) backlog[status] ||= 0;
+  return {
+    backlog,
+    oldestDueAgeSeconds: oldestDue === null ? null : Math.max(0, Math.floor((nowMs - oldestDue) / 1000)),
+    leases: { active: activeLeases, expired: expiredLeases },
+    totals: { retry: backlog.retry, failed: backlog.failed, delivery_uncertain: backlog.delivery_uncertain },
+  };
+};
+const reminderHealth = () => {
+  const summary = reminderBacklog();
+  return summary.backlog.delivery_uncertain > 0 || summary.leases.expired > 0 ? 'degraded' : 'ok';
+};
 
 setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
@@ -2786,7 +2868,41 @@ const routes = {
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
   'GET /api/health': async (req, res) => {
     if (!dataWritable()) return json(res, 503, { ok: false, writable: false });
-    json(res, 200, { ok: true, users: db.users.length, writable: true });
+    json(res, 200, { ok: true, users: db.users.length, writable: true, schedulingReminders: reminderHealth() });
+  },
+
+  'GET /api/admin/scheduling-reminders/status': async (req, res) => {
+    const admin = requireAdmin(req, res); if (!admin) return;
+    const wait = Math.max(REMINDER_STATUS_ACCOUNT.take(admin.id), REMINDER_STATUS_IP.take(limitAddress(req)));
+    if (wait) {
+      auditFail(req, 'admin.scheduling-reminders.status.throttled', { ok: false, user: admin, msg: 'rate_limited' });
+      return json(res, 429, { error: 'too many requests', code: 'rate_limited' }, { 'Retry-After': String(wait) });
+    }
+    const summary = reminderBacklog();
+    const storageLock = await dbWriteLock.inspect();
+    audit(req, 'admin.scheduling-reminders.status', { user: admin, msg: reminderHealth() });
+    json(res, 200, {
+      dispatcher: appointmentReminderDispatcher.status(),
+      ...summary,
+      storageLock,
+      config: {
+        tickMs: REMINDER_DISPATCH_CONFIG.tickMs,
+        deliveryLeaseMs: REMINDER_DISPATCH_CONFIG.leaseMs,
+        lockLeaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
+        lockTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
+        lockRetryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+        retryBaseMs: REMINDER_DISPATCH_CONFIG.baseRetryMs,
+        retryMaxMs: REMINDER_DISPATCH_CONFIG.maxRetryMs,
+        maxAttempts: REMINDER_DISPATCH_CONFIG.maxAttempts,
+        batchSize: REMINDER_DISPATCH_CONFIG.batchSize,
+        retentionDays: B2B2C_LIMITS.reminderRetentionDays,
+        maxStates: B2B2C_LIMITS.maxReminderStates,
+        maxOutbox: B2B2C_LIMITS.maxReminderOutbox,
+        statusRateAccount: B2B2C_RATE.schedulingStatusAccount,
+        statusRateIp: B2B2C_RATE.schedulingStatusIp,
+        rateWindowMs: B2B2C_RATE.windowMs,
+      },
+    });
   },
 
   // Public config the login screen needs before anyone is signed in. `coach` is absent unless
@@ -4381,7 +4497,7 @@ const routes = {
     for (const appointment of candidate.coachAppointments.filter(item => item.coachId === candidateUser.id || item.athleteId === candidateUser.id)) {
       reconcileAppointmentReminders(candidate, appointment, nowMs, { userId: candidateUser.id });
     }
-    try { await commitSchedulingDb(candidate); }
+    try { await commitSchedulingDb(candidate, persistedDb, [...schedulingCollections, 'users', 'deviceLinks']); }
     catch { return json(res, 503, { error: 'account status could not be saved', code: 'storage_unavailable' }); }
     const published = db.users.find(x => x.id === candidateUser.id);
     audit(req, published.disabled ? 'admin.user.disable' : 'admin.user.enable', { user: admin, target: published });
@@ -4943,7 +5059,7 @@ server.headersTimeout = 60000;
 server.listen(PORT, () => {
   console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`);
   appointmentReminderDispatcher.start();
-  setImmediate(() => appointmentReminderDispatcher.tick().catch(error => console.error('appointment reminder dispatcher boot tick failed', error?.message || 'unknown')));
+  appointmentReminderDispatcher.startTick();
 });
 
 let shuttingDown = false;

@@ -441,7 +441,7 @@ test('retention preserves minimal relationship tombstones while dependent histor
 test('check-in history, athlete summary, timezone validation and stable pagination are complete', async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-checkin-history-'));
   const now = Date.now();
-  const dates = [daysAgo(0), daysAgo(1), daysAgo(2)];
+  const dates = [0, 1, 2].map(days => dateInTimeZone(now - days * 86400000, 'America/Sao_Paulo'));
   const seededHabit = { id: 'hab_history', linkId: 'cal_comm_aa', coachId: IDS.coachA, athleteId: IDS.athleteA, title: 'History', description: '',
     targetValue: 1, unit: 'vezes', frequency: 'daily', status: 'active', createdAt: now - 10 * 86400000, updatedAt: now, archivedAt: null };
   const checkins = dates.map((date, index) => ({ id: `hchk_history_${index}`, linkId: 'cal_comm_aa', athleteId: IDS.athleteA,

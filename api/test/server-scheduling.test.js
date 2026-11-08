@@ -747,8 +747,9 @@ test('12. Lembretes persistem, reconciliam e disponibilidade usa CAS', async t =
   assert.equal(res.status, 200);
   stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
   assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'pending').length, 2);
-  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'canceled').length, 0);
-  assert.ok(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId).every(item => item.scheduledFor === '2027-01-12T10:00:00.000Z'));
+  assert.equal(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'canceled').length, 2);
+  assert.ok(stored.appointmentReminderStates.filter(item => item.appointmentId === appointmentId && item.status === 'pending')
+    .every(item => item.scheduledFor === '2027-01-12T10:00:00.000Z'));
 
   res = await request(server, IDS.coachA, 'POST', `/api/coach/appointments/${appointmentId}/cancel`, { reason: 'agenda alterada' });
   assert.equal(res.status, 200);

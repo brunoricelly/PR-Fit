@@ -10,6 +10,14 @@ const CACHE = 'opengym-rt-__BUILD__'
 // cache, so activate's sweep leaves it alone.
 const DEVICE_CACHE = 'opengym-device'
 const DEVICE_URL = '/opengym-device-id'
+// Appointment reminders cross two systems that cannot share a transaction (db.json and Web
+// Push). The API therefore stops automatic retries once provider acceptance is ambiguous, while
+// this persistent cache suppresses a duplicate transport delivery before it reaches the tray.
+// Reserving before display intentionally prefers a missed alert over a duplicate if storage or
+// showNotification fails between those two steps; there is no honest exactly-once claim here.
+const REMINDER_DEDUP = 'opengym-appointment-reminder-dedup-v1'
+const REMINDER_DEDUP_MAX = 512
+const REMINDER_DEDUP_RETENTION_MS = 45 * 24 * 60 * 60 * 1000
 
 /* Exercise media (img/, gif/) lives in a cache of its own that outlives builds (#281). It used to
    share the build's cache, so every update swept every animation along with the old bundle, and
@@ -100,7 +108,7 @@ self.addEventListener('activate', e => {
     if (await c.match('index.html')) {
       // DEVICE_CACHE holds this browser's device id (the push re-register below needs it): not a
       // build, so an update never sweeps it.
-      const old = (await caches.keys()).filter(k => k !== CACHE && k !== MEDIA && k !== DEVICE_CACHE)
+      const old = (await caches.keys()).filter(k => k !== CACHE && k !== MEDIA && k !== DEVICE_CACHE && k !== REMINDER_DEDUP)
       // A build from before MEDIA existed kept its media in its own cache: move it across first,
       // so the first update to this worker does not cost what the device already had offline.
       await Promise.all(old.map(k => adoptMedia(k).catch(() => {})))
@@ -199,6 +207,49 @@ function media(e) {
   }))
 }
 
+let reminderDedupQueue = Promise.resolve()
+let reminderDedupEntries = null
+const reminderDedupUrl = key => new URL(`.opengym-reminder/${encodeURIComponent(key)}`, location.href).href
+const reminderEntryOrder = (left, right) => left.storedAt - right.storedAt || left.url.localeCompare(right.url)
+async function loadReminderDedupEntries(cache, now) {
+  const rows = []
+  for (const request of await cache.keys()) {
+    const response = await cache.match(request)
+    let storedAt = 0
+    try { storedAt = Number((await response.clone().json()).createdAt) || 0 } catch {}
+    if (!storedAt || now - storedAt > REMINDER_DEDUP_RETENTION_MS) await cache.delete(request)
+    else rows.push({ request, storedAt, url: request.url || String(request) })
+  }
+  rows.sort(reminderEntryOrder)
+  return rows
+}
+async function reserveReminderKey(key) {
+  if (typeof key !== 'string' || key.length < 8 || key.length > 200) return false
+  const task = reminderDedupQueue.then(async () => {
+    const cache = await caches.open(REMINDER_DEDUP)
+    const url = reminderDedupUrl(key)
+    if (await cache.match(url)) return false
+    const createdAt = Date.now()
+    reminderDedupEntries ||= await loadReminderDedupEntries(cache, createdAt)
+    await cache.put(url, new Response(JSON.stringify({ createdAt }), { headers: { 'content-type': 'application/json' } }))
+    const row = { request: url, storedAt: createdAt, url }
+    let insertAt = reminderDedupEntries.length
+    while (insertAt > 0 && reminderEntryOrder(row, reminderDedupEntries[insertAt - 1]) < 0) insertAt--
+    reminderDedupEntries.splice(insertAt, 0, row)
+    while (reminderDedupEntries.length && createdAt - reminderDedupEntries[0].storedAt > REMINDER_DEDUP_RETENTION_MS) {
+      await cache.delete(reminderDedupEntries.shift().request)
+    }
+    while (reminderDedupEntries.length > REMINDER_DEDUP_MAX) await cache.delete(reminderDedupEntries.shift().request)
+    return true
+  })
+  reminderDedupQueue = task.then(() => {}, () => {})
+  try { return await task } catch {
+    // Conservative on storage failure: showing without a durable reservation could duplicate an
+    // alert after a worker restart or a repeated push delivery.
+    return false
+  }
+}
+
 // The payload is parsed inside waitUntil: a push whose handler throws before showing anything is
 // a "silent push", which Chrome counts against the site and eventually revokes. A body that is
 // not JSON still shows a notification.
@@ -206,6 +257,8 @@ self.addEventListener('push', e => {
   e.waitUntil((async () => {
     let data = {}
     try { data = e.data ? e.data.json() : {} } catch { data = { body: (() => { try { return e.data.text() } catch { return '' } })() } }
+    const appointmentReminder = data.type === 'appointment_reminder'
+    if (appointmentReminder && !(await reserveReminderKey(data.idempotencyKey))) return
     // One alert per kind: a new rest-timer push replaces the last one instead of stacking
     // up in the tray (issue #172). `tag` alone should do that, but iOS keeps every one, so
     // the previous notification with the same tag is closed by hand first.
@@ -216,7 +269,7 @@ self.addEventListener('push', e => {
       icon: 'icon-512.png',
       badge: 'icon-180.png',
       tag,
-      renotify: true
+      renotify: !appointmentReminder
     })
   })())
 })

@@ -831,6 +831,17 @@ cannot be scheduled. A reminder that was due while the server was down or
 restarting is still sent up to 15 minutes late, once; the browser re-registers its subscription
 with the server on every signed-in start, so a subscription the server lost heals itself.
 
+Scheduled appointment reminders use a durable outbox shared through `DATA_DIR`. API processes
+coordinate each claim with an expiring filesystem lock, so one delivery generation invokes the
+push provider at most once. This is deliberately **not** described as exactly-once delivery:
+`db.json` and an external Web Push service cannot participate in one transaction. If the provider
+may have accepted a push but the API cannot durably record completion, the reminder becomes
+`delivery_uncertain` and is never retried automatically. The service worker also reserves the
+generation's idempotency key in bounded persistent storage before showing it, suppressing a
+duplicate transport delivery. Administrators can monitor aggregate backlog and uncertain rows at
+`GET /api/admin/scheduling-reminders/status`; reconciliation is an operator decision, not a blind
+retry that could show the person the same alert twice.
+
 **Keep screen awake** (Settings → *Workout*) has the same transport requirement: the
 Wake Lock API is only available over HTTPS or on `http://localhost`, so on a plain-LAN-IP
 instance the switch shows as unsupported. Nothing to configure server-side either way, and iOS

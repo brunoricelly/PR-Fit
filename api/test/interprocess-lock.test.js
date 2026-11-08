@@ -25,3 +25,17 @@ test('an active lock is not stolen, an expired lock is recovered, and a foreign 
   assert.equal(await recovered.release(), true);
   assert.equal(fs.existsSync(lockPath), false);
 });
+
+test('a held lock refreshes its lease until the owner releases it', async t => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-db-lock-heartbeat-'));
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const lockPath = path.join(dir, 'db.lock');
+  const first = createInterprocessLock({ lockPath, leaseMs: 90, acquireTimeoutMs: 30, retryMs: 2, token: () => 'owner_a' });
+  const second = createInterprocessLock({ lockPath, leaseMs: 90, acquireTimeoutMs: 30, retryMs: 2, token: () => 'owner_b' });
+  const held = await first.acquire();
+  await new Promise(resolve => setTimeout(resolve, 140));
+  await assert.rejects(second.acquire(), FileLockTimeoutError);
+  assert.equal(await held.release(), true);
+  const acquired = await second.acquire();
+  assert.equal(await acquired.release(), true);
+});

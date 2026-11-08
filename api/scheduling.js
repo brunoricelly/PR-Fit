@@ -11,8 +11,9 @@ const ATTENDANCE_STATES = new Set(['attended', 'missed']);
 const LINK_STATUSES = new Set(['pending', 'active', 'suspended', 'ended']);
 const REMINDER_OFFSETS = new Set([5, 10, 15, 30, 60, 120, 1440, 2880, 10080]);
 const TERMINAL_STATUSES = new Set(['completed', 'canceled', 'no_show']);
-const REMINDER_ACTIVE_STATUSES = new Set(['pending', 'processing', 'retry']);
-const REMINDER_STATUSES = new Set([...REMINDER_ACTIVE_STATUSES, 'delivered', 'failed', 'canceled']);
+const REMINDER_CANCELABLE_STATUSES = new Set(['pending', 'processing', 'retry']);
+const REMINDER_ACTIVE_STATUSES = new Set([...REMINDER_CANCELABLE_STATUSES, 'delivery_started']);
+const REMINDER_STATUSES = new Set([...REMINDER_ACTIVE_STATUSES, 'delivered', 'delivery_uncertain', 'failed', 'canceled']);
 
 export const SCHEDULING_LIMITS = Object.freeze({
   maxActiveAppointmentsPerLink: 500,
@@ -405,11 +406,12 @@ function validateReminderCollections(db) {
   const stateKeys = new Set();
   const statesById = new Map();
   for (const state of db.appointmentReminderStates) {
-    const stateKey = `${state.appointmentId}\0${state.userId}\0${state.offsetMinutes}`;
+    const stateKey = `${state.appointmentId}\0${state.userId}\0${state.offsetMinutes}\0${state.generation}`;
     const appointment = appointments.get(state.appointmentId);
-    if (!allowedKeys(state, new Set(['id', 'appointmentId', 'userId', 'offsetMinutes', 'scheduledFor', 'status', 'createdAt', 'updatedAt']))
+    if (!allowedKeys(state, new Set(['id', 'appointmentId', 'userId', 'offsetMinutes', 'scheduledFor', 'generation', 'status', 'createdAt', 'updatedAt']))
         || !validId(state.id) || stateIds.has(state.id) || stateKeys.has(stateKey) || !appointment
         || !userIds.has(state.userId) || !REMINDER_OFFSETS.has(state.offsetMinutes)
+        || !Number.isSafeInteger(state.generation) || state.generation < 1
         || (state.userId !== appointment.coachId && state.userId !== appointment.athleteId)
         || !REMINDER_STATUSES.has(state.status) || parseInstant(state.scheduledFor) === null
         || parseInstant(state.createdAt) === null || parseInstant(state.updatedAt) === null) {
@@ -425,7 +427,8 @@ function validateReminderCollections(db) {
     const state = statesById.get(item.reminderStateId);
     if (!allowedKeys(item, new Set([
       'id', 'reminderStateId', 'appointmentId', 'userId', 'offsetMinutes', 'scheduledFor', 'status', 'attempts', 'nextAttemptAt',
-      'leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveredAt', 'failedAt', 'canceledAt', 'idempotencyKey', 'payload', 'createdAt', 'updatedAt',
+      'leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveryAttemptId', 'deliveryStartedAt', 'deliveredAt', 'deliveryUncertainAt',
+      'failedAt', 'canceledAt', 'idempotencyKey', 'payload', 'createdAt', 'updatedAt',
     ]))
         || !validId(item.id) || outboxIds.has(item.id) || outboxStateIds.has(item.reminderStateId) || !state
         || !appointments.has(item.appointmentId)
@@ -436,17 +439,24 @@ function validateReminderCollections(db) {
         || !(item.nextAttemptAt === null || parseInstant(item.nextAttemptAt) !== null)
         || !(item.leaseId === null || validId(item.leaseId)) || !(item.leaseExpiresAt === null || parseInstant(item.leaseExpiresAt) !== null)
         || !(item.lastAttemptAt === null || parseInstant(item.lastAttemptAt) !== null)
+        || !(item.deliveryAttemptId === null || validId(item.deliveryAttemptId))
+        || !(item.deliveryStartedAt === null || parseInstant(item.deliveryStartedAt) !== null)
         || !(item.deliveredAt === null || parseInstant(item.deliveredAt) !== null)
+        || !(item.deliveryUncertainAt === null || parseInstant(item.deliveryUncertainAt) !== null)
         || !(item.failedAt === null || parseInstant(item.failedAt) !== null)
         || !(item.canceledAt === null || parseInstant(item.canceledAt) !== null)
         || typeof item.idempotencyKey !== 'string' || item.idempotencyKey !== `appointment-reminder:${state.id}`
-        || !allowedKeys(item.payload, new Set(['type', 'appointmentId'])) || item.payload.type !== 'appointment_reminder'
-        || item.payload.appointmentId !== item.appointmentId || parseInstant(item.createdAt) === null || parseInstant(item.updatedAt) === null) {
+        || !allowedKeys(item.payload, new Set(['type'])) || item.payload.type !== 'appointment_reminder'
+        || parseInstant(item.createdAt) === null || parseInstant(item.updatedAt) === null) {
       throw new Error('schedulingReminderOutbox contains an invalid record');
     }
-    if (item.status === 'processing' && (!item.leaseId || item.leaseExpiresAt === null)) throw new Error('schedulingReminderOutbox processing lease is invalid');
-    if (item.status !== 'processing' && (item.leaseId !== null || item.leaseExpiresAt !== null)) throw new Error('schedulingReminderOutbox contains a stale lease');
+    if ((item.status === 'processing' || item.status === 'delivery_started') && (!item.leaseId || item.leaseExpiresAt === null)) throw new Error('schedulingReminderOutbox processing lease is invalid');
+    if (item.status !== 'processing' && item.status !== 'delivery_started' && (item.leaseId !== null || item.leaseExpiresAt !== null)) throw new Error('schedulingReminderOutbox contains a stale lease');
+    if (item.status === 'delivery_started' && (!item.deliveryAttemptId || item.deliveryStartedAt === null)) throw new Error('schedulingReminderOutbox delivery start is invalid');
+    if (!['delivery_started', 'delivered', 'delivery_uncertain'].includes(item.status)
+        && (item.deliveryAttemptId !== null || item.deliveryStartedAt !== null)) throw new Error('schedulingReminderOutbox contains a stale delivery attempt');
     if (item.status === 'delivered' && item.deliveredAt === null) throw new Error('schedulingReminderOutbox delivered timestamp is missing');
+    if (item.status === 'delivery_uncertain' && item.deliveryUncertainAt === null) throw new Error('schedulingReminderOutbox uncertain timestamp is missing');
     if (item.status === 'failed' && item.failedAt === null) throw new Error('schedulingReminderOutbox failed timestamp is missing');
     if (item.status === 'canceled' && item.canceledAt === null) throw new Error('schedulingReminderOutbox canceled timestamp is missing');
     outboxIds.add(item.id);
@@ -588,6 +598,13 @@ function migrateAppointment(appointment, availabilityByCoach) {
 
 function migrateReminderOutbox(db) {
   let changed = false;
+  const generations = new Map();
+  for (const state of db.appointmentReminderStates) {
+    const key = `${state.appointmentId}\0${state.userId}\0${state.offsetMinutes}`;
+    const next = (generations.get(key) || 0) + 1;
+    generations.set(key, next);
+    if (state.generation === undefined) { state.generation = next; changed = true; }
+  }
   const states = new Map(db.appointmentReminderStates.map(state => [state.id, state]));
   for (const item of db.schedulingReminderOutbox) {
     const state = states.get(item.reminderStateId);
@@ -596,13 +613,15 @@ function migrateReminderOutbox(db) {
     if (item.offsetMinutes === undefined && state) { item.offsetMinutes = state.offsetMinutes; changed = true; }
     if (item.attempts === undefined) { item.attempts = 0; changed = true; }
     if (item.nextAttemptAt === undefined) { item.nextAttemptAt = REMINDER_ACTIVE_STATUSES.has(item.status) ? item.scheduledFor : null; changed = true; }
-    for (const field of ['leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveredAt', 'failedAt', 'canceledAt']) {
+    for (const field of ['leaseId', 'leaseExpiresAt', 'lastAttemptAt', 'deliveryAttemptId', 'deliveryStartedAt', 'deliveredAt', 'deliveryUncertainAt', 'failedAt', 'canceledAt']) {
       if (item[field] === undefined) { item[field] = null; changed = true; }
     }
     if (item.status === 'delivered' && item.deliveredAt === null) { item.deliveredAt = item.updatedAt; changed = true; }
     if (item.status === 'failed' && item.failedAt === null) { item.failedAt = item.updatedAt; changed = true; }
     if (item.status === 'canceled' && item.canceledAt === null) { item.canceledAt = item.updatedAt; changed = true; }
+    if (item.status === 'delivery_uncertain' && item.deliveryUncertainAt === null) { item.deliveryUncertainAt = item.updatedAt; changed = true; }
     if (item.idempotencyKey === undefined && state) { item.idempotencyKey = `appointment-reminder:${state.id}`; changed = true; }
+    if (item.payload?.appointmentId !== undefined) { item.payload = { type: 'appointment_reminder' }; changed = true; }
   }
   return changed;
 }
@@ -657,13 +676,14 @@ export function removeSchedulingUser(db, userId) {
 
 function cancelReminderState(db, appointmentId, nowIso, userId = null) {
   for (const state of db.appointmentReminderStates || []) {
-    if (state.appointmentId === appointmentId && (!userId || state.userId === userId) && REMINDER_ACTIVE_STATUSES.has(state.status)) {
+    if (state.appointmentId === appointmentId && (!userId || state.userId === userId) && REMINDER_CANCELABLE_STATUSES.has(state.status)) {
       state.status = 'canceled'; state.updatedAt = nowIso;
     }
   }
   for (const item of db.schedulingReminderOutbox || []) {
-    if (item.appointmentId === appointmentId && (!userId || item.userId === userId) && REMINDER_ACTIVE_STATUSES.has(item.status)) {
+    if (item.appointmentId === appointmentId && (!userId || item.userId === userId) && REMINDER_CANCELABLE_STATUSES.has(item.status)) {
       item.status = 'canceled'; item.nextAttemptAt = null; item.leaseId = null; item.leaseExpiresAt = null;
+      item.deliveryAttemptId = null; item.deliveryStartedAt = null;
       item.canceledAt = nowIso; item.updatedAt = nowIso;
     }
   }
@@ -710,54 +730,72 @@ export function reconcileAppointmentReminders(db, appointment, nowMs = Date.now(
     }
   }
 
-  const states = (db.appointmentReminderStates || []).filter(state => state.appointmentId === appointment.id && participants.includes(state.userId));
+  const states = (db.appointmentReminderStates || [])
+    .filter(state => state.appointmentId === appointment.id && participants.includes(state.userId))
+    .sort((left, right) => left.generation - right.generation || left.createdAt.localeCompare(right.createdAt));
+  const groups = new Map();
   for (const state of states) {
-    const wanted = desired.get(`${state.userId}\0${state.offsetMinutes}`);
-    const item = (db.schedulingReminderOutbox || []).find(outbox => outbox.reminderStateId === state.id);
+    const key = `${state.userId}\0${state.offsetMinutes}`;
+    const group = groups.get(key) || [];
+    group.push(state);
+    groups.set(key, group);
+  }
+
+  for (const [key, group] of groups) {
+    const wanted = desired.get(key);
+    const latest = group[group.length - 1];
+    const item = (db.schedulingReminderOutbox || []).find(outbox => outbox.reminderStateId === latest.id);
     if (!item) throw new Error('appointment reminder state is missing its outbox record');
     if (!wanted) {
-      if (REMINDER_ACTIVE_STATUSES.has(state.status)) {
-        state.status = 'canceled'; state.updatedAt = nowIso;
+      if (REMINDER_CANCELABLE_STATUSES.has(latest.status)) {
+        latest.status = 'canceled'; latest.updatedAt = nowIso;
         item.status = 'canceled'; item.nextAttemptAt = null; item.leaseId = null; item.leaseExpiresAt = null;
+        item.deliveryAttemptId = null; item.deliveryStartedAt = null;
         item.canceledAt = nowIso; item.updatedAt = nowIso;
       }
       continue;
     }
-    desired.delete(`${state.userId}\0${state.offsetMinutes}`);
-    if (state.status === 'delivered' || state.status === 'failed') continue;
-    const changedSchedule = state.scheduledFor !== wanted.scheduledFor;
-    const reactivated = state.status === 'canceled';
-    if (!changedSchedule && !reactivated) continue;
-    state.scheduledFor = wanted.scheduledFor;
-    state.status = 'pending';
-    state.updatedAt = nowIso;
-    item.scheduledFor = wanted.scheduledFor;
-    item.status = 'pending';
-    item.attempts = 0;
-    item.nextAttemptAt = wanted.scheduledFor;
-    item.leaseId = null;
-    item.leaseExpiresAt = null;
-    item.lastAttemptAt = null;
-    item.deliveredAt = null;
-    item.failedAt = null;
-    item.canceledAt = null;
-    item.updatedAt = nowIso;
+    desired.delete(key);
+    if (latest.scheduledFor === wanted.scheduledFor) {
+      if (latest.status === 'canceled') {
+        latest.status = 'pending'; latest.updatedAt = nowIso;
+        item.status = 'pending'; item.attempts = 0; item.nextAttemptAt = wanted.scheduledFor;
+        item.leaseId = null; item.leaseExpiresAt = null; item.lastAttemptAt = null;
+        item.deliveryAttemptId = null; item.deliveryStartedAt = null; item.deliveredAt = null;
+        item.deliveryUncertainAt = null; item.failedAt = null; item.canceledAt = null; item.updatedAt = nowIso;
+      }
+      continue;
+    }
+    if (REMINDER_CANCELABLE_STATUSES.has(latest.status)) {
+      latest.status = 'canceled'; latest.updatedAt = nowIso;
+      item.status = 'canceled'; item.nextAttemptAt = null; item.leaseId = null; item.leaseExpiresAt = null;
+      item.deliveryAttemptId = null; item.deliveryStartedAt = null;
+      item.canceledAt = nowIso; item.updatedAt = nowIso;
+    }
+    desired.set(key, { ...wanted, generation: latest.generation + 1 });
   }
 
-  for (const { userId, offsetMinutes, scheduledFor } of desired.values()) {
-      const stateId = deterministicId('srem', [appointment.id, userId, offsetMinutes]);
-      const outboxId = deterministicId('sout', [stateId]);
-      db.appointmentReminderStates.push({
-        id: stateId, appointmentId: appointment.id, userId, offsetMinutes,
-        scheduledFor, status: 'pending', createdAt: nowIso, updatedAt: nowIso,
-      });
-      db.schedulingReminderOutbox.push({
-        id: outboxId, reminderStateId: stateId, appointmentId: appointment.id, userId, offsetMinutes,
-        scheduledFor, status: 'pending', attempts: 0, nextAttemptAt: scheduledFor,
-        leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveredAt: null, failedAt: null, canceledAt: null,
-        idempotencyKey: `appointment-reminder:${stateId}`, payload: { type: 'appointment_reminder', appointmentId: appointment.id },
-        createdAt: nowIso, updatedAt: nowIso,
-      });
+  for (const [key, wanted] of desired) {
+    if (wanted.generation) continue;
+    const group = groups.get(key) || [];
+    wanted.generation = group.length ? group[group.length - 1].generation + 1 : 1;
+  }
+
+  for (const { userId, offsetMinutes, scheduledFor, generation } of desired.values()) {
+    const stateId = deterministicId('srem', [appointment.id, userId, offsetMinutes, generation, scheduledFor]);
+    const outboxId = deterministicId('sout', [stateId]);
+    db.appointmentReminderStates.push({
+      id: stateId, appointmentId: appointment.id, userId, offsetMinutes, generation,
+      scheduledFor, status: 'pending', createdAt: nowIso, updatedAt: nowIso,
+    });
+    db.schedulingReminderOutbox.push({
+      id: outboxId, reminderStateId: stateId, appointmentId: appointment.id, userId, offsetMinutes,
+      scheduledFor, status: 'pending', attempts: 0, nextAttemptAt: scheduledFor,
+      leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveryAttemptId: null, deliveryStartedAt: null,
+      deliveredAt: null, deliveryUncertainAt: null, failedAt: null, canceledAt: null,
+      idempotencyKey: `appointment-reminder:${stateId}`, payload: { type: 'appointment_reminder' },
+      createdAt: nowIso, updatedAt: nowIso,
+    });
   }
 }
 
@@ -853,9 +891,9 @@ export function createSchedulingRoutes(context) {
     json(res, 429, { error: 'too many scheduling requests, try again later', code: 'rate_limited', violations: [] }, { 'Retry-After': String(wait) });
     return true;
   };
-  const commit = async candidate => {
+  const commit = async (candidate, base) => {
     validateSchedulingState(candidate, limits);
-    if (typeof commitCandidate === 'function') await commitCandidate(candidate);
+    if (typeof commitCandidate === 'function') await commitCandidate(candidate, base);
     else { saveDb(candidate); if (typeof publishDb === 'function') publishDb(candidate); }
   };
   const actorOnly = (req, res) => {
@@ -988,7 +1026,8 @@ export function createSchedulingRoutes(context) {
     if (!availability) return fail(res, 400, 'coach_availability_not_configured', 'coach availability is not configured');
     const problem = validateBooking(availability, payload, existing.coachId, existing.athleteId, existing.id);
     if (problem) return fail(res, problem.status, problem.code, problem.message);
-    const candidate = clone(db);
+    const base = clone(db);
+    const candidate = clone(base);
     const target = candidate.coachAppointments.find(item => item.id === existing.id);
     target.startAt = payload.startAt;
     target.endAt = payload.endAt;
@@ -996,7 +1035,7 @@ export function createSchedulingRoutes(context) {
     target.localDate = getZonedParts(payload.startMs, availability.timeZone).dateStr;
     target.updatedAt = iso(now());
     reconcileAppointmentReminders(candidate, target, now());
-    try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be rescheduled'); }
+    try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be rescheduled'); }
     audit(req, 'b2b2c.appointment.reschedule', { user: actor, msg: target.id });
     json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), actor, now()) });
   };
@@ -1010,14 +1049,15 @@ export function createSchedulingRoutes(context) {
     if (existing.status === 'canceled') return json(res, 200, { appointment: serializeAppointment(db, existing, actor, now()) });
     if (existing.status !== 'scheduled' || parseInstant(existing.endAt) <= now()) return fail(res, 409, 'invalid_transition', 'ended or terminal appointments cannot be canceled');
     if (throttle(req, res, actor, 'status')) return;
-    const candidate = clone(db);
+    const base = clone(db);
+    const candidate = clone(base);
     const target = candidate.coachAppointments.find(item => item.id === existing.id);
     const nowMs = now();
     target.status = 'canceled';
     target.cancellation = { actor: role, actorId: actor.id, reason: body.reason.trim(), canceledAt: iso(nowMs) };
     target.updatedAt = iso(nowMs);
     cancelReminderState(candidate, target.id, target.updatedAt);
-    try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be canceled'); }
+    try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be canceled'); }
     audit(req, `b2b2c.appointment.${role}-cancel`, { user: actor, msg: target.id });
     json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), actor, now()) });
   };
@@ -1038,7 +1078,8 @@ export function createSchedulingRoutes(context) {
       if (existing && parsed._rev === undefined) return fail(res, 400, 'revision_required', '_rev is required for availability updates', [{ field: '_rev', code: 'required' }]);
       if (existing && parsed._rev !== existing._rev) return fail(res, 409, 'revision_conflict', 'availability revision conflict', [{ field: '_rev', code: 'stale' }]);
       if (!existing && parsed._rev !== undefined && parsed._rev !== 0) return fail(res, 409, 'revision_conflict', 'new availability must use revision 0');
-      const candidate = clone(db);
+      const base = clone(db);
+      const candidate = clone(base);
       const index = candidate.coachAvailability.findIndex(item => item.coachId === coach.id);
       const nowIso = iso(now());
       const next = {
@@ -1051,7 +1092,7 @@ export function createSchedulingRoutes(context) {
       if (index >= 0) candidate.coachAvailability[index] = next; else candidate.coachAvailability.push(next);
       const futureConflicts = candidate.coachAppointments.filter(item => item.coachId === coach.id && item.status === 'scheduled' && parseInstant(item.startAt) >= now()
         && !isWithinAvailabilityWindows(parseInstant(item.startAt), parseInstant(item.endAt), next, item.durationMinutes)).map(item => item.id);
-      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'availability could not be saved'); }
+      try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'availability could not be saved'); }
       audit(req, 'b2b2c.availability.update', { user: coach, msg: next.id });
       json(res, 200, { availability: clone(next), futureConflicts });
     },
@@ -1092,10 +1133,11 @@ export function createSchedulingRoutes(context) {
       if (throttle(req, res, coach, 'mutation')) return;
       const problem = validateBooking(availability, payload, coach.id, req.athleteId);
       if (problem) return fail(res, problem.status, problem.code, problem.message);
-      const candidate = clone(db);
+      const base = clone(db);
+      const candidate = clone(base);
       if (!appointmentQuota(candidate, access.link.id)) return fail(res, 409, 'appointment_capacity', 'active appointment capacity reached');
       const appointment = createAppointment(candidate, access.link, payload, iso(now()));
-      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
+      try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
       audit(req, 'b2b2c.appointment.create', { user: coach, msg: appointment.id });
       json(res, 201, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === appointment.id), coach, now()) });
     },
@@ -1119,14 +1161,15 @@ export function createSchedulingRoutes(context) {
       const body = await readBody(req);
       if (!allowedKeys(body, new Set(['status'])) || !['completed', 'no_show'].includes(body.status)) return fail(res, 400, 'invalid_attendance', 'status must be completed or no_show');
       if (throttle(req, res, coach, 'status')) return;
-      const candidate = clone(db);
+      const base = clone(db);
+      const candidate = clone(base);
       const target = candidate.coachAppointments.find(item => item.id === existing.id);
       const nowIso = iso(now());
       target.status = body.status;
       target.attendance = { state: body.status === 'completed' ? 'attended' : 'missed', recordedBy: coach.id, recordedAt: nowIso };
       target.updatedAt = nowIso;
       cancelReminderState(candidate, target.id, nowIso);
-      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'attendance could not be saved'); }
+      try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'attendance could not be saved'); }
       audit(req, 'b2b2c.appointment.attendance', { user: coach, msg: `${target.id}:${body.status}` });
       json(res, 200, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === target.id), coach, now()) });
     },
@@ -1167,10 +1210,11 @@ export function createSchedulingRoutes(context) {
       if (throttle(req, res, athlete, 'mutation')) return;
       const problem = validateBooking(availability, payload, req.coachId, athlete.id);
       if (problem) return fail(res, problem.status, problem.code, problem.message);
-      const candidate = clone(db);
+      const base = clone(db);
+      const candidate = clone(base);
       if (!appointmentQuota(candidate, access.link.id)) return fail(res, 409, 'appointment_capacity', 'active appointment capacity reached');
       const appointment = createAppointment(candidate, access.link, payload, iso(now()));
-      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
+      try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'appointment could not be saved'); }
       audit(req, 'b2b2c.appointment.athlete-create', { user: athlete, msg: appointment.id });
       json(res, 201, { appointment: serializeAppointment(db, db.coachAppointments.find(item => item.id === appointment.id), athlete, now()) });
     },
@@ -1190,7 +1234,8 @@ export function createSchedulingRoutes(context) {
       const parsed = validateReminderPreference(await readBody(req));
       if (!parsed) return fail(res, 400, 'invalid_reminder_preferences', 'invalid reminder preferences');
       if (throttle(req, res, actor, 'mutation')) return;
-      const candidate = clone(db);
+      const base = clone(db);
+      const candidate = clone(base);
       const nowMs = now();
       const preference = { userId: actor.id, ...parsed, updatedAt: iso(nowMs) };
       const index = candidate.schedulingReminderPreferences.findIndex(item => item.userId === actor.id);
@@ -1198,7 +1243,7 @@ export function createSchedulingRoutes(context) {
       for (const appointment of candidate.coachAppointments.filter(item => item.status === 'scheduled' && (item.coachId === actor.id || item.athleteId === actor.id))) {
         reconcileAppointmentReminders(candidate, appointment, nowMs, { userId: actor.id });
       }
-      try { await commit(candidate); } catch { return fail(res, 503, 'storage_unavailable', 'reminder preferences could not be saved'); }
+      try { await commit(candidate, base); } catch { return fail(res, 503, 'storage_unavailable', 'reminder preferences could not be saved'); }
       audit(req, 'b2b2c.scheduling.reminder-preferences.update', { user: actor, msg: String(parsed.enabled) });
       json(res, 200, { preferences: clone(preference) });
     },

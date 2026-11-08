@@ -82,6 +82,8 @@ export function nudgePush(lang, tone, routine, iso) {
 
 export function appointmentReminderPush(idempotencyKey) {
   return {
+    type: 'appointment_reminder',
+    idempotencyKey,
     title: 'Upcoming appointment',
     body: 'Your scheduled appointment starts soon.',
     tag: idempotencyKey,
