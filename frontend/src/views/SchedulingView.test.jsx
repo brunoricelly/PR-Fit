@@ -46,6 +46,9 @@ import SchedulingView, {
   AthleteBookingView,
   AthleteAppointmentsView,
   ReminderPreferencesView,
+  RescheduleModal,
+  CreateCoachAppointmentModal,
+  civilTimeToIso,
 } from './SchedulingView.jsx'
 
 let host, root
@@ -591,5 +594,232 @@ describe('SchedulingView - Full View & Accessibility', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     expect(closed).toBe(true)
+  })
+})
+
+describe('SchedulingView - Civil Timezone Conversion', () => {
+  it('converts civil date and time to ISO instant deterministically across time zones', () => {
+    // UTC-3
+    expect(civilTimeToIso('2026-06-01', '10:00', 'America/Sao_Paulo')).toBe('2026-06-01T13:00:00.000Z')
+    // UTC+2 (summer DST in Europe/Madrid)
+    expect(civilTimeToIso('2026-06-01', '10:00', 'Europe/Madrid')).toBe('2026-06-01T08:00:00.000Z')
+    // UTC+9
+    expect(civilTimeToIso('2026-06-01', '10:00', 'Asia/Tokyo')).toBe('2026-06-01T01:00:00.000Z')
+    // UTC
+    expect(civilTimeToIso('2026-06-01', '10:00', 'UTC')).toBe('2026-06-01T10:00:00.000Z')
+    // America/New_York winter (UTC-5)
+    expect(civilTimeToIso('2026-01-15', '10:00', 'America/New_York')).toBe('2026-01-15T15:00:00.000Z')
+    // America/New_York summer (EDT UTC-4)
+    expect(civilTimeToIso('2026-06-15', '10:00', 'America/New_York')).toBe('2026-06-15T14:00:00.000Z')
+    // Null inputs
+    expect(civilTimeToIso('', '10:00', 'UTC')).toBeNull()
+    expect(civilTimeToIso('2026-06-01', '', 'UTC')).toBeNull()
+  })
+
+  it('RescheduleModal serializes startAt respecting appointment civil timezone', async () => {
+    let rescheduleBody = null
+    mocks.answers['/api/coach/appointments/appt_madrid/reschedule'] = body => {
+      rescheduleBody = body
+      return { appointment: { id: 'appt_madrid', startAt: body.startAt } }
+    }
+
+    const madridAppointment = {
+      id: 'appt_madrid',
+      timeZone: 'Europe/Madrid',
+      localDate: '2026-06-01',
+      startAt: '2026-06-01T08:00:00.000Z',
+    }
+
+    await mount(
+      <RescheduleModal
+        appointment={madridAppointment}
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+        isCoach={true}
+      />
+    )
+
+    const modal = host.querySelector('[role="dialog"]')
+    await changeInput(input('rescheduleDate', modal), '2026-06-02')
+    await changeInput(input('rescheduleTime', modal), '11:00')
+
+    await act(async () => { button('Reschedule', modal).click() })
+    await settle()
+
+    expect(rescheduleBody).toBeTruthy()
+    // 11:00 in Madrid (CEST, UTC+2) is 09:00 UTC
+    expect(rescheduleBody.startAt).toBe('2026-06-02T09:00:00.000Z')
+  })
+
+  it('CreateCoachAppointmentModal serializes manual time using coach availability timezone', async () => {
+    let createBody = null
+    mocks.answers['/api/coach/athletes/athlete_1/appointments'] = body => {
+      createBody = body
+      return { appointment: { id: 'appt_new', ...body } }
+    }
+    mocks.answers['/api/coach/athletes/athlete_1/availability-slots'] = {
+      items: [],
+      timeZone: 'America/Sao_Paulo',
+    }
+
+    await mount(
+      <CreateCoachAppointmentModal
+        links={[{ id: 'link_1', athlete: { id: 'athlete_1', name: 'Atleta Carlos' } }]}
+        coachTimeZone="America/Sao_Paulo"
+        onClose={vi.fn()}
+        onSave={vi.fn()}
+      />
+    )
+
+    const modal = host.querySelector('[role="dialog"]')
+    await changeInput(input('createDate', modal), '2026-06-01')
+    await changeInput(input('manualTime', modal), '10:00')
+
+    await act(async () => { button('Confirm booking', modal).click() })
+    await settle()
+
+    expect(createBody).toBeTruthy()
+    // 10:00 in America/Sao_Paulo (UTC-3) is 13:00 UTC
+    expect(createBody.startAt).toBe('2026-06-01T13:00:00.000Z')
+  })
+})
+
+describe('SchedulingView - Dual-Role Mode Switching', () => {
+  it('renders mode switcher for dual-role coach and toggles between coach and athlete views', async () => {
+    mocks.user = { id: 'dual_user', name: 'Dual Role Coach', profile: { kind: 'coach' } }
+    mocks.answers['/api/coach/athletes'] = {
+      links: [{ id: 'link_coach_1', athlete: { id: 'athlete_1', name: 'My Athlete Carlos' } }],
+    }
+    mocks.answers['/api/athlete/coaches'] = {
+      links: [{ id: 'link_athlete_1', coach: { id: 'coach_2', name: 'Sensei Silva' } }],
+    }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+    mocks.answers['/api/athlete/appointments'] = { items: [] }
+    mocks.answers['/api/athlete/coaches/coach_2/availability-slots'] = { items: [] }
+    mocks.answers['/api/scheduling/reminder-preferences'] = { enabled: true, offsetsMinutes: [60] }
+
+    await mount(<SchedulingView />)
+
+    // Initial role is coach: should have coach title and switcher
+    expect(host.textContent).toContain('Coach appointments')
+    const coachBtn = button('Coach / Meus Alunos')
+    const athleteBtn = button('Atleta / Meus Treinadores')
+    expect(coachBtn).not.toBeUndefined()
+    expect(athleteBtn).not.toBeUndefined()
+    expect(coachBtn.getAttribute('aria-pressed')).toBe('true')
+    expect(athleteBtn.getAttribute('aria-pressed')).toBe('false')
+
+    // Switch to athlete view
+    await act(async () => { athleteBtn.click() })
+    await settle()
+
+    expect(host.textContent).toContain('My appointments')
+    expect(host.textContent).toContain('Book session')
+    expect(coachBtn.getAttribute('aria-pressed')).toBe('false')
+    expect(athleteBtn.getAttribute('aria-pressed')).toBe('true')
+
+    // Switch back to coach view
+    await act(async () => { coachBtn.click() })
+    await settle()
+
+    expect(host.textContent).toContain('Coach appointments')
+    expect(host.textContent).toContain('Availability')
+    expect(coachBtn.getAttribute('aria-pressed')).toBe('true')
+    expect(athleteBtn.getAttribute('aria-pressed')).toBe('false')
+  })
+
+  it('does not display mode switcher when coach has no athlete links', async () => {
+    mocks.user = { id: 'coach_only', name: 'Coach Bruno', profile: { kind: 'coach' } }
+    mocks.answers['/api/coach/athletes'] = {
+      links: [{ id: 'link_1', athlete: { id: 'athlete_1', name: 'Atleta Carlos' } }],
+    }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+
+    await mount(<SchedulingView />)
+
+    expect(host.textContent).toContain('Coach appointments')
+    expect(button('Coach / Meus Alunos')).toBeUndefined()
+    expect(button('Atleta / Meus Treinadores')).toBeUndefined()
+  })
+
+  it('does not display mode switcher for athlete-only user', async () => {
+    mocks.user = { id: 'athlete_only', name: 'Carlos Atleta', profile: { kind: 'athlete' } }
+    mocks.answers['/api/athlete/coaches'] = {
+      links: [{ id: 'link_1', coach: { id: 'coach_1', name: 'Coach Bruno' } }],
+    }
+    mocks.answers['/api/athlete/coaches/coach_1/availability-slots'] = { items: [] }
+
+    await mount(<SchedulingView />)
+
+    expect(host.textContent).toContain('My appointments')
+    expect(button('Coach / Meus Alunos')).toBeUndefined()
+    expect(button('Atleta / Meus Treinadores')).toBeUndefined()
+  })
+})
+
+describe('SchedulingView - Race Condition Prevention in Filters', () => {
+  it('discards stale slow response when filter is rapidly changed in CoachAppointmentsView', async () => {
+    mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
+
+    let resolveScheduled
+    const scheduledPromise = new Promise(resolve => { resolveScheduled = resolve })
+
+    mocks.answers['/api/coach/appointments'] = (body, path) => {
+      if (path.includes('status=scheduled')) {
+        return scheduledPromise
+      }
+      if (path.includes('status=canceled')) {
+        return {
+          items: [
+            {
+              id: 'appt_canceled',
+              title: 'Canceled Session Only',
+              status: 'canceled',
+              startAt: '2026-11-10T14:00:00.000Z',
+              endAt: '2026-11-10T15:00:00.000Z',
+              timeZone: 'UTC',
+              localDate: '2026-11-10',
+              lifecycle: { allowedActions: [] },
+            },
+          ],
+          hasMore: false,
+        }
+      }
+      return { items: [], hasMore: false }
+    }
+
+    await mount(<CoachAppointmentsView links={[]} />)
+
+    const statusSelect = host.querySelector('select:has(option[value="scheduled"])')
+    expect(statusSelect).not.toBeNull()
+
+    // Rapidly switch to scheduled, then immediately to canceled
+    await changeInput(statusSelect, 'scheduled')
+    await changeInput(statusSelect, 'canceled')
+
+    // Now resolve the older 'scheduled' request after the 'canceled' one already returned
+    await act(async () => {
+      resolveScheduled({
+        items: [
+          {
+            id: 'appt_scheduled_stale',
+            title: 'Stale Scheduled Session',
+            status: 'scheduled',
+            startAt: '2026-11-10T14:00:00.000Z',
+            endAt: '2026-11-10T15:00:00.000Z',
+            timeZone: 'UTC',
+            localDate: '2026-11-10',
+            lifecycle: { allowedActions: [] },
+          },
+        ],
+        hasMore: false,
+      })
+    })
+    await settle()
+
+    // Only 'Canceled Session Only' should be visible; 'Stale Scheduled Session' must be discarded
+    expect(host.textContent).toContain('Canceled Session Only')
+    expect(host.textContent).not.toContain('Stale Scheduled Session')
   })
 })

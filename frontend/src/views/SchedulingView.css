@@ -292,3 +292,10 @@
   display: grid;
   gap: 8px;
 }
+
+.pro-sched-role-switcher {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}

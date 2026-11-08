@@ -174,6 +174,139 @@ function formatDateOnly(isoString, timeZone) {
   }
 }
 
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+
+export function civilTimeToIso(dateStr, timeStr, timeZone) {
+  if (!dateStr || !timeStr) return null
+
+  const dateMatch = DATE_RE.exec(String(dateStr).trim())
+  const timeMatch = TIME_RE.exec(String(timeStr).trim())
+
+  if (!dateMatch || !timeMatch) {
+    try {
+      return new Date(`${dateStr}T${timeStr}:00`).toISOString()
+    } catch {
+      return null
+    }
+  }
+
+  const year = Number(dateMatch[1])
+  const month = Number(dateMatch[2])
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+  const second = timeMatch[3] ? Number(timeMatch[3]) : 0
+
+  let tz = timeZone
+  if (!tz) {
+    try {
+      tz = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'
+    } catch {
+      tz = 'UTC'
+    }
+  }
+
+  let formatter
+  try {
+    formatter = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hourCycle: 'h23',
+    })
+  } catch {
+    try {
+      formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'UTC',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hourCycle: 'h23',
+      })
+      tz = 'UTC'
+    } catch {
+      return new Date(Date.UTC(year, month - 1, day, hour, minute, second)).toISOString()
+    }
+  }
+
+  const targetUtc = Date.UTC(year, month - 1, day, hour, minute, second, 0)
+
+  function getZonedWallEpoch(timestampMs) {
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(timestampMs)).map(p => [p.type, p.value])
+    )
+    const h = parts.hour === '24' ? 0 : Number(parts.hour)
+    return Date.UTC(
+      Number(parts.year),
+      Number(parts.month) - 1,
+      Number(parts.day),
+      h,
+      Number(parts.minute),
+      Number(parts.second)
+    )
+  }
+
+  const offsets = new Set()
+  for (let delta = -36; delta <= 36; delta += 6) {
+    const sample = targetUtc + delta * 3600000
+    offsets.add(getZonedWallEpoch(sample) - sample)
+  }
+
+  const pad = n => String(n).padStart(2, '0')
+  const expectedDate = `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}`
+  const expectedTime = `${pad(hour)}:${pad(minute)}`
+
+  for (const offset of offsets) {
+    const candidate = targetUtc - offset
+    const parts = Object.fromEntries(
+      formatter.formatToParts(new Date(candidate)).map(p => [p.type, p.value])
+    )
+    const h = parts.hour === '24' ? 0 : Number(parts.hour)
+    const cDate = `${parts.year}-${parts.month}-${parts.day}`
+    const cTime = `${pad(h)}:${parts.minute}`
+    if (cDate === expectedDate && cTime === expectedTime) {
+      return new Date(candidate).toISOString()
+    }
+  }
+
+  const offset = getZonedWallEpoch(targetUtc) - targetUtc
+  return new Date(targetUtc - offset).toISOString()
+}
+
+export function getZonedDateStr(isoString, timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      timeZone: timeZone || undefined,
+    }).format(new Date(isoString))
+  } catch {
+    return isoString?.slice(0, 10) || ''
+  }
+}
+
+export function getZonedTimeStr(isoString, timeZone) {
+  try {
+    return new Intl.DateTimeFormat('en-GB', {
+      hour: '2-digit',
+      minute: '2-digit',
+      hourCycle: 'h23',
+      timeZone: timeZone || undefined,
+    }).format(new Date(isoString))
+  } catch {
+    return '09:00'
+  }
+}
+
 // ==========================================
 // Coach Availability Editor
 // ==========================================
@@ -602,8 +735,8 @@ export function AppointmentDetailModal({ appointment, onClose, onReschedule, onC
 }
 
 export function RescheduleModal({ appointment, onClose, onSave, isCoach = true }) {
-  const [newDate, setNewDate] = useState(() => appointment?.localDate || new Date().toISOString().slice(0, 10))
-  const [newTime, setNewTime] = useState(() => appointment ? formatSlotTime(appointment.startAt, appointment.timeZone) : '09:00')
+  const [newDate, setNewDate] = useState(() => appointment?.localDate || (appointment?.startAt ? getZonedDateStr(appointment.startAt, appointment.timeZone) : new Date().toISOString().slice(0, 10)))
+  const [newTime, setNewTime] = useState(() => appointment?.startAt ? getZonedTimeStr(appointment.startAt, appointment.timeZone) : '09:00')
   const [submitting, setSubmitting] = useState(false)
   const toast = useUI(state => state.toast)
 
@@ -612,7 +745,8 @@ export function RescheduleModal({ appointment, onClose, onSave, isCoach = true }
     if (!newDate || !newTime) return
     setSubmitting(true)
     try {
-      const startAt = new Date(`${newDate}T${newTime}:00`).toISOString()
+      const timeZone = appointment?.timeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo'
+      const startAt = civilTimeToIso(newDate, newTime, timeZone)
       if (isCoach) {
         await rescheduleCoachAppointment(appointment.id, { startAt })
       } else {
@@ -765,7 +899,7 @@ export function AttendanceModal({ appointment, onClose, onSave }) {
   )
 }
 
-export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, onSave }) {
+export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, onSave, coachTimeZone }) {
   const toast = useUI(state => state.toast)
   const [athleteId, setAthleteId] = useState(() => defaultAthleteId || links[0]?.athlete?.id || '')
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10))
@@ -779,18 +913,26 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
   const [meetingUrl, setMeetingUrl] = useState('')
   const [manualTime, setManualTime] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [effectiveTimeZone, setEffectiveTimeZone] = useState(coachTimeZone || null)
+  const slotsRequestIdRef = useRef(0)
 
   const loadSlots = useCallback(async () => {
     if (!athleteId || !date) return
+    const reqId = ++slotsRequestIdRef.current
     setSlotsLoading(true)
     try {
       const res = await getCoachAthleteSlots(athleteId, { date })
+      if (reqId !== slotsRequestIdRef.current) return
       setSlots(res?.items || [])
+      if (res?.timeZone) setEffectiveTimeZone(res.timeZone)
       setSelectedSlot(null)
     } catch {
+      if (reqId !== slotsRequestIdRef.current) return
       setSlots([])
     } finally {
-      setSlotsLoading(false)
+      if (reqId === slotsRequestIdRef.current) {
+        setSlotsLoading(false)
+      }
     }
   }, [athleteId, date])
 
@@ -802,7 +944,8 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
       toast(p('Select athlete'))
       return
     }
-    const startAt = selectedSlot ? selectedSlot.startAt : (date && manualTime ? new Date(`${date}T${manualTime}:00`).toISOString() : null)
+    const targetTz = effectiveTimeZone || (slots[0]?.timeZone) || coachTimeZone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo'
+    const startAt = selectedSlot ? selectedSlot.startAt : (date && manualTime ? civilTimeToIso(date, manualTime, targetTz) : null)
     if (!startAt) {
       toast(p('Select a slot'))
       return
@@ -985,7 +1128,10 @@ export function CoachAppointmentsView({ links = [] }) {
   const [attendanceItem, setAttendanceItem] = useState(null)
   const [createOpen, setCreateOpen] = useState(false)
 
+  const activeRequestIdRef = useRef(0)
+
   const loadAppointments = useCallback(async (isLoadMore = false) => {
+    const requestId = ++activeRequestIdRef.current
     if (isLoadMore) setLoadingMore(true)
     else setLoading(true)
     setLoadError(false)
@@ -1000,6 +1146,7 @@ export function CoachAppointmentsView({ links = [] }) {
         ...(isLoadMore && cursor ? { cursor } : {}),
       }
       const res = await getCoachAppointments(params)
+      if (requestId !== activeRequestIdRef.current) return
       const items = res?.items || []
       if (isLoadMore) {
         setAppointments(prev => [...prev, ...items])
@@ -1009,10 +1156,13 @@ export function CoachAppointmentsView({ links = [] }) {
       setCursor(res?.nextCursor || null)
       setHasMore(!!res?.hasMore)
     } catch {
+      if (requestId !== activeRequestIdRef.current) return
       setLoadError(true)
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (requestId === activeRequestIdRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [athleteFilter, statusFilter, fromDate, toDate, cursor])
 
@@ -1252,6 +1402,7 @@ export function CoachAppointmentsView({ links = [] }) {
       {createOpen && (
         <CreateCoachAppointmentModal
           links={links}
+          coachTimeZone={appointments[0]?.timeZone}
           onClose={() => setCreateOpen(false)}
           onSave={() => loadAppointments(false)}
         />
@@ -1277,18 +1428,31 @@ export function AthleteBookingView({ links = [], onBookSuccess }) {
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
 
+  const slotsRequestIdRef = useRef(0)
+
+  useEffect(() => {
+    if (!coachId && links[0]?.coach?.id) {
+      setCoachId(links[0].coach.id)
+    }
+  }, [coachId, links])
+
   const loadSlots = useCallback(async () => {
     if (!coachId || !date) return
+    const reqId = ++slotsRequestIdRef.current
     setLoading(true)
     setLoadError(false)
     try {
       const res = await getAthleteSlots(coachId, { date })
+      if (reqId !== slotsRequestIdRef.current) return
       setSlots(res?.items || [])
     } catch {
+      if (reqId !== slotsRequestIdRef.current) return
       setLoadError(true)
       setSlots([])
     } finally {
-      setLoading(false)
+      if (reqId === slotsRequestIdRef.current) {
+        setLoading(false)
+      }
     }
   }, [coachId, date])
 
@@ -1463,8 +1627,10 @@ export function AthleteAppointmentsView() {
   const [detailItem, setDetailItem] = useState(null)
   const [rescheduleItem, setRescheduleItem] = useState(null)
   const [cancelItem, setCancelItem] = useState(null)
+  const activeRequestIdRef = useRef(0)
 
   const loadAppointments = useCallback(async (isLoadMore = false) => {
+    const requestId = ++activeRequestIdRef.current
     if (isLoadMore) setLoadingMore(true)
     else setLoading(true)
     setLoadError(false)
@@ -1475,6 +1641,7 @@ export function AthleteAppointmentsView() {
         ...(isLoadMore && cursor ? { cursor } : {}),
       }
       const res = await getAthleteAppointments(params)
+      if (requestId !== activeRequestIdRef.current) return
       const items = res?.items || []
       if (isLoadMore) {
         setAppointments(prev => [...prev, ...items])
@@ -1484,10 +1651,13 @@ export function AthleteAppointmentsView() {
       setCursor(res?.nextCursor || null)
       setHasMore(!!res?.hasMore)
     } catch {
+      if (requestId !== activeRequestIdRef.current) return
       setLoadError(true)
     } finally {
-      setLoading(false)
-      setLoadingMore(false)
+      if (requestId === activeRequestIdRef.current) {
+        setLoading(false)
+        setLoadingMore(false)
+      }
     }
   }, [cursor])
 
@@ -1729,40 +1899,60 @@ export function ReminderPreferencesView() {
 // ==========================================
 // Main SchedulingView Component
 // ==========================================
-export default function SchedulingView({ embedded = false, initialTab }) {
+export default function SchedulingView({ embedded = false, initialTab, initialRole }) {
   const user = useStore(state => state.user)
   const navigate = useNavigate()
   const location = useLocation()
-  const [links, setLinks] = useState([])
+  const [coachLinks, setCoachLinks] = useState([])
+  const [athleteLinks, setAthleteLinks] = useState([])
   const [linksLoaded, setLinksLoaded] = useState(false)
 
   const isCoach = user?.profile?.kind === 'coach'
 
-  // Query search param or initialTab
+  const queryRole = useMemo(() => {
+    return new URLSearchParams(location.search).get('role') || ''
+  }, [location.search])
+
   const queryTab = useMemo(() => {
     return initialTab || new URLSearchParams(location.search).get('tab') || ''
   }, [initialTab, location.search])
 
-  const [activeTab, setActiveTab] = useState(() => {
-    if (queryTab) return queryTab
-    return isCoach ? 'appointments' : 'book'
+  const [roleMode, setRoleMode] = useState(() => {
+    if (initialRole) return initialRole
+    if (queryRole === 'athlete') return 'athlete'
+    if (queryTab === 'book') return 'athlete'
+    return isCoach ? 'coach' : 'athlete'
   })
 
-  // Load links (coach's athletes or athlete's coaches)
+  const [activeTab, setActiveTab] = useState(() => {
+    if (queryTab) return queryTab
+    const startingRole = initialRole || (queryRole === 'athlete' ? 'athlete' : (queryTab === 'book' ? 'athlete' : (isCoach ? 'coach' : 'athlete')))
+    return startingRole === 'coach' ? 'appointments' : 'book'
+  })
+
+  // Load links (coach's athletes and athlete's coaches)
   useEffect(() => {
     let unmounted = false
     const load = async () => {
       try {
         if (isCoach) {
-          const res = await api('/api/coach/athletes')
+          const [cRes, aRes] = await Promise.allSettled([
+            api('/api/coach/athletes'),
+            api('/api/athlete/coaches'),
+          ])
           if (!unmounted) {
-            setLinks(res?.links || [])
+            if (cRes.status === 'fulfilled') {
+              setCoachLinks(cRes.value?.links || [])
+            }
+            if (aRes.status === 'fulfilled') {
+              setAthleteLinks(aRes.value?.links || [])
+            }
             setLinksLoaded(true)
           }
         } else {
           const res = await api('/api/athlete/coaches')
           if (!unmounted) {
-            setLinks(res?.links || [])
+            setAthleteLinks(res?.links || [])
             setLinksLoaded(true)
           }
         }
@@ -1775,6 +1965,20 @@ export default function SchedulingView({ embedded = false, initialTab }) {
   }, [isCoach, user?.id])
 
   if (!user) return null
+
+  const hasAthleteRole = athleteLinks.length > 0
+  const canSwitchRole = isCoach && hasAthleteRole
+  const currentRole = isCoach ? (canSwitchRole ? roleMode : 'coach') : 'athlete'
+
+  const handleSwitchRole = mode => {
+    if (mode === roleMode) return
+    setRoleMode(mode)
+    if (mode === 'athlete' && activeTab === 'availability') {
+      setActiveTab('book')
+    } else if (mode === 'coach' && activeTab === 'book') {
+      setActiveTab('appointments')
+    }
+  }
 
   return (
     <main className={`narrow pro-page ${embedded ? 'embedded' : ''}`}>
@@ -1791,15 +1995,36 @@ export default function SchedulingView({ embedded = false, initialTab }) {
         <header className="pro-hero">
           <div>
             <span className="pro-kicker">{p('Scheduling')}</span>
-            <h1>{isCoach ? p('Coach appointments') : p('My appointments')}</h1>
+            <h1>{currentRole === 'coach' ? p('Coach appointments') : p('My appointments')}</h1>
             <p>{p('Manage availability, sessions and reminders')}</p>
           </div>
           <Icon name="calendar" />
         </header>
       )}
 
+      {canSwitchRole && (
+        <div className="pro-sched-role-switcher" role="group" aria-label={p('View mode')}>
+          <Button
+            size="sm"
+            variant={currentRole === 'coach' ? 'tinted' : 'ghost'}
+            aria-pressed={currentRole === 'coach'}
+            onClick={() => handleSwitchRole('coach')}
+          >
+            {p('Coach / Meus Alunos')}
+          </Button>
+          <Button
+            size="sm"
+            variant={currentRole === 'athlete' ? 'tinted' : 'ghost'}
+            aria-pressed={currentRole === 'athlete'}
+            onClick={() => handleSwitchRole('athlete')}
+          >
+            {p('Atleta / Meus Treinadores')}
+          </Button>
+        </div>
+      )}
+
       <nav className="pro-sched-nav" role="tablist">
-        {isCoach ? (
+        {currentRole === 'coach' ? (
           <>
             <button
               role="tab"
@@ -1862,9 +2087,9 @@ export default function SchedulingView({ embedded = false, initialTab }) {
         )}
       </nav>
 
-      {isCoach ? (
+      {currentRole === 'coach' ? (
         activeTab === 'appointments' ? (
-          <CoachAppointmentsView links={links} />
+          <CoachAppointmentsView links={coachLinks} />
         ) : activeTab === 'availability' ? (
           <CoachAvailabilityEditor />
         ) : (
@@ -1872,7 +2097,7 @@ export default function SchedulingView({ embedded = false, initialTab }) {
         )
       ) : (
         activeTab === 'book' ? (
-          <AthleteBookingView links={links} onBookSuccess={() => setActiveTab('appointments')} />
+          <AthleteBookingView links={athleteLinks} onBookSuccess={() => setActiveTab('appointments')} />
         ) : activeTab === 'appointments' ? (
           <AthleteAppointmentsView />
         ) : (
