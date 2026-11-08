@@ -1323,6 +1323,10 @@ function SettingsRoot({ ctx, preview, open, user, sync, home, go, entryKey }) {
           title={user.profile?.kind === 'coach' ? p('My athletes') : user.profile ? p('My professionals') : p('Professional profile')}
           subtitle={user.profile?.kind === 'coach' ? p('Invitations, portfolio and relationship status') : p('Profile, invitations and linked professionals')}
           accessory="chevron" onClick={() => nav('/professionals')} />}
+        {user && !DEMO && (user.profile?.kind === 'coach' || user.profile) && <Row icon="calendar" iconTint="var(--acc)"
+          title={p('Appointments')}
+          subtitle={p('Manage availability, sessions and reminders')}
+          accessory="chevron" onClick={() => nav('/scheduling')} />}
       </Section>
       {ROOT_GROUPS.map(g => g.filter(id => pageVisible(id, ctx))).filter(g => g.length).map(g => (
         <Section key={g[0]}>

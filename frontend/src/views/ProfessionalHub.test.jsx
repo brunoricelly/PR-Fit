@@ -303,4 +303,55 @@ describe('ProfessionalHub', () => {
     expect(button('Add to my routines')).toBeUndefined()
     expect(mocks.toast).toHaveBeenCalledWith('Added to your routines.')
   })
+
+  it('renders tab navigation and switches between Relationships and Appointments', async () => {
+    mocks.user = {
+      id: 'u_coach', name: 'Coach', admin: false,
+      profile: { kind: 'coach', coachSpecialties: ['training'] },
+    }
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+    mocks.answers['/api/coach/availability'] = { availability: null }
+    mocks.answers['/api/scheduling/reminder-preferences'] = { enabled: true, offsetsMinutes: [60] }
+
+    await mount('/professionals')
+
+    expect(button('Relationships')).toBeDefined()
+    expect(button('Appointments')).toBeDefined()
+    expect(host.textContent).toContain('Portfolio')
+
+    // Switch to Appointments tab
+    await act(async () => { button('Appointments').click() })
+    await settle()
+
+    expect(host.textContent).not.toContain('Portfolio')
+    expect(host.textContent).toContain('Filter by athlete')
+    expect(host.textContent).toContain('Availability')
+
+    // Switch back to Relationships
+    await act(async () => { button('Relationships').click() })
+    await settle()
+    expect(host.textContent).toContain('Portfolio')
+  })
+
+  it('renders the athlete scheduling shortcut and deep links via ?tab=scheduling', async () => {
+    mocks.user = { id: 'u_athlete', name: 'Ana', admin: false }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/athlete/appointments'] = { items: [] }
+    mocks.answers['/api/scheduling/reminder-preferences'] = { enabled: true, offsetsMinutes: [60] }
+
+    await mount('/professionals')
+
+    expect(host.textContent).toContain('Appointments and calendar')
+    expect(button('Schedule session')).toBeDefined()
+
+    // Clicking shortcut switches to scheduling tab
+    await act(async () => { button('Schedule session').click() })
+    await settle()
+    expect(host.textContent).toContain('Book session')
+
+    // Direct deep linking with ?tab=scheduling
+    await mount('/professionals?tab=scheduling')
+    expect(host.textContent).toContain('Book session')
+  })
 })
