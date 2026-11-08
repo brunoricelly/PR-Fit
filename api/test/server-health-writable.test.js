@@ -49,7 +49,7 @@ test('a writable data directory answers 200, and says so', async t => {
   const h = await startServer(t, seedDir());
   const r = await fetch(`${h.api}/api/health`);
   assert.equal(r.status, 200);
-  assert.deepEqual(await r.json(), { ok: true, users: 1, writable: true });
+  assert.deepEqual(await r.json(), { ok: true, users: 1, writable: true, schedulingReminders: 'ok' });
 });
 
 test('a data directory the server cannot write to is 503, not healthy', async t => {

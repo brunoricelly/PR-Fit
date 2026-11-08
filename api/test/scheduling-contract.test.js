@@ -249,7 +249,7 @@ test('participant-scoped reminder reconciliation applies exact add and remove de
   assert.equal(db.appointmentReminderStates.find(item => item.userId === 'coach_1' && item.offsetMinutes === 15).status, 'pending');
 });
 
-test('rescheduling keeps reminder identity, updates schedule, and never revives delivered records', () => {
+test('rescheduling creates a new delivery generation only when the reminder instant changes', () => {
   const db = schedulingDb([appointment()]);
   enableReminders(db, 'coach_1', [60, 120]);
   scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:00.000Z'));
@@ -259,16 +259,22 @@ test('rescheduling keeps reminder identity, updates schedule, and never revives 
   deliveredOutbox.status = 'delivered';
   const pending = db.appointmentReminderStates.find(item => item.offsetMinutes === 60);
   const pendingId = pending.id;
-  const pendingCreatedAt = pending.createdAt;
+  const pendingKey = db.schedulingReminderOutbox.find(item => item.reminderStateId === pending.id).idempotencyKey;
+
+  scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-01T00:00:01.000Z'));
+  assert.equal(db.appointmentReminderStates.find(item => item.offsetMinutes === 60).id, pendingId);
+  assert.equal(db.schedulingReminderOutbox.find(item => item.reminderStateId === pending.id).idempotencyKey, pendingKey);
 
   db.coachAppointments[0].startAt = '2026-06-01T12:00:00.000Z';
   db.coachAppointments[0].endAt = '2026-06-01T13:00:00.000Z';
   scheduling.reconcileAppointmentReminders(db, db.coachAppointments[0], Date.parse('2026-05-02T00:00:00.000Z'));
 
-  assert.equal(pending.id, pendingId);
-  assert.equal(pending.createdAt, pendingCreatedAt);
-  assert.equal(pending.scheduledFor, '2026-06-01T11:00:00.000Z');
-  assert.equal(db.schedulingReminderOutbox.find(item => item.reminderStateId === pending.id).scheduledFor, pending.scheduledFor);
+  const oldPending = db.appointmentReminderStates.find(item => item.id === pendingId);
+  const newPending = db.appointmentReminderStates.find(item => item.offsetMinutes === 60 && item.status === 'pending');
+  assert.equal(oldPending.status, 'canceled');
+  assert.notEqual(newPending.id, pendingId);
+  assert.equal(newPending.scheduledFor, '2026-06-01T11:00:00.000Z');
+  assert.notEqual(db.schedulingReminderOutbox.find(item => item.reminderStateId === newPending.id).idempotencyKey, pendingKey);
   assert.equal(delivered.status, 'delivered');
   assert.equal(deliveredOutbox.status, 'delivered');
 });

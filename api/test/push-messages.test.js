@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { dayReminderPush, restTimerPush, routineEmoji, testPush } from '../push-messages.js';
+import { appointmentReminderPush, dayReminderPush, restTimerPush, routineEmoji, testPush } from '../push-messages.js';
 
 test('localizes every server-generated notification in pt-BR', () => {
   assert.deepEqual(restTimerPush('pt-BR'), {
@@ -24,6 +24,18 @@ test('keeps the existing English copy as the fallback', () => {
   assert.deepEqual(restTimerPush('fr'), restTimerPush('en'));
   assert.equal(dayReminderPush('unknown', null).title, 'Workout planned today');
   assert.equal(testPush(undefined).body, 'Test notification ✅ This is what alerts look like.');
+});
+
+test('appointment reminder payload carries only generic copy and its stable idempotency key', () => {
+  const payload = appointmentReminderPush('appointment-reminder:generation_1');
+  assert.deepEqual(payload, {
+    type: 'appointment_reminder',
+    idempotencyKey: 'appointment-reminder:generation_1',
+    title: 'Upcoming appointment',
+    body: 'Your scheduled appointment starts soon.',
+    tag: 'appointment-reminder:generation_1',
+  });
+  for (const forbidden of ['appointmentId', 'userId', 'notes', 'location', 'meetingUrl']) assert.equal(forbidden in payload, false);
 });
 
 // Routines stopped storing a literal emoji when the glyph picker landed: `emoji` now holds an

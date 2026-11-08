@@ -27,7 +27,8 @@ function reminderDb(overrides = {}) {
     schedulingReminderOutbox: [{
       id: 'sout_1', reminderStateId: 'srem_1', appointmentId: 'appointment_1', userId: 'coach_1', offsetMinutes: 60,
       scheduledFor, status: 'pending', attempts: 0, nextAttemptAt: scheduledFor,
-      leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveredAt: null, failedAt: null, canceledAt: null,
+      leaseId: null, leaseExpiresAt: null, lastAttemptAt: null, deliveryAttemptId: null, deliveryStartedAt: null,
+      deliveredAt: null, failedAt: null, canceledAt: null, deliveryUncertainAt: null,
       idempotencyKey: 'appointment-reminder:srem_1', payload: { type: 'appointment_reminder', appointmentId: 'appointment_1' },
       createdAt: scheduledFor, updatedAt: scheduledFor,
     }],
@@ -74,7 +75,7 @@ test('due reminder is claimed durably and concurrent ticks deliver it once', asy
   assert.equal(deliveries.length, 1);
 });
 
-test('restart recovers an expired persisted lease with bounded backoff', async () => {
+test('restart recovers an expired claim that never started delivery with bounded backoff', async () => {
   const db = reminderDb();
   db.schedulingReminderOutbox[0].status = 'processing';
   db.schedulingReminderOutbox[0].attempts = 1;
@@ -90,6 +91,27 @@ test('restart recovers an expired persisted lease with bounded backoff', async (
   await h.dispatcher.tick();
   assert.equal(deliveries.length, 1);
   assert.equal(outbox(h).status, 'delivered');
+});
+
+test('crash after delivery_started becomes delivery_uncertain and is never sent again', async () => {
+  const db = reminderDb();
+  const item = db.schedulingReminderOutbox[0];
+  item.status = 'delivery_started';
+  item.attempts = 1;
+  item.leaseId = 'dead_process';
+  item.leaseExpiresAt = new Date(start - 1).toISOString();
+  item.deliveryAttemptId = 'attempt_dead_process';
+  item.deliveryStartedAt = new Date(start - 1000).toISOString();
+  db.appointmentReminderStates[0].status = 'delivery_started';
+  let deliveries = 0;
+  const h = harness({ db, deliver: async () => { deliveries++; return { status: 'delivered' }; } });
+  await h.dispatcher.tick();
+  assert.equal(deliveries, 0);
+  assert.equal(outbox(h).status, 'delivery_uncertain');
+  assert.equal(state(h).status, 'delivery_uncertain');
+  h.setNow(start + 60_000);
+  await h.dispatcher.tick();
+  assert.equal(deliveries, 0);
 });
 
 test('transient delivery failure retries with exponential backoff and then delivers', async () => {
@@ -157,14 +179,10 @@ test('save failures never publish an uncommitted claim or completion', async () 
   assert.equal(deliveries, 0);
   assert.equal(outbox(claimFailure).status, 'pending');
 
-  const deliveredKeys = new Set();
+  let deliveriesAfterCompletionFailure = 0;
   let failCompletion = true;
   const completionFailure = harness({
-    deliver: async ({ idempotencyKey }) => {
-      const duplicate = deliveredKeys.has(idempotencyKey);
-      deliveredKeys.add(idempotencyKey);
-      return { status: 'delivered', duplicate };
-    },
+    deliver: async () => { deliveriesAfterCompletionFailure++; return { status: 'delivered' }; },
     commitHook: async ({ candidate }) => {
       if (failCompletion && candidate.schedulingReminderOutbox[0].status === 'delivered') {
         failCompletion = false;
@@ -173,15 +191,24 @@ test('save failures never publish an uncommitted claim or completion', async () 
     },
   });
   await assert.rejects(completionFailure.dispatcher.tick(), /completion save failed/);
-  assert.equal(outbox(completionFailure).status, 'processing');
+  assert.ok(['delivery_started', 'delivery_uncertain'].includes(outbox(completionFailure).status));
   completionFailure.setNow(start + 2000);
   await completionFailure.dispatcher.tick();
-  assert.equal(deliveredKeys.size, 1);
-  assert.equal(outbox(completionFailure).status, 'retry');
-  completionFailure.setNow(start + 4000);
-  await completionFailure.dispatcher.tick();
-  assert.equal(deliveredKeys.size, 1);
-  assert.equal(outbox(completionFailure).status, 'delivered');
+  assert.equal(deliveriesAfterCompletionFailure, 1);
+  assert.equal(outbox(completionFailure).status, 'delivery_uncertain');
+});
+
+test('confirmed provider rejection retries, while an ambiguous transport result becomes uncertain', async () => {
+  const safe = harness({ deliver: async () => ({ status: 'retry', confirmed: true }) });
+  await safe.dispatcher.tick();
+  assert.equal(outbox(safe).status, 'retry');
+
+  const ambiguous = harness({ deliver: async () => { throw new Error('socket closed after request write'); } });
+  await ambiguous.dispatcher.tick();
+  assert.equal(outbox(ambiguous).status, 'delivery_uncertain');
+  ambiguous.setNow(start + 10_000);
+  await ambiguous.dispatcher.tick();
+  assert.equal(outbox(ambiguous).attempts, 1);
 });
 
 test('dispatcher preserves user and appointment isolation in each delivery', async () => {
