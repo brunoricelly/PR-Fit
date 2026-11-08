@@ -44,6 +44,7 @@
 .dashboard-pulse-item > span:last-child { color: var(--ds-text-secondary); font-size: var(--ds-font-size-sm); }
 .dashboard-pulse-empty { display: flex; min-height: 72px; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-4); color: var(--ds-text-secondary); }
 .dashboard-pulse-empty .ico { color: var(--ds-state-success); }
+.dashboard-pulse-unavailable .ico { color: var(--ds-state-warning); }
 
 .dashboard-quick-actions { display: grid; gap: var(--ds-space-3); }
 .dashboard-quick-actions h2 { margin: 0; font-size: var(--ds-font-size-lg); }

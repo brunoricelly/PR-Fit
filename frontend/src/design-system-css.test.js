@@ -64,4 +64,9 @@ describe('PR Fit semantic tokens', () => {
     expect(dashboardCss).toContain('grid-template-columns: repeat(3, minmax(0, 1fr))')
     expect(dashboardCss).toContain('min-height: 44px')
   })
+
+  it('does not style unavailable dashboard icons as success', () => {
+    expect(dashboardCss).toMatch(/\.dashboard-pulse-empty \.ico\s*\{\s*color:\s*var\(--ds-state-success\)/)
+    expect(dashboardCss).toMatch(/\.dashboard-pulse-unavailable \.ico\s*\{\s*color:\s*var\(--ds-state-warning\)/)
+  })
 })

@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from '../../store/useStore.js'
 import CoachDashboard from './CoachDashboard.jsx'
+import { normalizeSummary } from './dashboard-data.js'
 
 const mocks = vi.hoisted(() => ({
   api: vi.fn(),
@@ -145,6 +146,29 @@ describe('CoachDashboard', () => {
     expect(host.textContent).toContain('Mensagens do papel Coach indisponíveis')
     expect(host.textContent).not.toContain('Nenhuma pendência agora')
     expect(host.textContent).not.toContain('Sem mensagens pendentes')
+  })
+
+  it.each([
+    ['falha', () => mocks.api.mockRejectedValue(new Error('vínculos indisponíveis'))],
+    ['payload malformado', () => mocks.api.mockResolvedValue({ links: 'não-array' })],
+  ])('trata contagens de adesão como desconhecidas quando links têm %s', async (_scenario, arrangeLinks) => {
+    arrangeLinks()
+    mocks.inbox.mockResolvedValue({ conversations: [] })
+    mocks.appointments.mockResolvedValue({ items: [{ id: 'app_1', title: 'Avaliação conhecida', startAt: '2026-11-08T15:00:00.000Z' }] })
+
+    await renderDashboard()
+
+    expect(host.textContent).toContain('Avaliação conhecida')
+    expect(host.textContent).toContain('Resumos de adesão indisponíveis porque os vínculos não carregaram.')
+    expect(host.textContent).not.toContain('0 de 0')
+    expect(host.textContent).not.toContain('0 alunos')
+    expect(host.textContent).not.toContain('Nenhuma pendência agora')
+    expect(mocks.summary).not.toHaveBeenCalled()
+  })
+
+  it('rejeita percentual de adesão fora da faixa de 0 a 100', () => {
+    expect(() => normalizeSummary({ summary: { adherencePercent: 101, completedDays: 1, scheduledDays: 1 } })).toThrow('Resumo de adesão inválido')
+    expect(normalizeSummary({ summary: { adherencePercent: 100, completedDays: 1, scheduledDays: 1 } }).adherencePercent).toBe(100)
   })
 
   it('trata payload 2xx malformado como erro da fonte', async () => {

@@ -50,7 +50,7 @@ function AthleteLoading() {
 }
 
 function UnavailableSummary({ title, text }) {
-  return <Surface className="dashboard-pulse-empty" role="status">
+  return <Surface className="dashboard-pulse-empty dashboard-pulse-unavailable" role="status">
     <Icon name="cloudSlash" aria-hidden="true" /><span><strong>{title}</strong><br />{text}</span>
   </Surface>
 }

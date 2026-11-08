@@ -26,6 +26,7 @@ import {
   normalizeSummary,
   settledSource,
   sourceSucceeded,
+  summariesUnavailableSource,
 } from './dashboard-data.js'
 import './DashboardHome.css'
 
@@ -59,10 +60,14 @@ function CoachLoading() {
 }
 
 function UnavailableState({ text }) {
-  return <Surface className="dashboard-pulse-empty" role="status">
+  return <Surface className="dashboard-pulse-empty dashboard-pulse-unavailable" role="status">
     <Icon name="cloudSlash" aria-hidden="true" /><span>{text}</span>
   </Surface>
 }
+
+const summaryUnavailableText = source => source.countsKnown
+  ? `${source.failed} de ${source.requested} resumos de adesão ficaram indisponíveis.`
+  : 'Resumos de adesão indisponíveis porque os vínculos não carregaram.'
 
 export default function CoachDashboard() {
   const navigate = useNavigate()
@@ -119,7 +124,7 @@ export default function CoachDashboard() {
     const linksSource = settledSource(linksResult, normalizeLinks, sourceEmpty)
     const inboxSource = settledSource(inboxResult, normalizeConversations, sourceEmpty)
     const appointmentsSource = settledSource(appointmentsResult, normalizeAppointments, sourceEmpty)
-    const unavailableSummaries = { status: 'error', data: [], error: new Error('Vínculos indisponíveis'), requested: 0, failed: 0 }
+    const unavailableSummaries = summariesUnavailableSource(new Error('Vínculos indisponíveis'))
     setDashboardState({
       userId,
       sources: {
@@ -157,6 +162,7 @@ export default function CoachDashboard() {
       data: items,
       requested: trainingLinks.length,
       failed,
+      countsKnown: true,
     }
 
     setDashboardState({
@@ -308,7 +314,7 @@ export default function CoachDashboard() {
           </Surface>)}
           {!view.roleInboxKnown && <UnavailableState text="Mensagens do papel Coach indisponíveis; o inbox geral não será contado como se pertencesse a este papel." />}
           {sources.summaries.status === 'loading' && <Surface className="dashboard-pulse-empty" role="status"><span>Carregando resumos de adesão…</span></Surface>}
-          {sources.summaries.status === 'error' && <UnavailableState text={`${sources.summaries.failed || 0} de ${sources.summaries.requested || 0} resumos de adesão ficaram indisponíveis.`} />}
+          {sources.summaries.status === 'error' && <UnavailableState text={summaryUnavailableText(sources.summaries)} />}
           {!view.unreadTotal && !view.adherence.length && view.pulseComplete && <Surface className="dashboard-pulse-empty">
             <Icon name="checkCircle" aria-hidden="true" /><span>Sem mensagens pendentes ou dados de adesão para mostrar.</span>
           </Surface>}

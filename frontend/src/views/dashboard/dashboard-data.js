@@ -2,6 +2,15 @@ export const loadingSource = (data = null) => ({ status: 'loading', data })
 
 export const unavailableSource = (reason, data = null) => ({ status: 'unavailable', data, reason })
 
+export const summariesUnavailableSource = error => ({
+  status: 'error',
+  data: [],
+  error,
+  requested: null,
+  failed: null,
+  countsKnown: false,
+})
+
 export function settledSource(result, normalize, isEmpty) {
   if (result.status === 'rejected') return { status: 'error', data: null, error: result.reason }
   try {
@@ -96,6 +105,7 @@ export function normalizeSummary(payload) {
   if (object.summary === null) return null
   const summary = object.summary
   if (!summary || typeof summary !== 'object' || !finiteNonNegative(summary.adherencePercent)
+    || summary.adherencePercent > 100
     || !finiteNonNegative(summary.completedDays) || !finiteNonNegative(summary.scheduledDays)) {
     throw new TypeError('Resumo de adesão inválido')
   }
