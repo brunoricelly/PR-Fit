@@ -169,4 +169,89 @@ test('pagination envelopes define items, limit, hasMore, nextCursor and relation
   assert.ok(cleanupPage);
   assert.deepEqual(cleanupPage.required, ['items', 'limit', 'hasMore', 'nextCursor']);
   assert.equal(cleanupPage.additionalProperties, false);
+
+  const appointmentPage = openapi.components.schemas.AppointmentPage;
+  assert.ok(appointmentPage);
+  assert.deepEqual(appointmentPage.required, ['items', 'limit', 'hasMore', 'nextCursor']);
+  assert.equal(appointmentPage.additionalProperties, false);
+});
+
+const schedulingPaths = [
+  '/api/coach/availability',
+  '/api/coach/appointments',
+  '/api/coach/athletes/{athleteId}/appointments',
+  '/api/coach/athletes/{athleteId}/availability-slots',
+  '/api/coach/appointments/{appointmentId}',
+  '/api/coach/appointments/{appointmentId}/reschedule',
+  '/api/coach/appointments/{appointmentId}/cancel',
+  '/api/coach/appointments/{appointmentId}/attendance',
+  '/api/athlete/coaches/{coachId}/availability-slots',
+  '/api/athlete/appointments',
+  '/api/athlete/coaches/{coachId}/appointments',
+  '/api/athlete/appointments/{appointmentId}',
+  '/api/athlete/appointments/{appointmentId}/reschedule',
+  '/api/athlete/appointments/{appointmentId}/cancel',
+  '/api/scheduling/reminder-preferences',
+  '/api/admin/scheduling-reminders/status',
+];
+const schedulingBodyOperations = new Set([
+  'upsertCoachAvailability',
+  'createCoachAthleteAppointment',
+  'rescheduleCoachAppointment',
+  'cancelCoachAppointment',
+  'recordCoachAppointmentAttendance',
+  'createAthleteAppointment',
+  'rescheduleAthleteAppointment',
+  'cancelAthleteAppointment',
+  'upsertSchedulingReminderPreferences',
+]);
+
+test('scheduling routes have request schemas where required, operations, and success responses', () => {
+  for (const route of schedulingPaths) {
+    const item = openapi.paths[route];
+    assert.ok(item, route + ' is missing from paths');
+    for (const [method, operation] of Object.entries(item).filter(([name]) => methods.has(name))) {
+      if (schedulingBodyOperations.has(operation.operationId)) {
+        assert.ok(operation.requestBody?.content?.['application/json']?.schema, method.toUpperCase() + ' ' + route + ' has no request schema');
+      }
+      const successes = Object.entries(operation.responses || {}).filter(([status]) => /^2\d\d$/.test(status));
+      assert.ok(successes.length > 0 || (method === 'patch' && operation.responses?.['405']), method.toUpperCase() + ' ' + route + ' has no success response');
+      for (const [status, response] of successes) {
+        assert.ok(responseSchema(response), method.toUpperCase() + ' ' + route + ' ' + status + ' has no JSON response schema');
+      }
+    }
+  }
+
+  const requiredSchemas = [
+    'AvailabilityWindow', 'AvailabilityException', 'CoachAvailability',
+    'UpsertCoachAvailabilityRequest', 'AvailabilitySlot', 'AvailabilitySlotsResponse',
+    'Appointment', 'AppointmentParticipantSummary', 'AppointmentLifecycle',
+    'AppointmentCancellation', 'AppointmentAttendance',
+    'CreateAppointmentRequest', 'RescheduleAppointmentRequest',
+    'CancelAppointmentRequest', 'RecordAttendanceRequest',
+    'AppointmentPage', 'SchedulingReminderPreferences',
+    'SchedulingReminderStatusResponse', 'SchedulingError',
+  ];
+  for (const schemaName of requiredSchemas) {
+    assert.ok(openapi.components.schemas[schemaName], 'missing schema ' + schemaName);
+  }
+});
+
+test('AppointmentLifecycle defines historical, readOnly, and allowedActions', () => {
+  const lifecycle = openapi.components.schemas.AppointmentLifecycle;
+  assert.ok(lifecycle);
+  assert.deepEqual(lifecycle.required, ['historical', 'readOnly', 'allowedActions']);
+  assert.equal(lifecycle.properties.historical.type, 'boolean');
+  assert.equal(lifecycle.properties.readOnly.type, 'boolean');
+  assert.deepEqual(lifecycle.properties.allowedActions.items.enum, ['reschedule', 'cancel', 'attendance']);
+});
+
+test('SchedulingError schema defines error, code, and optional violations', () => {
+  const errorSchema = openapi.components.schemas.SchedulingError;
+  assert.ok(errorSchema);
+  assert.deepEqual(errorSchema.required, ['error', 'code']);
+  assert.ok(errorSchema.properties.violations);
+  const violationSchema = openapi.components.schemas.SchedulingViolation;
+  assert.ok(violationSchema);
+  assert.deepEqual(violationSchema.required, ['field', 'code']);
 });

@@ -1930,6 +1930,467 @@ paths:
         '410': { $ref: '#/components/responses/ProgressReportRevoked' }
         '429': { $ref: '#/components/responses/ProgressRateLimited' }
 
+  /api/coach/availability:
+    get:
+      tags: [professionals]
+      operationId: getCoachAvailability
+      summary: Get coach availability
+      description: Returns weekly availability windows, booking rules, and dated exceptions for the authenticated coach.
+      responses:
+        '200':
+          description: Coach availability configuration, or null if not yet configured.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CoachAvailabilityResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    put:
+      tags: [professionals]
+      operationId: upsertCoachAvailability
+      summary: Update coach availability
+      description: Updates weekly availability windows, booking rules, and dated exceptions with CAS _rev concurrency control.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertCoachAvailabilityRequest' }
+      responses:
+        '200':
+          description: Updated availability configuration and list of conflicting future appointment IDs.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CoachAvailabilityUpdateResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/appointments:
+    get:
+      tags: [professionals]
+      operationId: listCoachAppointments
+      summary: List aggregated appointments for coach
+      description: Returns paginated appointments across all clients with optional filters by status, interval, coach, or relationship.
+      parameters:
+        - $ref: '#/components/parameters/AppointmentStatusQuery'
+        - $ref: '#/components/parameters/AppointmentFromQuery'
+        - $ref: '#/components/parameters/AppointmentToQuery'
+        - $ref: '#/components/parameters/AppointmentAthleteIdQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Paginated appointments list for the coach.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentPage' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/coach/athletes/{athleteId}/appointments:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteAppointments
+      summary: List appointments with a specific athlete
+      description: Returns paginated appointments between the authenticated coach and the specified athlete.
+      parameters:
+        - $ref: '#/components/parameters/AppointmentStatusQuery'
+        - $ref: '#/components/parameters/AppointmentFromQuery'
+        - $ref: '#/components/parameters/AppointmentToQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Paginated appointments list scoped to the athlete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentPage' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    post:
+      tags: [professionals]
+      operationId: createCoachAthleteAppointment
+      summary: Create appointment by coach
+      description: Books a session with the specified athlete within configured availability windows without conflicting with existing sessions.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAppointmentRequest' }
+      responses:
+        '201':
+          description: Appointment booked successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/athletes/{athleteId}/availability-slots:
+    parameters:
+      - $ref: '#/components/parameters/AthleteId'
+    get:
+      tags: [professionals]
+      operationId: listCoachAthleteAvailabilitySlots
+      summary: Calculate available slots for coach and athlete
+      description: Computes available appointment slots considering coach windows, existing bookings, buffer times, notice limits, and conflicts.
+      parameters:
+        - $ref: '#/components/parameters/SlotFromQuery'
+        - $ref: '#/components/parameters/SlotToQuery'
+        - $ref: '#/components/parameters/SlotDateQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      responses:
+        '200':
+          description: Available appointment slots.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilitySlotsResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/coach/appointments/{appointmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    get:
+      tags: [professionals]
+      operationId: getCoachAppointment
+      summary: Get appointment detail for coach
+      description: Retrieves full appointment detail including participant summaries and allowed lifecycle actions.
+      responses:
+        '200':
+          description: Appointment detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    patch:
+      tags: [professionals]
+      operationId: patchCoachAppointment
+      summary: Direct modification disallowed (use explicit action)
+      description: Direct PATCH mutations are disallowed. Use explicit actions for reschedule, cancel, or attendance.
+      responses:
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '405': { $ref: '#/components/responses/SchedulingMethodNotAllowed' }
+
+  /api/coach/appointments/{appointmentId}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    post:
+      tags: [professionals]
+      operationId: rescheduleCoachAppointment
+      summary: Reschedule appointment by coach
+      description: Moves a scheduled appointment to a new aligned slot within availability rules.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleAppointmentRequest' }
+      responses:
+        '200':
+          description: Appointment rescheduled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/appointments/{appointmentId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    post:
+      tags: [professionals]
+      operationId: cancelCoachAppointment
+      summary: Cancel appointment by coach
+      description: Cancels a scheduled appointment, recording actor, timestamp, and cancellation reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelAppointmentRequest' }
+      responses:
+        '200':
+          description: Appointment canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/appointments/{appointmentId}/attendance:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    post:
+      tags: [professionals]
+      operationId: recordCoachAppointmentAttendance
+      summary: Record appointment attendance
+      description: Records attendance status (completed or no_show) after session conclusion.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordAttendanceRequest' }
+      responses:
+        '200':
+          description: Attendance recorded.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/coaches/{coachId}/availability-slots:
+    parameters:
+      - $ref: '#/components/parameters/CoachId'
+    get:
+      tags: [professionals]
+      operationId: listAthleteCoachAvailabilitySlots
+      summary: Calculate available slots for athlete with coach
+      description: Computes free appointment slots for the athlete with the specified coach.
+      parameters:
+        - $ref: '#/components/parameters/SlotFromQuery'
+        - $ref: '#/components/parameters/SlotToQuery'
+        - $ref: '#/components/parameters/SlotDateQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+      responses:
+        '200':
+          description: Available appointment slots.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilitySlotsResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/athlete/appointments:
+    get:
+      tags: [professionals]
+      operationId: listAthleteAppointments
+      summary: List aggregated appointments for athlete
+      description: Returns paginated appointments for the authenticated athlete across all coaches.
+      parameters:
+        - $ref: '#/components/parameters/AppointmentStatusQuery'
+        - $ref: '#/components/parameters/AppointmentFromQuery'
+        - $ref: '#/components/parameters/AppointmentToQuery'
+        - $ref: '#/components/parameters/AppointmentCoachIdQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Paginated appointments list for the athlete.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentPage' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/athlete/coaches/{coachId}/appointments:
+    parameters:
+      - $ref: '#/components/parameters/CoachId'
+    get:
+      tags: [professionals]
+      operationId: listAthleteCoachAppointments
+      summary: List athlete appointments with a specific coach
+      description: Returns paginated appointments between the authenticated athlete and the specified coach.
+      parameters:
+        - $ref: '#/components/parameters/AppointmentStatusQuery'
+        - $ref: '#/components/parameters/AppointmentFromQuery'
+        - $ref: '#/components/parameters/AppointmentToQuery'
+        - $ref: '#/components/parameters/LinkIdOptional'
+        - $ref: '#/components/parameters/CursorOptional'
+        - $ref: '#/components/parameters/PageLimit'
+      responses:
+        '200':
+          description: Paginated appointments list scoped to the coach.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AppointmentPage' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    post:
+      tags: [professionals]
+      operationId: createAthleteAppointment
+      summary: Book appointment by athlete
+      description: Books a session with the specified coach within configured availability windows.
+      parameters:
+        - $ref: '#/components/parameters/CoachId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAppointmentRequest' }
+      responses:
+        '201':
+          description: Appointment booked successfully.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/appointments/{appointmentId}:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    get:
+      tags: [professionals]
+      operationId: getAthleteAppointment
+      summary: Get appointment detail for athlete
+      description: Retrieves full appointment detail for the authenticated athlete.
+      responses:
+        '200':
+          description: Appointment detail.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+  /api/athlete/appointments/{appointmentId}/reschedule:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    post:
+      tags: [professionals]
+      operationId: rescheduleAthleteAppointment
+      summary: Reschedule appointment by athlete
+      description: Reschedules an upcoming appointment to a new available slot.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RescheduleAppointmentRequest' }
+      responses:
+        '200':
+          description: Appointment rescheduled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/athlete/appointments/{appointmentId}/cancel:
+    parameters:
+      - $ref: '#/components/parameters/AppointmentId'
+    post:
+      tags: [professionals]
+      operationId: cancelAthleteAppointment
+      summary: Cancel appointment by athlete
+      description: Cancels an upcoming appointment, recording actor, timestamp, and cancellation reason.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelAppointmentRequest' }
+      responses:
+        '200':
+          description: Appointment canceled.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SingleAppointmentResponse' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/SchedulingForbidden' }
+        '404': { $ref: '#/components/responses/SchedulingNotFound' }
+        '409': { $ref: '#/components/responses/SchedulingConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/scheduling/reminder-preferences:
+    get:
+      tags: [professionals]
+      operationId: getSchedulingReminderPreferences
+      summary: Get scheduling reminder preferences
+      description: Returns reminder preferences and active reminder outbox states for the authenticated user.
+      responses:
+        '200':
+          description: Reminder preferences and active states.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/GetSchedulingReminderPreferencesResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    put:
+      tags: [professionals]
+      operationId: upsertSchedulingReminderPreferences
+      summary: Update scheduling reminder preferences
+      description: Updates reminder notification settings and reconciles pending appointment reminders.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/UpsertSchedulingReminderPreferencesRequest' }
+      responses:
+        '200':
+          description: Updated reminder preferences.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [preferences]
+                properties:
+                  preferences: { $ref: '#/components/schemas/SchedulingReminderPreferences' }
+        '400': { $ref: '#/components/responses/SchedulingBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+
   /api/register/options:
     post:
       tags: [auth]
@@ -4596,6 +5057,23 @@ paths:
               example: { error: "not found" }
         '429': { $ref: '#/components/responses/ProgressRateLimited' }
 
+  /api/admin/scheduling-reminders/status:
+    get:
+      tags: [admin]
+      operationId: getAdminSchedulingRemindersStatus
+      summary: Operational status of scheduling reminder dispatcher
+      description: Returns operational telemetry for reminder queue, leases, backlog, lock health, and rate limits.
+      responses:
+        '200':
+          description: Scheduling reminder dispatcher status summary.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SchedulingReminderStatusResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
+
   /api/admin/user/role:
     post:
       tags: [admin]
@@ -5639,6 +6117,53 @@ components:
       description: Expected revision number of the progress goal.
       schema: { type: string, example: '"1"' }
 
+    AppointmentId:
+      in: path
+      name: appointmentId
+      required: true
+      description: Stable appointment identifier.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    AppointmentStatusQuery:
+      in: query
+      name: status
+      description: Filter appointments by lifecycle status.
+      schema: { type: string, enum: [scheduled, completed, canceled, no_show] }
+    AppointmentFromQuery:
+      in: query
+      name: from
+      description: Filter appointments starting at or after this RFC 3339 timestamp.
+      schema: { type: string, format: date-time }
+    AppointmentToQuery:
+      in: query
+      name: to
+      description: Filter appointments starting at or before this RFC 3339 timestamp.
+      schema: { type: string, format: date-time }
+    AppointmentAthleteIdQuery:
+      in: query
+      name: athleteId
+      description: Filter appointments by athlete identifier.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    AppointmentCoachIdQuery:
+      in: query
+      name: coachId
+      description: Filter appointments by coach identifier.
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    SlotFromQuery:
+      in: query
+      name: from
+      description: Inclusive start date (YYYY-MM-DD) for availability slot calculation.
+      schema: { type: string, format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
+    SlotToQuery:
+      in: query
+      name: to
+      description: Inclusive end date (YYYY-MM-DD) for availability slot calculation.
+      schema: { type: string, format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
+    SlotDateQuery:
+      in: query
+      name: date
+      description: Single date (YYYY-MM-DD) shorthand for availability slot calculation.
+      schema: { type: string, format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
+
   responses:
     CommunicationBadRequest:
       description: Invalid message, habit, check-in, timezone, period, link id, read cursor or pagination cursor. The stable code identifies the invalid input.
@@ -5909,6 +6434,42 @@ components:
             invalidStatus: { value: { error: "invalid status", code: "invalid_status" } }
             invalidLimit: { value: { error: "invalid limit", code: "invalid_limit" } }
             invalidCursor: { value: { error: "invalid cursor", code: "invalid_cursor" } }
+
+    SchedulingBadRequest:
+      description: Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SchedulingError' }
+          examples:
+            minNotice: { value: { error: 'appointment does not meet minimum notice', code: 'min_notice_violated', violations: [] } }
+            invalidSlot: { value: { error: 'appointment must use an aligned available slot', code: 'invalid_slot', violations: [] } }
+    SchedulingForbidden:
+      description: Missing training scope, inactive relationship, or non-coach attempting professional operation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SchedulingError' }
+          example: { error: 'active training relationship required', code: 'relationship_inactive', violations: [] }
+    SchedulingNotFound:
+      description: Appointment, coach availability, or relationship not found.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SchedulingError' }
+          example: { error: 'appointment not found', code: 'appointment_not_found', violations: [] }
+    SchedulingConflict:
+      description: Double-booking, capacity quota reached, or revision conflict.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SchedulingError' }
+          examples:
+            doubleBooking: { value: { error: 'schedule conflict detected', code: 'double_booking', violations: [] } }
+            capacity: { value: { error: 'active appointment capacity reached', code: 'appointment_capacity', violations: [] } }
+            revision: { value: { error: 'availability revision conflict', code: 'revision_conflict', violations: [{ field: '_rev', code: 'stale' }] } }
+    SchedulingMethodNotAllowed:
+      description: Direct PATCH mutation disallowed; use explicit reschedule, cancel, or attendance action.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/SchedulingError' }
+          example: { error: 'use explicit reschedule, cancel, or attendance actions', code: 'action_required', violations: [] }
 
   schemas:
     RelationshipHistoryState:
@@ -7983,3 +8544,382 @@ components:
         limit: { type: integer, minimum: 1, maximum: 100 }
         hasMore: { type: boolean }
         nextCursor: { type: ['string', 'null'] }
+
+    AvailabilityWindow:
+      type: object
+      additionalProperties: false
+      required: [dayOfWeek, start, end]
+      properties:
+        dayOfWeek: { type: integer, minimum: 0, maximum: 6, description: 'Day of week (0 = Sunday, 6 = Saturday).' }
+        start: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '09:00' }
+        end: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '17:00' }
+
+    AvailabilityDatedWindow:
+      type: object
+      additionalProperties: false
+      required: [start, end]
+      properties:
+        start: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '09:00' }
+        end: { type: string, pattern: '^([01]\d|2[0-3]):[0-5]\d$', example: '17:00' }
+
+    AvailabilityException:
+      type: object
+      additionalProperties: false
+      required: [date]
+      properties:
+        date: { type: string, format: date, pattern: '^\d{4}-\d{2}-\d{2}$' }
+        unavailable: { type: boolean }
+        windows:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityDatedWindow' }
+
+    CoachAvailability:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - coachId
+        - timeZone
+        - sessionDurationMinutes
+        - bufferMinutes
+        - minNoticeHours
+        - maxAdvanceDays
+        - windows
+        - exceptions
+        - _rev
+        - createdAt
+        - updatedAt
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        timeZone: { type: string, maxLength: 100, example: America/Sao_Paulo }
+        sessionDurationMinutes: { type: integer, minimum: 15, maximum: 240, default: 60 }
+        bufferMinutes: { type: integer, minimum: 0, maximum: 120, default: 0 }
+        minNoticeHours: { type: integer, minimum: 0, maximum: 720, default: 2 }
+        maxAdvanceDays: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        windows:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityWindow' }
+        exceptions:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityException' }
+        _rev: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    UpsertCoachAvailabilityRequest:
+      type: object
+      properties:
+        _rev: { type: integer, minimum: 0 }
+        timeZone: { type: string, maxLength: 100, example: America/Sao_Paulo }
+        sessionDurationMinutes: { type: integer, minimum: 15, maximum: 240, default: 60 }
+        bufferMinutes: { type: integer, minimum: 0, maximum: 120, default: 0 }
+        minNoticeHours: { type: integer, minimum: 0, maximum: 720, default: 2 }
+        maxAdvanceDays: { type: integer, minimum: 1, maximum: 365, default: 30 }
+        windows:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityWindow' }
+        exceptions:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityException' }
+
+    CoachAvailabilityResponse:
+      type: object
+      additionalProperties: false
+      required: [availability]
+      properties:
+        availability:
+          oneOf:
+            - $ref: '#/components/schemas/CoachAvailability'
+            - type: 'null'
+
+    CoachAvailabilityUpdateResponse:
+      type: object
+      additionalProperties: false
+      required: [availability, futureConflicts]
+      properties:
+        availability: { $ref: '#/components/schemas/CoachAvailability' }
+        futureConflicts:
+          type: array
+          items: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+
+    AvailabilitySlot:
+      type: object
+      additionalProperties: false
+      required: [startAt, endAt, timeZone, localDate, durationMinutes]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        timeZone: { type: string }
+        localDate: { type: string, format: date }
+        durationMinutes: { type: integer, minimum: 1 }
+
+    AppointmentRelationship:
+      type: object
+      additionalProperties: false
+      required: [linkId, status]
+      properties:
+        linkId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        status: { type: string, enum: [pending, active, suspended, ended] }
+
+    AvailabilitySlotsResponse:
+      type: object
+      additionalProperties: false
+      required: [items, timeZone, relationship]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilitySlot' }
+        timeZone: { type: string }
+        relationship: { $ref: '#/components/schemas/AppointmentRelationship' }
+
+    AppointmentParticipantSummary:
+      type: object
+      additionalProperties: false
+      required: [id, name]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        name: { type: string }
+
+    AppointmentLifecycle:
+      type: object
+      additionalProperties: false
+      required: [historical, readOnly, allowedActions]
+      properties:
+        historical: { type: boolean }
+        readOnly: { type: boolean }
+        allowedActions:
+          type: array
+          items:
+            type: string
+            enum: [reschedule, cancel, attendance]
+
+    AppointmentCancellation:
+      type: object
+      additionalProperties: false
+      required: [actor, reason, canceledAt]
+      properties:
+        actor: { type: string, enum: [coach, athlete, system] }
+        actorId: { type: ['string', 'null'], pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+        canceledAt: { type: string, format: date-time }
+
+    AppointmentAttendance:
+      type: object
+      additionalProperties: false
+      required: [state, recordedBy, recordedAt]
+      properties:
+        state: { type: string, enum: [attended, missed] }
+        recordedBy: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        recordedAt: { type: string, format: date-time }
+
+    Appointment:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - linkId
+        - coachId
+        - athleteId
+        - type
+        - title
+        - notes
+        - startAt
+        - endAt
+        - timeZone
+        - localDate
+        - durationMinutes
+        - status
+        - cancellation
+        - attendance
+        - createdAt
+        - updatedAt
+        - coach
+        - athlete
+        - lifecycle
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        linkId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        coachId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        athleteId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        type: { type: string, enum: [in_person, online] }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        notes: { type: string, maxLength: 1000 }
+        location: { type: ['string', 'null'], maxLength: 200 }
+        meetingUrl: { type: ['string', 'null'], maxLength: 500 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+        timeZone: { type: string, maxLength: 100 }
+        localDate: { type: string, format: date }
+        durationMinutes: { type: integer, minimum: 1 }
+        status: { type: string, enum: [scheduled, completed, canceled, no_show] }
+        cancellation:
+          oneOf:
+            - $ref: '#/components/schemas/AppointmentCancellation'
+            - type: 'null'
+        attendance:
+          oneOf:
+            - $ref: '#/components/schemas/AppointmentAttendance'
+            - type: 'null'
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        coach: { $ref: '#/components/schemas/AppointmentParticipantSummary' }
+        athlete: { $ref: '#/components/schemas/AppointmentParticipantSummary' }
+        lifecycle: { $ref: '#/components/schemas/AppointmentLifecycle' }
+
+    CreateAppointmentRequest:
+      type: object
+      required: [startAt]
+      properties:
+        linkId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        type: { type: string, enum: [in_person, online], default: in_person }
+        title: { type: string, minLength: 1, maxLength: 120 }
+        notes: { type: string, maxLength: 1000 }
+        location: { type: ['string', 'null'], maxLength: 200 }
+        meetingUrl: { type: ['string', 'null'], maxLength: 500 }
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+
+    RescheduleAppointmentRequest:
+      type: object
+      required: [startAt]
+      properties:
+        startAt: { type: string, format: date-time }
+        endAt: { type: string, format: date-time }
+
+    CancelAppointmentRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+
+    RecordAttendanceRequest:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string, enum: [completed, no_show] }
+
+    SingleAppointmentResponse:
+      type: object
+      additionalProperties: false
+      required: [appointment]
+      properties:
+        appointment: { $ref: '#/components/schemas/Appointment' }
+
+    AppointmentPage:
+      type: object
+      additionalProperties: false
+      required: [items, limit, hasMore, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/Appointment' }
+        limit: { type: integer, minimum: 1, maximum: 100 }
+        hasMore: { type: boolean }
+        nextCursor: { type: ['string', 'null'] }
+        relationship: { $ref: '#/components/schemas/AppointmentRelationship' }
+
+    SchedulingReminderPreferences:
+      type: object
+      additionalProperties: false
+      required: [userId, enabled, offsetsMinutes, timeZone, updatedAt]
+      properties:
+        userId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        enabled: { type: boolean }
+        offsetsMinutes:
+          type: array
+          items:
+            type: integer
+            enum: [5, 10, 15, 30, 60, 120, 1440, 2880, 10080]
+        timeZone: { type: string, maxLength: 100 }
+        updatedAt: { type: ['string', 'null'], format: date-time }
+
+    AppointmentReminderState:
+      type: object
+      additionalProperties: false
+      required: [id, appointmentId, userId, offsetMinutes, generation, scheduledFor, status, createdAt, updatedAt]
+      properties:
+        id: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        appointmentId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        userId: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+        offsetMinutes: { type: integer, enum: [5, 10, 15, 30, 60, 120, 1440, 2880, 10080] }
+        generation: { type: integer, minimum: 1 }
+        scheduledFor: { type: string, format: date-time }
+        status: { type: string, enum: [pending, processing, delivery_started, retry, delivered, delivery_uncertain, failed, canceled] }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    GetSchedulingReminderPreferencesResponse:
+      type: object
+      additionalProperties: false
+      required: [preferences, appointmentReminderStates]
+      properties:
+        preferences: { $ref: '#/components/schemas/SchedulingReminderPreferences' }
+        appointmentReminderStates:
+          type: array
+          items: { $ref: '#/components/schemas/AppointmentReminderState' }
+
+    UpsertSchedulingReminderPreferencesRequest:
+      type: object
+      additionalProperties: false
+      required: [enabled, offsetsMinutes, timeZone]
+      properties:
+        enabled: { type: boolean }
+        offsetsMinutes:
+          type: array
+          items:
+            type: integer
+            enum: [5, 10, 15, 30, 60, 120, 1440, 2880, 10080]
+        timeZone: { type: string, maxLength: 100 }
+
+    SchedulingReminderStatusResponse:
+      type: object
+      required: [dispatcher, backlog, leases, totals, config]
+      properties:
+        dispatcher: { type: object }
+        backlog:
+          type: object
+          properties:
+            pending: { type: integer }
+            processing: { type: integer }
+            delivery_started: { type: integer }
+            retry: { type: integer }
+            delivered: { type: integer }
+            delivery_uncertain: { type: integer }
+            failed: { type: integer }
+            canceled: { type: integer }
+        oldestDueAgeSeconds: { type: ['integer', 'null'] }
+        leases:
+          type: object
+          required: [active, expired]
+          properties:
+            active: { type: integer }
+            expired: { type: integer }
+        totals:
+          type: object
+          required: [retry, failed, delivery_uncertain]
+          properties:
+            retry: { type: integer }
+            failed: { type: integer }
+            delivery_uncertain: { type: integer }
+        storageLock: { type: object }
+        config: { type: object }
+
+    SchedulingViolation:
+      type: object
+      additionalProperties: false
+      required: [field, code]
+      properties:
+        field: { type: string }
+        code: { type: string }
+
+    SchedulingError:
+      type: object
+      additionalProperties: false
+      required: [error, code]
+      properties:
+        error: { type: string, description: Human-readable error description. }
+        code: { type: string, description: Stable machine-readable error code. }
+        violations:
+          type: array
+          items: { $ref: '#/components/schemas/SchedulingViolation' }

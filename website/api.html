@@ -248,7 +248,7 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <p class="api-facts">
     <span>OpenAPI 3.1.0</span>
     <span>openGym v1.4.4</span>
-    <span>170 endpoints</span>
+    <span>202 endpoints</span>
     <span>AGPL-3.0-or-later</span>
   </p>
 
@@ -6509,6 +6509,1032 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
     </div>
   </div>
 </details>
+
+<details class="ep" id="op-getCoachAvailability">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/availability</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Get coach availability</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns weekly availability windows, booking rules, and dated exceptions for the authenticated coach.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Coach availability configuration, or null if not yet configured.<span class="r-sig"><a href="#schema-CoachAvailabilityResponse">CoachAvailabilityResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-upsertCoachAvailability">
+  <summary>
+    <span class="m put">PUT</span>
+    <span class="ep-path"><code>/api/coach/availability</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Update coach availability</span>
+  </summary>
+  <div class="ep-body">
+<p>Updates weekly availability windows, booking rules, and dated exceptions with CAS _rev concurrency control.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-UpsertCoachAvailabilityRequest">UpsertCoachAvailabilityRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Updated availability configuration and list of conflicting future appointment IDs.<span class="r-sig"><a href="#schema-CoachAvailabilityUpdateResponse">CoachAvailabilityUpdateResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listCoachAppointments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List aggregated appointments for coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns paginated appointments across all clients with optional filters by status, interval, coach, or relationship.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Paginated appointments list for the coach.<span class="r-sig"><a href="#schema-AppointmentPage">AppointmentPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listCoachAthleteAppointments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List appointments with a specific athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns paginated appointments between the authenticated coach and the specified athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Paginated appointments list scoped to the athlete.<span class="r-sig"><a href="#schema-AppointmentPage">AppointmentPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createCoachAthleteAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Create appointment by coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Books a session with the specified athlete within configured availability windows without conflicting with existing sessions.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-CreateAppointmentRequest">CreateAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">201</span>
+    <span class="p-desc">Appointment booked successfully.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listCoachAthleteAvailabilitySlots">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/athletes/{athleteId}/availability-slots</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Calculate available slots for coach and athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Computes available appointment slots considering coach windows, existing bookings, buffer times, notice limits, and conflicts.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Available appointment slots.<span class="r-sig"><a href="#schema-AvailabilitySlotsResponse">AvailabilitySlotsResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getCoachAppointment">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/coach/appointments/{appointmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Get appointment detail for coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Retrieves full appointment detail including participant summaries and allowed lifecycle actions.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment detail.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-patchCoachAppointment">
+  <summary>
+    <span class="m patch">PATCH</span>
+    <span class="ep-path"><code>/api/coach/appointments/{appointmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Direct modification disallowed (use explicit action)</span>
+  </summary>
+  <div class="ep-body">
+<p>Direct PATCH mutations are disallowed. Use explicit actions for reschedule, cancel, or attendance.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">405</span>
+    <span class="p-desc">Direct PATCH mutation disallowed; use explicit reschedule, cancel, or attendance action.<span class="r-sig"><code>{&quot;error&quot;:&quot;use explicit reschedule, cancel, or attendance actions&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-rescheduleCoachAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/appointments/{appointmentId}/reschedule</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Reschedule appointment by coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Moves a scheduled appointment to a new aligned slot within availability rules.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-RescheduleAppointmentRequest">RescheduleAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment rescheduled.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-cancelCoachAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/appointments/{appointmentId}/cancel</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Cancel appointment by coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Cancels a scheduled appointment, recording actor, timestamp, and cancellation reason.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-CancelAppointmentRequest">CancelAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment canceled.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-recordCoachAppointmentAttendance">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/coach/appointments/{appointmentId}/attendance</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Record appointment attendance</span>
+  </summary>
+  <div class="ep-body">
+<p>Records attendance status (completed or no_show) after session conclusion.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-RecordAttendanceRequest">RecordAttendanceRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Attendance recorded.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteCoachAvailabilitySlots">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/coaches/{coachId}/availability-slots</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Calculate available slots for athlete with coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Computes free appointment slots for the athlete with the specified coach.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Available appointment slots.<span class="r-sig"><a href="#schema-AvailabilitySlotsResponse">AvailabilitySlotsResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteAppointments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List aggregated appointments for athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns paginated appointments for the authenticated athlete across all coaches.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Paginated appointments list for the athlete.<span class="r-sig"><a href="#schema-AppointmentPage">AppointmentPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-listAthleteCoachAppointments">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/coaches/{coachId}/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">List athlete appointments with a specific coach</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns paginated appointments between the authenticated athlete and the specified coach.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Paginated appointments list scoped to the coach.<span class="r-sig"><a href="#schema-AppointmentPage">AppointmentPage</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-createAthleteAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/athlete/coaches/{coachId}/appointments</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Book appointment by athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Books a session with the specified coach within configured availability windows.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+<p class="ep-h">Query parameters</p><div class="ptab">
+  <div class="prow">
+    <span class="p-name">undefined</span>
+    <span class="p-type">any</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-CreateAppointmentRequest">CreateAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">201</span>
+    <span class="p-desc">Appointment booked successfully.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAthleteAppointment">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/athlete/appointments/{appointmentId}</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Get appointment detail for athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Retrieves full appointment detail for the authenticated athlete.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment detail.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-rescheduleAthleteAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/athlete/appointments/{appointmentId}/reschedule</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Reschedule appointment by athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Reschedules an upcoming appointment to a new available slot.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-RescheduleAppointmentRequest">RescheduleAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment rescheduled.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-cancelAthleteAppointment">
+  <summary>
+    <span class="m post">POST</span>
+    <span class="ep-path"><code>/api/athlete/appointments/{appointmentId}/cancel</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Cancel appointment by athlete</span>
+  </summary>
+  <div class="ep-body">
+<p>Cancels an upcoming appointment, recording actor, timestamp, and cancellation reason.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-CancelAppointmentRequest">CancelAppointmentRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Appointment canceled.<span class="r-sig"><a href="#schema-SingleAppointmentResponse">SingleAppointmentResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Missing training scope, inactive relationship, or non-coach attempting professional operation.<span class="r-sig"><code>{&quot;error&quot;:&quot;active training relationship required&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">404</span>
+    <span class="p-desc">Appointment, coach availability, or relationship not found.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment not found&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">409</span>
+    <span class="p-desc">Double-booking, capacity quota reached, or revision conflict.<span class="r-sig"><code>{&quot;error&quot;:&quot;schedule conflict detected&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;active appointment capacity reached&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;availability revision conflict&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getSchedulingReminderPreferences">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/scheduling/reminder-preferences</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Get scheduling reminder preferences</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns reminder preferences and active reminder outbox states for the authenticated user.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Reminder preferences and active states.<span class="r-sig"><a href="#schema-GetSchedulingReminderPreferencesResponse">GetSchedulingReminderPreferencesResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-upsertSchedulingReminderPreferences">
+  <summary>
+    <span class="m put">PUT</span>
+    <span class="ep-path"><code>/api/scheduling/reminder-preferences</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Update scheduling reminder preferences</span>
+  </summary>
+  <div class="ep-body">
+<p>Updates reminder notification settings and reconciles pending appointment reminders.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Requires a session: the cookie set at sign-in, or <code>Authorization: Bearer &lt;token&gt;</code> from mobile-app pairing.</span></p>
+
+<p class="ep-h">Request body</p><p class="p-desc"><a href="#schema-UpsertSchedulingReminderPreferencesRequest">UpsertSchedulingReminderPreferencesRequest</a></p>
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Updated reminder preferences.<span class="r-sig">{ preferences: <a href="#schema-SchedulingReminderPreferences">SchedulingReminderPreferences</a> }</span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">400</span>
+    <span class="p-desc">Invalid booking payload, invalid date, min-notice or max-advance violation, or invalid filter.<span class="r-sig"><code>{&quot;error&quot;:&quot;appointment does not meet minimum notice&quot;}</code> &middot; <code>{&quot;error&quot;:&quot;appointment must use an aligned available slot&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s5">503</span>
+    <span class="p-desc">Every password check slot and the short queue behind them are taken.<span class="r-sig"><code>{&quot;error&quot;:&quot;the server is busy, try again in a moment&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
   </div>
 </section>
 
@@ -6866,6 +7892,40 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow rrow">
     <span class="r-code s4">429</span>
     <span class="p-desc">Rate limit reached on progress mutations, report exports or cleanup inspection.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many progress operations, try again later&quot;}</code></span></span>
+  </div>
+    </div>
+  </div>
+</details>
+
+<details class="ep" id="op-getAdminSchedulingRemindersStatus">
+  <summary>
+    <span class="m get">GET</span>
+    <span class="ep-path"><code>/api/admin/scheduling-reminders/status</code><span class="ep-chip admin">admin</span></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum">Operational status of scheduling reminder dispatcher</span>
+  </summary>
+  <div class="ep-body">
+<p>Returns operational telemetry for reminder queue, leases, backlog, lock health, and rate limits.</p>
+    <p class="ep-auth"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2.5"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><span>Admin only: a signed-in session whose user is an admin (<code>ADMIN_UIDS</code> or <code>admin:true</code>), as the session cookie or a Bearer token.</span></p>
+
+
+    <p class="ep-h">Responses</p>
+    <div class="ptab">
+  <div class="prow rrow">
+    <span class="r-code s2">200</span>
+    <span class="p-desc">Scheduling reminder dispatcher status summary.<span class="r-sig"><a href="#schema-SchedulingReminderStatusResponse">SchedulingReminderStatusResponse</a></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">401</span>
+    <span class="p-desc">No session, expired/revoked session, or a disabled account.<span class="r-sig"><code>{&quot;error&quot;:&quot;not signed in&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">403</span>
+    <span class="p-desc">Signed in, but not an admin. The attempt is recorded in the audit log.<span class="r-sig"><code>{&quot;error&quot;:&quot;forbidden&quot;}</code></span></span>
+  </div>
+  <div class="prow rrow">
+    <span class="r-code s4">429</span>
+    <span class="p-desc">Paused by the sign-in throttle (see <i>Throttling</i> in the description). The request was not looked at; try again after <code>Retry-After</code> seconds.<span class="r-sig"><code>{&quot;error&quot;:&quot;too many attempts, try again later&quot;}</code></span></span>
   </div>
     </div>
   </div>
@@ -13274,6 +14334,1055 @@ main.api-main .lead { color: var(--fg-2); max-width: 58ch; margin: 14px 0 0; fon
   <div class="prow">
     <span class="p-name">nextCursor<em class="p-req" title="required">required</em></span>
     <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AvailabilityWindow">
+  <summary>
+    <span class="sch-name"><code>AvailabilityWindow</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">dayOfWeek<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;6)</span></span>
+    <span class="p-desc">Day of week (0 = Sunday, 6 = Saturday).</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">start<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">end<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AvailabilityDatedWindow">
+  <summary>
+    <span class="sch-name"><code>AvailabilityDatedWindow</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">start<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">end<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AvailabilityException">
+  <summary>
+    <span class="sch-name"><code>AvailabilityException</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">date<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">unavailable</span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">windows</span>
+    <span class="p-type"><a href="#schema-AvailabilityDatedWindow">AvailabilityDatedWindow</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CoachAvailability">
+  <summary>
+    <span class="sch-name"><code>CoachAvailability</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coachId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 100 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sessionDurationMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(15&ndash;240, default 60)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">bufferMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;120, default 0)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">minNoticeHours<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;720, default 2)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">maxAdvanceDays<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;365, default 30)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">windows<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AvailabilityWindow">AvailabilityWindow</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">exceptions<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AvailabilityException">AvailabilityException</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">_rev<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-UpsertCoachAvailabilityRequest">
+  <summary>
+    <span class="sch-name"><code>UpsertCoachAvailabilityRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">_rev</span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone</span>
+    <span class="p-type">string <span class="p-hint">(&le; 100 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">sessionDurationMinutes</span>
+    <span class="p-type">integer <span class="p-hint">(15&ndash;240, default 60)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">bufferMinutes</span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;120, default 0)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">minNoticeHours</span>
+    <span class="p-type">integer <span class="p-hint">(0&ndash;720, default 2)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">maxAdvanceDays</span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;365, default 30)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">windows</span>
+    <span class="p-type"><a href="#schema-AvailabilityWindow">AvailabilityWindow</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">exceptions</span>
+    <span class="p-type"><a href="#schema-AvailabilityException">AvailabilityException</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CoachAvailabilityResponse">
+  <summary>
+    <span class="sch-name"><code>CoachAvailabilityResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">availability<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-CoachAvailability">CoachAvailability</a> | null</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CoachAvailabilityUpdateResponse">
+  <summary>
+    <span class="sch-name"><code>CoachAvailabilityUpdateResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">availability<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-CoachAvailability">CoachAvailability</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">futureConflicts<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AvailabilitySlot">
+  <summary>
+    <span class="sch-name"><code>AvailabilitySlot</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">startAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">endAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">localDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">durationMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentRelationship">
+  <summary>
+    <span class="sch-name"><code>AppointmentRelationship</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;pending&quot; | &quot;active&quot; | &quot;suspended&quot; | &quot;ended&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AvailabilitySlotsResponse">
+  <summary>
+    <span class="sch-name"><code>AvailabilitySlotsResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">items<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AvailabilitySlot">AvailabilitySlot</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">relationship<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentRelationship">AppointmentRelationship</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentParticipantSummary">
+  <summary>
+    <span class="sch-name"><code>AppointmentParticipantSummary</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">name<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentLifecycle">
+  <summary>
+    <span class="sch-name"><code>AppointmentLifecycle</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">historical<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">readOnly<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">allowedActions<em class="p-req" title="required">required</em></span>
+    <span class="p-type">(&quot;reschedule&quot; | &quot;cancel&quot; | &quot;attendance&quot;)[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentCancellation">
+  <summary>
+    <span class="sch-name"><code>AppointmentCancellation</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">actor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;coach&quot; | &quot;athlete&quot; | &quot;system&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">actorId</span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">reason<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">canceledAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentAttendance">
+  <summary>
+    <span class="sch-name"><code>AppointmentAttendance</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">state<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;attended&quot; | &quot;missed&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">recordedBy<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">recordedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-Appointment">
+  <summary>
+    <span class="sch-name"><code>Appointment</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">linkId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coachId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">athleteId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">type<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;in_person&quot; | &quot;online&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">title<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 120 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">notes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">location</span>
+    <span class="p-type">string | null <span class="p-hint">(&le; 200 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">meetingUrl</span>
+    <span class="p-type">string | null <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">startAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">endAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 100 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">localDate<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">durationMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;scheduled&quot; | &quot;completed&quot; | &quot;canceled&quot; | &quot;no_show&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">cancellation<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentCancellation">AppointmentCancellation</a> | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">attendance<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentAttendance">AppointmentAttendance</a> | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">coach<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentParticipantSummary">AppointmentParticipantSummary</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">athlete<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentParticipantSummary">AppointmentParticipantSummary</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">lifecycle<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentLifecycle">AppointmentLifecycle</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CreateAppointmentRequest">
+  <summary>
+    <span class="sch-name"><code>CreateAppointmentRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">linkId</span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">type</span>
+    <span class="p-type">&quot;in_person&quot; | &quot;online&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">title</span>
+    <span class="p-type">string <span class="p-hint">(&le; 120 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">notes</span>
+    <span class="p-type">string <span class="p-hint">(&le; 1000 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">location</span>
+    <span class="p-type">string | null <span class="p-hint">(&le; 200 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">meetingUrl</span>
+    <span class="p-type">string | null <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">startAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">endAt</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-RescheduleAppointmentRequest">
+  <summary>
+    <span class="sch-name"><code>RescheduleAppointmentRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">startAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">endAt</span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-CancelAppointmentRequest">
+  <summary>
+    <span class="sch-name"><code>CancelAppointmentRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">reason<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 500 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-RecordAttendanceRequest">
+  <summary>
+    <span class="sch-name"><code>RecordAttendanceRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;completed&quot; | &quot;no_show&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SingleAppointmentResponse">
+  <summary>
+    <span class="sch-name"><code>SingleAppointmentResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">appointment<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-Appointment">Appointment</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentPage">
+  <summary>
+    <span class="sch-name"><code>AppointmentPage</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">items<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-Appointment">Appointment</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">limit<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;100)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">hasMore<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">nextCursor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">relationship</span>
+    <span class="p-type"><a href="#schema-AppointmentRelationship">AppointmentRelationship</a></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SchedulingReminderPreferences">
+  <summary>
+    <span class="sch-name"><code>SchedulingReminderPreferences</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">userId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">enabled<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">offsetsMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">(5 | 10 | 15 | 30 | 60 | 120 | 1440 | 2880 | 10080)[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 100 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string | null <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-AppointmentReminderState">
+  <summary>
+    <span class="sch-name"><code>AppointmentReminderState</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">id<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">appointmentId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">userId<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">offsetMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">5 | 10 | 15 | 30 | 60 | 120 | 1440 | 2880 | 10080</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">generation<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer <span class="p-hint">(1&ndash;)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">scheduledFor<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">status<em class="p-req" title="required">required</em></span>
+    <span class="p-type">&quot;pending&quot; | &quot;processing&quot; | &quot;delivery_started&quot; | &quot;retry&quot; | &quot;delivered&quot; | &quot;delivery_uncertain&quot; | &quot;failed&quot; | &quot;canceled&quot;</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">createdAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">updatedAt<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(date-time)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-GetSchedulingReminderPreferencesResponse">
+  <summary>
+    <span class="sch-name"><code>GetSchedulingReminderPreferencesResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">preferences<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-SchedulingReminderPreferences">SchedulingReminderPreferences</a></span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">appointmentReminderStates<em class="p-req" title="required">required</em></span>
+    <span class="p-type"><a href="#schema-AppointmentReminderState">AppointmentReminderState</a>[]</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-UpsertSchedulingReminderPreferencesRequest">
+  <summary>
+    <span class="sch-name"><code>UpsertSchedulingReminderPreferencesRequest</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">enabled<em class="p-req" title="required">required</em></span>
+    <span class="p-type">boolean</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">offsetsMinutes<em class="p-req" title="required">required</em></span>
+    <span class="p-type">(5 | 10 | 15 | 30 | 60 | 120 | 1440 | 2880 | 10080)[]</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">timeZone<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string <span class="p-hint">(&le; 100 chars)</span></span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SchedulingReminderStatusResponse">
+  <summary>
+    <span class="sch-name"><code>SchedulingReminderStatusResponse</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">dispatcher<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.pending</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.processing</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.delivery_started</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.retry</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.delivered</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.delivery_uncertain</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.failed</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">backlog.canceled</span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">oldestDueAgeSeconds</span>
+    <span class="p-type">integer | null</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">leases<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">leases.active<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">leases.expired<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">totals<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">totals.retry<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">totals.failed<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">totals.delivery_uncertain<em class="p-req" title="required">required</em></span>
+    <span class="p-type">integer</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">storageLock</span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">config<em class="p-req" title="required">required</em></span>
+    <span class="p-type">object</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SchedulingViolation">
+  <summary>
+    <span class="sch-name"><code>SchedulingViolation</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">field<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+  <div class="prow">
+    <span class="p-name">code<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc"></span>
+  </div>
+</div>
+  </div>
+</details>
+
+<details class="ep sch" id="schema-SchedulingError">
+  <summary>
+    <span class="sch-name"><code>SchedulingError</code></span>
+    <span class="ep-chev" aria-hidden="true"></span>
+    <span class="ep-sum"></span>
+  </summary>
+  <div class="ep-body">
+
+<div class="ptab">
+  <div class="prow">
+    <span class="p-name">error<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Human-readable error description.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">code<em class="p-req" title="required">required</em></span>
+    <span class="p-type">string</span>
+    <span class="p-desc">Stable machine-readable error code.</span>
+  </div>
+  <div class="prow">
+    <span class="p-name">violations</span>
+    <span class="p-type"><a href="#schema-SchedulingViolation">SchedulingViolation</a>[]</span>
     <span class="p-desc"></span>
   </div>
 </div>

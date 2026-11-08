@@ -39,15 +39,12 @@ function specOperations(yaml) {
 test('every route the server registers is in openapi.yaml, and nothing else is', () => {
   const routes = new Set([
     ...routeKeys(read(path.join(API, 'server.js'))),
+    ...routeKeys(read(path.join(API, 'scheduling.js'))),
     ...routeKeys(read(path.join(API, 'communication-habits.js'))),
     ...routeKeys(read(path.join(API, 'progress-analytics.js'))),
     ...routeKeys(read(path.join(API, 'coach', 'routes.js'))),
     ...routeKeys(read(path.join(API, 'integrations', 'routes.js')))
   ]);
-  // Phase 7 deliberately defers the scheduling OpenAPI/UI contract until an independent audit.
-  // This authenticated operational probe is exercised by its server test but is not published as
-  // part of the calendar API contract in this phase.
-  routes.delete('GET /api/admin/scheduling-reminders/status');
   const ops = new Set(specOperations(spec));
   assert.ok(routes.size > 40, `only found ${routes.size} routes — the route table moved`);
 
