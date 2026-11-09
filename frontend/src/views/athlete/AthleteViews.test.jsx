@@ -221,6 +221,15 @@ describe('AthleteGroupsView', () => {
     expect(mocks.leaveGroup).toHaveBeenCalledWith('grp_2')
   })
 
+  it('displays contextual privacy guarantee notice in join section', async () => {
+    mocks.listAthleteGroups.mockResolvedValueOnce({ groups: [], page: { hasMore: false } })
+
+    await mount(<AthleteGroupsView />)
+
+    expect(host.textContent).toContain('Privacy guarantee')
+    expect(host.textContent).toContain('Your health data, private workouts, and body measurements will never be shared')
+  })
+
   it('joins group using an invite code', async () => {
     mocks.listAthleteGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
     mocks.joinGroupByInvite.mockResolvedValueOnce({ ok: true, group: activeGroup, member: { id: 'm_1' } })
@@ -352,6 +361,35 @@ describe('AthleteChallengesView', () => {
     await settle()
 
     expect(host.textContent).toContain('No completed challenges')
+  })
+
+  it('renders accessible semantic table for athlete challenge leaderboard with ARIA labels', async () => {
+    mocks.listAthleteChallenges.mockResolvedValueOnce({
+      challenges: [activeChallenge],
+      page: { hasMore: false },
+    })
+    mocks.getAthleteChallengeLeaderboard.mockResolvedValueOnce({
+      challenge: activeChallenge,
+      leaderboard: [
+        { participantKey: 'p_1', rank: 1, displayName: 'Bob', score: 200, workoutsCount: 10, isMe: false },
+        { participantKey: 'p_2', rank: 2, displayName: 'Alice Silva', score: 180, workoutsCount: 9, isMe: true },
+      ],
+      activityFeed: [],
+    })
+
+    await mount(<AthleteChallengesView />)
+
+    await act(async () => {
+      button('Leaderboard & Activity feed').click()
+    })
+    await settle()
+
+    const table = document.querySelector('table.gc-leaderboard-table')
+    expect(table).toBeTruthy()
+    expect(table.getAttribute('aria-label')).toBe('Leaderboard')
+    const meRow = table.querySelector('tr.athlete-me-row')
+    expect(meRow).toBeTruthy()
+    expect(meRow.getAttribute('aria-current')).toBe('true')
   })
 
   it('opens challenge details with leaderboard highlighting current athlete', async () => {

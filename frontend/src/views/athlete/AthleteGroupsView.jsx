@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { useStore } from '../../store/useStore.js'
 import { useUI } from '../../store/useUI.js'
 import { professionalError, professionalText as p } from '../../lib/professional-copy.js'
 import {
@@ -11,13 +10,24 @@ import {
   getAthleteGroup,
 } from '../../lib/group-challenges-api.js'
 import Icon from '../../components/Icon.jsx'
-import EmptyState from '../../components/EmptyState.jsx'
-import { Button, TextField } from '../../components/ui.jsx'
-import AccessibleModal from '../AccessibleModal.jsx'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Field,
+  Input,
+  Modal,
+  PageHeader,
+  SkeletonCard,
+  Surface,
+} from '../../components/design-system.jsx'
 import '../GroupChallenges.css'
+import '../coach/CoachGroupsView.css'
 
 export default function AthleteGroupsView({ embedded = false }) {
-  const user = useStore(state => state.user)
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
   const location = useLocation()
@@ -77,7 +87,7 @@ export default function AthleteGroupsView({ embedded = false }) {
   }, [loadGroups])
 
   // Join by Code handler
-  const handleJoinSubmit = async (e) => {
+  const handleJoinSubmit = async e => {
     e?.preventDefault?.()
     const code = inviteCodeInput.trim()
     if (!code) {
@@ -104,7 +114,7 @@ export default function AthleteGroupsView({ embedded = false }) {
   }
 
   // Accept pending invitation
-  const handleAcceptInvite = async (groupId) => {
+  const handleAcceptInvite = async groupId => {
     if (acceptingId) return
     setAcceptingId(groupId)
     try {
@@ -135,7 +145,7 @@ export default function AthleteGroupsView({ embedded = false }) {
   }
 
   // Open privacy-safe group roster
-  const openGroupRoster = async (group) => {
+  const openGroupRoster = async group => {
     setSelectedGroup(group)
     setLoadingDetails(true)
     setGroupDetails(null)
@@ -159,8 +169,10 @@ export default function AthleteGroupsView({ embedded = false }) {
     return groups.filter(g => g.status !== 'pending' && g.membershipStatus !== 'pending')
   }, [groups])
 
+  const Container = embedded ? 'div' : 'main'
+
   return (
-    <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
+    <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && (
         <div className="pro-nav">
           <button type="button" onClick={() => navigate('/community')}>
@@ -170,17 +182,15 @@ export default function AthleteGroupsView({ embedded = false }) {
         </div>
       )}
 
-      <header className="pro-hero gc-header">
-        <div>
-          <span className="pro-kicker">{p('Community')}</span>
-          <h1>{p('My groups')}</h1>
-          <p>{p('Participate in coach community groups, connect with peers, and join team challenges.')}</p>
-        </div>
-        <Icon name="person" />
-      </header>
+      <PageHeader
+        className="gc-header"
+        eyebrow={p('Community')}
+        title={p('My groups')}
+        description={p('Participate in coach community groups, connect with peers, and join team challenges.')}
+      />
 
       {/* Join with Invite Code Card */}
-      <section className="gc-card" style={{ marginBottom: 20 }}>
+      <Card className="gc-card" style={{ marginBottom: 20 }}>
         <div className="gc-card-header">
           <div className="gc-card-title-group">
             <h3>{p('Join with code')}</h3>
@@ -190,49 +200,60 @@ export default function AthleteGroupsView({ embedded = false }) {
           </div>
         </div>
 
-        <form onSubmit={handleJoinSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-          <div style={{ flex: '1 1 200px' }}>
-            <TextField
-              name="inviteCode"
-              value={inviteCodeInput}
-              placeholder="GRP-XXXX..."
-              onChange={e => {
-                setInviteCodeInput(e.target.value.toUpperCase())
-                setJoinError(null)
-              }}
-            />
+        <Alert tone="info" style={{ margin: '8px 0' }}>
+          <strong>{p('Privacy guarantee')}:</strong>{' '}
+          {p('Your health data, private workouts, and body measurements will never be shared with group members. Only your public display name is visible.')}
+        </Alert>
+
+        <form onSubmit={handleJoinSubmit} style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'flex-end', marginTop: 8 }}>
+          <div style={{ flex: '1 1 220px' }}>
+            <Field label={p('Invite code')}>
+              <Input
+                name="inviteCode"
+                value={inviteCodeInput}
+                placeholder="GRP-XXXX..."
+                onChange={e => {
+                  setInviteCodeInput(e.target.value.toUpperCase())
+                  setJoinError(null)
+                }}
+              />
+            </Field>
           </div>
           <Button
             type="submit"
-            variant="accent"
+            variant="primary"
+            loading={joining}
+            loadingLabel={p('Joining…')}
             disabled={joining || !inviteCodeInput.trim()}
+            style={{ minHeight: 44 }}
           >
-            {joining ? p('Joining…') : p('Join group')}
+            {p('Join group')}
           </Button>
         </form>
 
         {joinError && (
-          <div className="gc-alert error" role="alert" style={{ marginTop: 8 }}>
+          <Alert tone="error" style={{ marginTop: 8 }}>
             <span>{joinError}</span>
-          </div>
+          </Alert>
         )}
-      </section>
+      </Card>
 
       {/* Pending Invitations Section */}
       {pendingGroups.length > 0 && (
         <section style={{ marginBottom: 24 }}>
-          <h3 style={{ margin: '0 0 10px', fontSize: 'var(--fs-title3)' }}>
+          <h2 style={{ fontSize: 'var(--fs-title3)', marginBottom: 12 }}>
             {p('Pending invites')} ({pendingGroups.length})
-          </h3>
+          </h2>
           <div className="gc-card-list">
             {pendingGroups.map(group => (
-              <article key={group.id} className="gc-card" style={{ borderColor: 'var(--acc)' }}>
+              <Card key={group.id} className="gc-card">
                 <div className="gc-card-header">
                   <div className="gc-card-title-group">
                     <h3>{group.name}</h3>
                     <div className="gc-badge-row">
-                      <span className="gc-badge status-pending">{p('Invitation pending')}</span>
-                      {group.category && <span className="gc-badge">{group.category}</span>}
+                      <Badge tone="warning">{p('Pending') || 'Pendente'}</Badge>
+                      {group.category && <Badge>{group.category}</Badge>}
+                      {group.coach?.name && <Badge>{p('Coach')}: {group.coach.name}</Badge>}
                     </div>
                   </div>
                 </div>
@@ -244,60 +265,54 @@ export default function AthleteGroupsView({ embedded = false }) {
                 <div className="gc-card-actions">
                   <Button
                     size="sm"
-                    variant="accent"
+                    variant="primary"
                     disabled={acceptingId === group.id}
                     onClick={() => handleAcceptInvite(group.id)}
                   >
-                    {acceptingId === group.id ? p('Accepting…') : p('Accept invitation')}
+                    {acceptingId === group.id ? p('Joining…') : p('Accept invitation')}
                   </Button>
                   <Button
                     size="sm"
-                    variant="plain"
+                    variant="destructive"
                     onClick={() => setGroupToLeave(group)}
                   >
                     {p('Decline invitation')}
                   </Button>
                 </div>
-              </article>
+              </Card>
             ))}
           </div>
         </section>
       )}
 
-      {/* Active Groups Section */}
-      <h3 style={{ margin: '0 0 10px', fontSize: 'var(--fs-title3)' }}>
-        {p('Active members')}
-      </h3>
-
-      {error && (
-        <div className="card gc-alert error" role="alert">
-          <span>{error}</span>
-          <Button size="sm" onClick={() => loadGroups()}>{p('Try again')}</Button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="gc-card-list">
-          <div className="gc-skeleton-card" />
-          <div className="gc-skeleton-card" />
+      {error ? (
+        <ErrorState
+          title={p('Unable to load groups')}
+          text={error}
+          action={<Button variant="primary" onClick={() => loadGroups()}>{p('Try again')}</Button>}
+        />
+      ) : loading ? (
+        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : activeGroups.length === 0 ? (
         <EmptyState
           icon="person"
           title={p('You are not in any groups yet')}
-          description={p('Join with an invite code from your coach or wait for an invitation.')}
+          text={p('Join with an invite code from your coach or wait for an invitation.')}
         />
       ) : (
         <div className="gc-card-list">
           {activeGroups.map(group => (
-            <article key={group.id} className="gc-card">
+            <Card key={group.id} className="gc-card">
               <div className="gc-card-header">
                 <div className="gc-card-title-group">
                   <h3>{group.name}</h3>
                   <div className="gc-badge-row">
-                    <span className="gc-badge status-active">{p('Active')}</span>
-                    {group.category && <span className="gc-badge">{group.category}</span>}
-                    {group.coach?.name && <span className="gc-badge">{p('Coach')}: {group.coach.name}</span>}
+                    <Badge tone="success">{p('Active')}</Badge>
+                    {group.category && <Badge>{group.category}</Badge>}
+                    {group.coach?.name && <Badge>{p('Coach')}: {group.coach.name}</Badge>}
                   </div>
                 </div>
               </div>
@@ -311,20 +326,20 @@ export default function AthleteGroupsView({ embedded = false }) {
               </div>
 
               <div className="gc-card-actions">
-                <Button size="sm" variant="tinted" onClick={() => openGroupRoster(group)}>
-                  {p('View members') || 'View members'}
+                <Button size="sm" onClick={() => openGroupRoster(group)}>
+                  {p('View members')}
                 </Button>
-                <Button size="sm" variant="plain" onClick={() => setGroupToLeave(group)}>
+                <Button size="sm" variant="destructive" onClick={() => setGroupToLeave(group)}>
                   {p('Leave group')}
                 </Button>
               </div>
-            </article>
+            </Card>
           ))}
 
           {page?.hasMore && (
             <div className="pro-actions">
-              <Button size="sm" disabled={loadingMore} onClick={() => loadGroups(page.nextCursor)}>
-                {loadingMore ? p('Loading…') : p('Load more')}
+              <Button size="sm" loading={loadingMore} loadingLabel={p('Loading…')} onClick={() => loadGroups(page.nextCursor)}>
+                {p('Load more')}
               </Button>
             </div>
           )}
@@ -333,13 +348,19 @@ export default function AthleteGroupsView({ embedded = false }) {
 
       {/* Privacy-Safe Group Roster Modal */}
       {selectedGroup && (
-        <AccessibleModal
+        <Modal
           id="athlete-group-roster"
           title={selectedGroup.name}
-          onClose={() => { setSelectedGroup(null); setGroupDetails(null); }}
+          closeLabel={p('Close')}
+          onClose={() => {
+            setSelectedGroup(null)
+            setGroupDetails(null)
+          }}
         >
           {loadingDetails || !groupDetails ? (
-            <div className="pro-loading">{p('Loading group members…')}</div>
+            <div className="pro-loading" role="status" aria-label={p('Loading group members…')}>
+              {p('Loading group members…')}
+            </div>
           ) : (
             <div className="pro-modal-form">
               {groupDetails.group?.description && (
@@ -355,27 +376,28 @@ export default function AthleteGroupsView({ embedded = false }) {
                   <div className="pro-empty-inline">{p('No other members in this group yet.')}</div>
                 ) : (
                   groupDetails.members.map(member => (
-                    <div key={member.id} className="gc-member-row">
+                    <Surface key={member.id} className="gc-member-row">
                       <div className="gc-member-info">
                         <span className="gc-member-name">{member.displayName || p('Athlete')}</span>
                         <span className="gc-member-meta">
                           {member.role === 'moderator' ? p('Moderator') : p('Member')}
                         </span>
                       </div>
-                    </div>
+                    </Surface>
                   ))
                 )}
               </div>
             </div>
           )}
-        </AccessibleModal>
+        </Modal>
       )}
 
       {/* Leave Group Confirmation Modal */}
       {groupToLeave && (
-        <AccessibleModal
+        <Modal
           id="leave-group-confirm"
           title={p('Leave group')}
+          closeLabel={p('Close')}
           onClose={() => setGroupToLeave(null)}
         >
           <div className="pro-modal-form">
@@ -390,16 +412,17 @@ export default function AthleteGroupsView({ embedded = false }) {
               </Button>
               <Button
                 type="button"
-                variant="danger"
-                disabled={leaving}
+                variant="destructive"
+                loading={leaving}
+                loadingLabel={p('Leaving…')}
                 onClick={handleLeaveConfirm}
               >
-                {leaving ? p('Leaving…') : p('Leave group')}
+                {p('Leave group')}
               </Button>
             </div>
           </div>
-        </AccessibleModal>
+        </Modal>
       )}
-    </div>
+    </Container>
   )
 }

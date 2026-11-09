@@ -1,17 +1,26 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useStore } from '../../store/useStore.js'
-import { useUI } from '../../store/useUI.js'
 import { professionalError, professionalText as p } from '../../lib/professional-copy.js'
 import {
   listAthleteChallenges,
   getAthleteChallengeLeaderboard,
 } from '../../lib/group-challenges-api.js'
 import Icon from '../../components/Icon.jsx'
-import EmptyState from '../../components/EmptyState.jsx'
-import { Button } from '../../components/ui.jsx'
-import AccessibleModal from '../AccessibleModal.jsx'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Modal,
+  PageHeader,
+  SkeletonCard,
+  Surface,
+} from '../../components/design-system.jsx'
 import '../GroupChallenges.css'
+import '../coach/CoachGroupsView.css'
 
 function formatChallengeTime(isoString, timeZone) {
   if (!isoString) return ''
@@ -26,9 +35,28 @@ function formatChallengeTime(isoString, timeZone) {
   }
 }
 
+function formatParticipantStats(item, challengeType) {
+  if (challengeType === 'workouts_count') {
+    return `${item.workoutsCount ?? 0} ${p('workouts')}`
+  }
+  if (challengeType === 'volume_load') {
+    return `${item.volumeLoad ?? 0} kg`
+  }
+  if (challengeType === 'habits_consistency') {
+    return `${item.habitCheckinsCount ?? 0} ${p('habits')}`
+  }
+  if (challengeType === 'custom_points') {
+    return item.lastActivityAt ? formatChallengeTime(item.lastActivityAt) : p('No recent activity')
+  }
+  const parts = []
+  if (item.workoutsCount) parts.push(`${item.workoutsCount} ${p('workouts')}`)
+  if (item.volumeLoad) parts.push(`${item.volumeLoad} kg`)
+  if (item.habitCheckinsCount) parts.push(`${item.habitCheckinsCount} ${p('habits')}`)
+  return parts.length > 0 ? parts.join(' · ') : p('No recent activity')
+}
+
 export default function AthleteChallengesView({ embedded = false }) {
   const user = useStore(state => state.user)
-  const toast = useUI(state => state.toast)
   const navigate = useNavigate()
 
   const [challenges, setChallenges] = useState([])
@@ -71,7 +99,7 @@ export default function AthleteChallengesView({ embedded = false }) {
   }, [loadChallenges])
 
   // Open Leaderboard & Feed modal
-  const openLeaderboard = async (challengeId) => {
+  const openLeaderboard = async challengeId => {
     setSelectedChallengeId(challengeId)
     setLoadingLeaderboard(true)
     setLeaderboardData(null)
@@ -93,7 +121,7 @@ export default function AthleteChallengesView({ embedded = false }) {
     return challenges.filter(c => c.status === statusFilter)
   }, [challenges, statusFilter])
 
-  const typeName = (type) => {
+  const typeName = type => {
     switch (type) {
       case 'workouts_count': return p('Workouts count')
       case 'volume_load': return p('Volume load')
@@ -103,8 +131,10 @@ export default function AthleteChallengesView({ embedded = false }) {
     }
   }
 
+  const Container = embedded ? 'div' : 'main'
+
   return (
-    <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
+    <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && (
         <div className="pro-nav">
           <button type="button" onClick={() => navigate('/community')}>
@@ -114,19 +144,18 @@ export default function AthleteChallengesView({ embedded = false }) {
         </div>
       )}
 
-      <header className="pro-hero gc-header">
-        <div>
-          <span className="pro-kicker">{p('Community')}</span>
-          <h1>{p('Group challenges')}</h1>
-          <p>{p('Push your limits alongside your teammates, climb the leaderboard, and celebrate achievements.')}</p>
-        </div>
-        <Icon name="trophy" />
-      </header>
+      <PageHeader
+        className="gc-header"
+        eyebrow={p('Community')}
+        title={p('Group challenges')}
+        description={p('Push your limits alongside your teammates, climb the leaderboard, and celebrate achievements.')}
+      />
 
       {/* Toolbar / Filters */}
       <div className="gc-toolbar">
         <div className="gc-filter-group" role="tablist">
           <button
+            type="button"
             role="tab"
             aria-selected={statusFilter === 'active'}
             className={`gc-filter-btn ${statusFilter === 'active' ? 'active' : ''}`}
@@ -135,6 +164,7 @@ export default function AthleteChallengesView({ embedded = false }) {
             {p('Active')}
           </button>
           <button
+            type="button"
             role="tab"
             aria-selected={statusFilter === 'completed'}
             className={`gc-filter-btn ${statusFilter === 'completed' ? 'active' : ''}`}
@@ -145,36 +175,43 @@ export default function AthleteChallengesView({ embedded = false }) {
         </div>
       </div>
 
-      {error && (
-        <div className="card gc-alert error" role="alert">
-          <span>{error}</span>
-          <Button size="sm" onClick={() => loadChallenges()}>{p('Try again')}</Button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="gc-card-list">
-          <div className="gc-skeleton-card" />
-          <div className="gc-skeleton-card" />
+      {error ? (
+        <ErrorState
+          title={p('Unable to load groups')}
+          text={error}
+          action={<Button variant="primary" onClick={() => loadChallenges()}>{p('Try again')}</Button>}
+        />
+      ) : loading ? (
+        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : filteredChallenges.length === 0 ? (
         <EmptyState
           icon="trophy"
           title={statusFilter === 'active' ? p('No active challenges') : p('No completed challenges')}
-          description={p('Challenges created by your coaches will appear here when active.')}
+          text={p('Challenges created by your coaches will appear here when active.')}
         />
       ) : (
         <div className="gc-card-list">
           {filteredChallenges.map(challenge => (
-            <article key={challenge.id} className="gc-card">
+            <Card key={challenge.id} className="gc-card">
               <div className="gc-card-header">
                 <div className="gc-card-title-group">
                   <h3>{challenge.title}</h3>
                   <div className="gc-badge-row">
-                    <span className={`gc-badge status-${challenge.status}`}>
+                    <Badge
+                      tone={
+                        challenge.status === 'active'
+                          ? 'success'
+                          : challenge.status === 'completed'
+                            ? 'brand'
+                            : 'neutral'
+                      }
+                    >
                       {challenge.status === 'active' ? p('Active') : p('Completed')}
-                    </span>
-                    <span className="gc-badge">{typeName(challenge.type)}</span>
+                    </Badge>
+                    <Badge>{typeName(challenge.type)}</Badge>
                   </div>
                 </div>
               </div>
@@ -184,53 +221,61 @@ export default function AthleteChallengesView({ embedded = false }) {
               )}
 
               <div className="gc-card-subtitle">
-                {formatChallengeTime(challenge.startAt, challenge.timeZone)} — {formatChallengeTime(challenge.endAt, challenge.timeZone)}
-                {' '}({challenge.timeZone || 'UTC'})
+                {formatChallengeTime(challenge.startAt, challenge.timeZone)} —{' '}
+                {formatChallengeTime(challenge.endAt, challenge.timeZone)} ({challenge.timeZone || 'UTC'})
               </div>
 
               <div className="gc-card-actions">
-                <Button size="sm" variant="accent" icon="chart" onClick={() => openLeaderboard(challenge.id)}>
+                <Button size="sm" icon="chart" onClick={() => openLeaderboard(challenge.id)}>
                   {p('Leaderboard')} & {p('Activity feed')}
                 </Button>
               </div>
-            </article>
+            </Card>
           ))}
 
           {page?.hasMore && (
             <div className="pro-actions">
-              <Button size="sm" disabled={loadingMore} onClick={() => loadChallenges(page.nextCursor)}>
-                {loadingMore ? p('Loading…') : p('Load more')}
+              <Button size="sm" loading={loadingMore} loadingLabel={p('Loading…')} onClick={() => loadChallenges(page.nextCursor)}>
+                {p('Load more')}
               </Button>
             </div>
           )}
         </div>
       )}
 
-      {/* Leaderboard and Feed Modal */}
+      {/* Leaderboard and Activity Feed Modal */}
       {selectedChallengeId && (
-        <AccessibleModal
+        <Modal
           id="athlete-challenge-details"
           title={leaderboardData?.challenge?.title || p('Challenge details')}
-          onClose={() => { setSelectedChallengeId(null); setLeaderboardData(null); }}
+          closeLabel={p('Close')}
+          onClose={() => {
+            setSelectedChallengeId(null)
+            setLeaderboardData(null)
+          }}
         >
           {loadingLeaderboard || !leaderboardData ? (
-            <div className="pro-loading">{p('Loading leaderboard…')}</div>
-          ) : leaderboardError ? (
-            <div className="card gc-alert error" role="alert">
-              <span>{leaderboardError}</span>
-              <Button size="sm" onClick={() => openLeaderboard(selectedChallengeId)}>{p('Try again')}</Button>
+            <div className="pro-loading" role="status" aria-label={p('Loading leaderboard…')}>
+              {p('Loading leaderboard…')}
             </div>
+          ) : leaderboardError ? (
+            <Alert tone="error">
+              <span>{leaderboardError}</span>
+              <Button size="sm" onClick={() => openLeaderboard(selectedChallengeId)}>
+                {p('Try again')}
+              </Button>
+            </Alert>
           ) : (
             <div className="pro-modal-form">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div className="gc-badge-row">
-                  <span className={`gc-badge status-${leaderboardData.challenge?.status}`}>
+                  <Badge tone={leaderboardData.challenge?.status === 'active' ? 'success' : 'brand'}>
                     {leaderboardData.challenge?.status}
-                  </span>
-                  <span className="gc-badge">{typeName(leaderboardData.challenge?.type)}</span>
+                  </Badge>
+                  <Badge>{typeName(leaderboardData.challenge?.type)}</Badge>
                 </div>
                 <Button size="sm" icon="arrowPath" onClick={() => openLeaderboard(selectedChallengeId)}>
-                  {p('Refresh') || 'Refresh'}
+                  {p('Refresh')}
                 </Button>
               </div>
 
@@ -239,42 +284,58 @@ export default function AthleteChallengesView({ embedded = false }) {
                 {p('Leaderboard')}
               </h3>
 
-              <div className="gc-leaderboard">
-                {(!leaderboardData.leaderboard || leaderboardData.leaderboard.length === 0) ? (
-                  <div className="pro-empty-inline">{p('No ranking data available yet.')}</div>
-                ) : (
-                  leaderboardData.leaderboard.map(item => {
-                    const isMe = Boolean(item.isMe)
-                    return (
-                      <div
-                        key={item.participantKey || item.rank}
-                        className={`gc-leaderboard-row ${isMe ? 'athlete-me-row' : ''}`}
-                      >
-                        <div className={`gc-rank-col ${item.rank <= 3 ? `gc-rank-${item.rank}` : ''}`}>
-                          {item.rank === 1 ? '🥇' : item.rank === 2 ? '🥈' : item.rank === 3 ? '🥉' : `#${item.rank}`}
-                        </div>
-
-                        <div className="gc-participant-info">
-                          <div className="gc-participant-name">
-                            {item.displayName || p('Athlete')}
-                            {isMe && <span className="gc-badge" style={{ marginLeft: 6 }}>{p('You')}</span>}
-                          </div>
-                          <div className="gc-participant-stats">
-                            {item.workoutsCount !== undefined && `${item.workoutsCount} ${p('workouts')} · `}
-                            {item.volumeLoad !== undefined && `${item.volumeLoad} kg · `}
-                            {item.habitCheckinsCount !== undefined && `${item.habitCheckinsCount} ${p('habits')}`}
-                          </div>
-                        </div>
-
-                        <div className="gc-score-col">
-                          <span className="gc-score-value">{item.score}</span>
-                          <div className="gc-score-unit">{p('pts')}</div>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
+              {(!leaderboardData.leaderboard || leaderboardData.leaderboard.length === 0) ? (
+                <div className="pro-empty-inline">{p('No ranking data available yet.')}</div>
+              ) : (
+                <div className="gc-leaderboard-table-wrapper">
+                  <table className="gc-leaderboard-table" aria-label={p('Leaderboard')}>
+                    <thead>
+                      <tr>
+                        <th scope="col" style={{ width: 60 }}>{p('Rank')}</th>
+                        <th scope="col">{p('Participant')}</th>
+                        <th scope="col">{p('Activity')}</th>
+                        <th scope="col" style={{ textAlign: 'right' }}>{p('Score')}</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {leaderboardData.leaderboard.map(item => {
+                        const isMe = Boolean(item.isMe)
+                        return (
+                          <tr
+                            key={item.participantKey || item.rank}
+                            className={`gc-leaderboard-row ${isMe ? 'athlete-me-row' : ''}`}
+                            aria-current={isMe ? 'true' : undefined}
+                          >
+                            <td>
+                              <span
+                                className={`gc-rank-col ${item.rank <= 3 ? `gc-rank-${item.rank}` : ''}`}
+                                aria-label={`${item.rank}º`}
+                              >
+                                {item.rank === 1 ? '🥇' : item.rank === 2 ? '🥈' : item.rank === 3 ? '🥉' : `#${item.rank}`}
+                              </span>
+                            </td>
+                            <td>
+                              <div className="gc-participant-name">
+                                {item.displayName || p('Athlete')}
+                                {isMe && <Badge tone="brand" style={{ marginLeft: 6 }}>{p('You')}</Badge>}
+                              </div>
+                            </td>
+                            <td>
+                              <div className="gc-participant-stats">
+                                {formatParticipantStats(item, leaderboardData.challenge?.type)}
+                              </div>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <span className="gc-score-value">{item.score}</span>{' '}
+                              <span className="gc-score-unit">{p('pts')}</span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
 
               {/* Activity Feed */}
               <h3 style={{ margin: '20px 0 6px', fontSize: 'var(--fs-title3)' }}>
@@ -286,7 +347,7 @@ export default function AthleteChallengesView({ embedded = false }) {
                   <div className="pro-empty-inline">{p('No activity events logged yet.')}</div>
                 ) : (
                   leaderboardData.activityFeed.map(feed => (
-                    <div key={feed.id} className="gc-feed-item">
+                    <Surface key={feed.id} className="gc-feed-item">
                       <Icon name="bolt" className="gc-feed-icon" />
                       <div className="gc-feed-content">
                         <div className="gc-feed-desc">
@@ -301,14 +362,14 @@ export default function AthleteChallengesView({ embedded = false }) {
                           {feed.pointsAwarded >= 0 ? `+${feed.pointsAwarded}` : feed.pointsAwarded} pts
                         </span>
                       )}
-                    </div>
+                    </Surface>
                   ))
                 )}
               </div>
             </div>
           )}
-        </AccessibleModal>
+        </Modal>
       )}
-    </div>
+    </Container>
   )
 }

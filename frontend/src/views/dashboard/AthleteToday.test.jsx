@@ -331,4 +331,37 @@ describe('AthleteToday', () => {
     expect(host.textContent).toContain('5 dias seguidos')
     expect(host.textContent).toContain('Check-in realizado com sucesso.')
   })
+
+  it('highlights an active community challenge on the dashboard', async () => {
+    mocks.api.mockImplementation(path => {
+      if (path.startsWith('/api/athlete/challenges')) {
+        return Promise.resolve({
+          challenges: [
+            {
+              id: 'ch_active_1',
+              title: 'Desafio Força de Novembro',
+              description: 'Meta de 20 treinos',
+              type: 'workouts_count',
+              status: 'active',
+              endAt: '2026-11-30T23:59:59Z',
+            },
+          ],
+        })
+      }
+      return Promise.resolve(path === '/api/athlete/meal-plan' ? { mealPlan: null } : { adherenceRecords: [] })
+    })
+
+    await renderToday()
+
+    expect(host.textContent).toContain('Desafio da comunidade')
+    expect(host.textContent).toContain('Desafio Força de Novembro')
+    expect(host.textContent).toContain('Contagem de treinos')
+    expect(host.textContent).toContain('Ver classificação e progresso')
+
+    const challengeBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Ver classificação e progresso'))
+    expect(challengeBtn).toBeTruthy()
+    await act(async () => { challengeBtn.click() })
+    await settle()
+    expect(host.querySelector('[data-location]')?.getAttribute('data-location')).toBe('/athlete/challenges')
+  })
 })

@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useStore } from '../../store/useStore.js'
 import { useUI } from '../../store/useUI.js'
 import { professionalError, professionalText as p } from '../../lib/professional-copy.js'
 import {
@@ -9,13 +8,22 @@ import {
   generateIdempotencyKey,
 } from '../../lib/group-challenges-api.js'
 import Icon from '../../components/Icon.jsx'
-import EmptyState from '../../components/EmptyState.jsx'
-import { Button } from '../../components/ui.jsx'
-import AccessibleModal from '../AccessibleModal.jsx'
+import {
+  Alert,
+  Badge,
+  Button,
+  Card,
+  EmptyState,
+  ErrorState,
+  Modal,
+  PageHeader,
+  SkeletonCard,
+  Surface,
+} from '../../components/design-system.jsx'
 import '../GroupChallenges.css'
+import '../coach/CoachGroupsView.css'
 
 export default function AthleteGroupProgramsView({ embedded = false }) {
-  const user = useStore(state => state.user)
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
 
@@ -80,8 +88,10 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
     }
   }
 
+  const Container = embedded ? 'div' : 'main'
+
   return (
-    <div className={`gc-page ${embedded ? 'embedded' : 'narrow'}`}>
+    <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && (
         <div className="pro-nav">
           <button type="button" onClick={() => navigate('/community')}>
@@ -91,46 +101,43 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
         </div>
       )}
 
-      <header className="pro-hero gc-header">
-        <div>
-          <span className="pro-kicker">{p('Community')}</span>
-          <h1>{p('Collective programs')}</h1>
-          <p>{p('Explore training programs published by your coach for your community groups, and adopt them into your training plan.')}</p>
-        </div>
-        <Icon name="calendar" />
-      </header>
+      <PageHeader
+        className="gc-header"
+        eyebrow={p('Community')}
+        title={p('Collective programs')}
+        description={p('Explore training programs published by your coach for your community groups, and adopt them into your training plan.')}
+      />
 
-      {error && (
-        <div className="card gc-alert error" role="alert">
-          <span>{error}</span>
-          <Button size="sm" onClick={() => loadPrograms()}>{p('Try again')}</Button>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="gc-card-list">
-          <div className="gc-skeleton-card" />
-          <div className="gc-skeleton-card" />
+      {error ? (
+        <ErrorState
+          title={p('Unable to load groups')}
+          text={error}
+          action={<Button variant="primary" onClick={() => loadPrograms()}>{p('Try again')}</Button>}
+        />
+      ) : loading ? (
+        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+          <SkeletonCard />
+          <SkeletonCard />
         </div>
       ) : programs.length === 0 ? (
         <EmptyState
           icon="calendar"
           title={p('No collective programs available')}
-          description={p('Programs published by your coach in your community groups will appear here.')}
+          text={p('Programs published by your coach in your community groups will appear here.')}
         />
       ) : (
         <div className="gc-card-list">
           {programs.map(prg => {
             const divisions = prg.routine?.divisions || []
             return (
-              <article key={prg.id} className="gc-card">
+              <Card key={prg.id} className="gc-card">
                 <div className="gc-card-header">
                   <div className="gc-card-title-group">
                     <h3>{prg.title}</h3>
                     <div className="gc-badge-row">
-                      <span className="gc-badge">v{prg.version || 1}</span>
-                      {prg.group?.name && <span className="gc-badge">{prg.group.name}</span>}
-                      {prg.coach?.name && <span className="gc-badge">{p('Coach')}: {prg.coach.name}</span>}
+                      <Badge>v{prg.version || 1}</Badge>
+                      {prg.group?.name && <Badge>{prg.group.name}</Badge>}
+                      {prg.coach?.name && <Badge>{p('Coach')}: {prg.coach.name}</Badge>}
                     </div>
                   </div>
                 </div>
@@ -150,21 +157,21 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
                 </div>
 
                 <div className="gc-card-actions">
-                  <Button size="sm" variant="accent" onClick={() => { setProgramToAdopt(prg); setAdoptError(null); }}>
+                  <Button size="sm" variant="primary" onClick={() => { setProgramToAdopt(prg); setAdoptError(null) }}>
                     {p('Adopt program')}
                   </Button>
-                  <Button size="sm" variant="plain" onClick={() => setViewProgram(prg)}>
-                    {p('View details') || 'View details'}
+                  <Button size="sm" onClick={() => setViewProgram(prg)}>
+                    {p('View details')}
                   </Button>
                 </div>
-              </article>
+              </Card>
             )
           })}
 
           {page?.hasMore && (
             <div className="pro-actions">
-              <Button size="sm" disabled={loadingMore} onClick={() => loadPrograms(page.nextCursor)}>
-                {loadingMore ? p('Loading…') : p('Load more')}
+              <Button size="sm" loading={loadingMore} loadingLabel={p('Loading…')} onClick={() => loadPrograms(page.nextCursor)}>
+                {p('Load more')}
               </Button>
             </div>
           )}
@@ -173,15 +180,16 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
 
       {/* Program Details Modal */}
       {viewProgram && (
-        <AccessibleModal
+        <Modal
           id="athlete-view-program"
           title={viewProgram.title}
+          closeLabel={p('Close')}
           onClose={() => setViewProgram(null)}
         >
           <div className="pro-modal-form">
             <div className="gc-badge-row">
-              <span className="gc-badge">v{viewProgram.version || 1}</span>
-              {viewProgram.group?.name && <span className="gc-badge">{viewProgram.group.name}</span>}
+              <Badge>v{viewProgram.version || 1}</Badge>
+              {viewProgram.group?.name && <Badge>{viewProgram.group.name}</Badge>}
             </div>
 
             {viewProgram.routine?.notes && (
@@ -190,25 +198,27 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
 
             <div className="pro-divisions">
               {(viewProgram.routine?.divisions || []).map((div, dIdx) => (
-                <section key={div.id || dIdx} className="pro-division-summary">
+                <Surface key={div.id || dIdx} className="pro-division-summary" style={{ padding: 12, marginBottom: 10 }}>
                   <h4>{div.name}</h4>
                   <div className="pro-exercise-list">
                     {(div.exercises || []).map((ex, eIdx) => (
-                      <div key={ex.id || eIdx} className="pro-exercise-summary">
+                      <div key={ex.id || eIdx} className="pro-exercise-summary" style={{ padding: '6px 0', borderBottom: '1px solid var(--separator)' }}>
                         <strong>{ex.name}</strong>
-                        <span>{ex.sets} {p('sets')} · {ex.reps} {p('reps')} · {ex.restSeconds}s {p('rest')}</span>
-                        {ex.load && <span>{p('Load')}: {ex.load}</span>}
-                        {ex.notes && <small>{ex.notes}</small>}
+                        <div>
+                          <span>{ex.sets} {p('sets')} · {ex.reps} {p('reps')} · {ex.restSeconds}s {p('rest')}</span>
+                          {ex.load && <span> · {p('Load') || 'Carga'}: {ex.load}</span>}
+                        </div>
+                        {ex.notes && <small style={{ color: 'var(--label-2)' }}>{ex.notes}</small>}
                       </div>
                     ))}
                   </div>
-                </section>
+                </Surface>
               ))}
             </div>
 
             <div className="pro-actions" style={{ marginTop: 16 }}>
               <Button
-                variant="accent"
+                variant="primary"
                 onClick={() => {
                   setProgramToAdopt(viewProgram)
                   setViewProgram(null)
@@ -219,22 +229,19 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
               </Button>
             </div>
           </div>
-        </AccessibleModal>
+        </Modal>
       )}
 
       {/* Adopt Program Confirmation Modal */}
       {programToAdopt && (
-        <AccessibleModal
+        <Modal
           id="adopt-program-confirm"
           title={p('Adopt program')}
+          closeLabel={p('Close')}
           onClose={() => setProgramToAdopt(null)}
         >
           <div className="pro-modal-form">
-            {adoptError && (
-              <div className="gc-alert error" role="alert">
-                <span>{adoptError}</span>
-              </div>
-            )}
+            {adoptError && <Alert tone="error">{adoptError}</Alert>}
 
             <p>
               {p('Adopting this collective program will add its routines to your workout plan and may overwrite conflicting routines.')}
@@ -248,16 +255,17 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
               </Button>
               <Button
                 type="button"
-                variant="accent"
-                disabled={adopting}
+                variant="primary"
+                loading={adopting}
+                loadingLabel={p('Adopting…')}
                 onClick={handleAdoptConfirm}
               >
-                {adopting ? p('Adopting…') : p('Confirm adoption') || 'Confirm adoption'}
+                {p('Confirm adoption')}
               </Button>
             </div>
           </div>
-        </AccessibleModal>
+        </Modal>
       )}
-    </div>
+    </Container>
   )
 }

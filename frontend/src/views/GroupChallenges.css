@@ -476,3 +476,73 @@
   border: 1px solid rgba(59, 130, 246, 0.3);
   color: var(--blue, #2563eb);
 }
+
+/* Accessible Semantic Leaderboard Table */
+.gc-leaderboard-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  margin-top: 14px;
+  border-radius: var(--r-md, 10px);
+  border: 1px solid var(--separator, #e5e7eb);
+  background: var(--surface, #ffffff);
+}
+
+.gc-leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: var(--fs-subhead, 14px);
+}
+
+.gc-leaderboard-table th {
+  padding: 12px 14px;
+  font-size: var(--fs-footnote, 12px);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--label-2, #6b7280);
+  background: var(--surface-2, #f9fafb);
+  border-bottom: 1px solid var(--separator, #e5e7eb);
+  white-space: nowrap;
+}
+
+.gc-leaderboard-table td {
+  padding: 12px 14px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--separator, #f3f4f6);
+}
+
+.gc-leaderboard-table tr:last-child td {
+  border-bottom: none;
+}
+
+.gc-leaderboard-table tr:hover {
+  background: var(--surface-2, #f9fafb);
+}
+
+.gc-leaderboard-table tr.athlete-me-row {
+  background: var(--acc-soft, rgba(37, 99, 235, 0.08));
+  font-weight: 600;
+}
+
+/* Touch Targets: minimum 44px */
+.gc-card-actions button,
+.gc-filter-btn,
+.gc-tab,
+.gc-feed-item {
+  min-height: 44px;
+}
+
+/* Prefers Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  .gc-skeleton-card {
+    animation: none;
+  }
+  .gc-tab,
+  .gc-filter-btn,
+  .gc-leaderboard-row,
+  .gc-progress-fill,
+  .gc-leaderboard-table tr {
+    transition: none !important;
+  }
+}

@@ -157,6 +157,18 @@ describe('CoachGroupsView', () => {
     invite: { code: 'GRP-ABC12345' },
   }
 
+  it('provides quick shortcuts to assign collective programs and challenges to a group', async () => {
+    mocks.listCoachGroups.mockResolvedValueOnce({
+      groups: [{ id: 'grp_1', name: 'Barbell Club', category: 'Powerlifting', memberCount: 10, maxMembers: 50 }],
+      page: { hasMore: false },
+    })
+
+    await mount(<CoachGroupsView />)
+
+    expect(button('Collective programs')).toBeTruthy()
+    expect(button('Group challenges')).toBeTruthy()
+  })
+
   it('loads and lists coach groups with capacity meter and category', async () => {
     mocks.listCoachGroups.mockResolvedValueOnce({ groups: [fakeGroup], page: { hasMore: false } })
     await mount(<CoachGroupsView />)
@@ -536,6 +548,51 @@ describe('CoachChallengesView', () => {
       type: 'volume_load',
       rules: expect.objectContaining({ pointsPer1000: 5 }),
     }))
+  })
+
+  it('renders accessible semantic leaderboard table without inventing false zeros', async () => {
+    mocks.listCoachChallenges.mockResolvedValueOnce({
+      challenges: [{
+        id: 'ch_workouts',
+        title: 'Desafio Treinos de Novembro',
+        type: 'workouts_count',
+        scope: 'group',
+        groupId: 'grp_1',
+        status: 'active',
+        startAt: '2026-11-01T00:00:00Z',
+        endAt: '2026-11-30T00:00:00Z',
+        rules: { pointsPerWorkout: 10 },
+      }],
+      page: { hasMore: false },
+    })
+    mocks.getCoachChallengeLeaderboard.mockResolvedValueOnce({
+      challenge: {
+        id: 'ch_workouts',
+        title: 'Desafio Treinos de Novembro',
+        type: 'workouts_count',
+        status: 'active',
+      },
+      leaderboard: [
+        { participantKey: 'p_1', rank: 1, displayName: 'Carla Silva', score: 50, workoutsCount: 5, volumeLoad: 0, habitCheckinsCount: 0 },
+      ],
+      activityFeed: [],
+    })
+
+    await mount(<CoachChallengesView />)
+
+    await act(async () => {
+      button('Leaderboard').click()
+    })
+    await settle()
+
+    const table = document.querySelector('table.gc-leaderboard-table')
+    expect(table).toBeTruthy()
+    expect(table.getAttribute('aria-label')).toBe('Leaderboard')
+    expect(table.querySelectorAll('th[scope="col"]').length).toBe(4)
+    expect(table.textContent).toContain('Carla Silva')
+    expect(table.textContent).toContain('5 workouts')
+    expect(table.textContent).not.toContain('0 kg')
+    expect(table.textContent).not.toContain('0 habits')
   })
 
   it('opens challenge details with real-time leaderboard and activity feed', async () => {

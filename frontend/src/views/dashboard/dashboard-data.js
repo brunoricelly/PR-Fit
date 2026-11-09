@@ -112,6 +112,12 @@ export function normalizeHabits(payload) {
   })
 }
 
+export function normalizeChallenges(payload) {
+  if (!payload || typeof payload !== "object") return []
+  const challenges = Array.isArray(payload.challenges) ? payload.challenges : []
+  return challenges.filter(c => c && typeof c === "object" && typeof c.id === "string" && typeof c.title === "string")
+}
+
 export function normalizeSummary(payload) {
   const object = payloadObject(payload, 'Resumo de adesão')
   if (object.summary === null) return null

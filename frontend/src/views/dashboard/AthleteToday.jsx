@@ -28,6 +28,7 @@ import FirstSteps from '../../components/FirstSteps.jsx'
 import {
   loadingSource,
   normalizeAppointments,
+  normalizeChallenges,
   normalizeConversations,
   normalizeHabits,
   normalizeMealAdherence,
@@ -107,6 +108,7 @@ export default function AthleteToday() {
       prescriptions: dualRole
         ? unavailableSource('Prescrições exigem perfil de atleta.')
         : loadingSource(),
+      challenges: loadingSource(),
     }
     setRemoteState({ userId, sources: pendingSources })
     setLoading(true)
@@ -123,8 +125,9 @@ export default function AthleteToday() {
       api(`/api/athlete/meal-adherence?date=${date}`, requestOptions),
       dualRole ? Promise.resolve(null) : communicationApi.athleteHabits(browserTimeZone().value, requestOptions),
       dualRole ? Promise.resolve(null) : api('/api/athlete/prescriptions', requestOptions),
+      api('/api/athlete/challenges?limit=10', requestOptions),
     ]
-    const [inboxResult, appointmentsResult, planResult, adherenceResult, habitsResult, prescriptionsResult] = await Promise.allSettled(requests)
+    const [inboxResult, appointmentsResult, planResult, adherenceResult, habitsResult, prescriptionsResult, challengesResult] = await Promise.allSettled(requests)
     if (!current()) return
 
     const sources = {
@@ -140,6 +143,7 @@ export default function AthleteToday() {
       prescriptions: dualRole
         ? pendingSources.prescriptions
         : settledSource(prescriptionsResult, normalizePrescriptions, sourceEmpty),
+      challenges: settledSource(challengesResult, normalizeChallenges, sourceEmpty),
     }
     setRemoteState({ userId, sources })
     setLoading(false)
@@ -178,6 +182,10 @@ export default function AthleteToday() {
         ? { label: 'Ver treino concluído', detail: local.routines.map(routine => routine.name).join(' + '), run: () => navigate('/history'), icon: 'checkCircle' }
         : { label: 'Montar meu plano', detail: 'Nenhum treino programado para hoje', run: () => navigate('/plan'), icon: 'calendar' }
 
+  const challenges = remote?.challenges?.data || []
+  const activeChallenge = sourceSucceeded(remote?.challenges)
+    ? challenges.find(c => c.status === "active") || null
+    : null
   const appointments = remote?.appointments?.data || []
   const nextAppointment = appointments.slice().sort((left, right) => new Date(left.startAt) - new Date(right.startAt))[0]
   const conversations = remote?.inbox?.data || []
@@ -352,6 +360,45 @@ export default function AthleteToday() {
           <div><span className="dashboard-kicker">Resumo</span><h2 id="today-summary-title">Seu dia</h2></div>
           {local.weekly?.planned > 0 && <Badge tone={local.weekly.done >= local.weekly.planned ? 'success' : 'neutral'}>{local.weekly.done}/{local.weekly.planned} na semana</Badge>}
         </div>
+
+        {activeChallenge && (
+          <Card className="athlete-summary-card athlete-challenge-summary-card">
+            <div className="dashboard-section-heading">
+              <div>
+                <span className="dashboard-kicker">Desafio da comunidade</span>
+                <h3>{activeChallenge.title}</h3>
+              </div>
+              <Icon name="trophy" aria-hidden="true" />
+            </div>
+            {activeChallenge.description && (
+              <p className="pro-routine-note" style={{ margin: "4px 0 8px" }}>
+                {activeChallenge.description}
+              </p>
+            )}
+            <div className="athlete-target-pills" aria-label="Detalhes do desafio">
+              <Badge tone="success">Ativo</Badge>
+              <span className="athlete-target-pill">
+                {activeChallenge.type === "workouts_count"
+                  ? "Contagem de treinos"
+                  : activeChallenge.type === "volume_load"
+                    ? "Volume de carga"
+                    : activeChallenge.type === "habits_consistency"
+                      ? "Consistência de hábitos"
+                      : "Pontos"}
+              </span>
+              {activeChallenge.endAt && (
+                <span className="athlete-target-pill">
+                  Termina em {new Date(activeChallenge.endAt).toLocaleDateString("pt-BR")}
+                </span>
+              )}
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <Button variant="ghost" onClick={() => navigate("/athlete/challenges")}>
+                Ver classificação e progresso
+              </Button>
+            </div>
+          </Card>
+        )}
 
         {loading && !remote ? <div className="dashboard-loading-grid athlete-remote-loading" aria-label="Carregando resumos"><Skeleton height="8rem" /><Skeleton height="8rem" /></div> : <>
           {plan && <Card className="athlete-summary-card">

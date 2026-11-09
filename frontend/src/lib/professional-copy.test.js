@@ -33,7 +33,18 @@ describe('professionalText', () => {
   })
 
   it('keeps every shipped professional UI string complete in PT-BR', () => {
-    const sources = ['views/ProfessionalHub.jsx', 'views/NutritionPanel.jsx', 'views/Settings.jsx', 'views/coach/CoachGroupsView.jsx']
+    const sources = [
+      'views/ProfessionalHub.jsx',
+      'views/NutritionPanel.jsx',
+      'views/Settings.jsx',
+      'views/coach/CoachGroupsView.jsx',
+      'views/coach/CoachGroupProgramsView.jsx',
+      'views/coach/CoachChallengesView.jsx',
+      'views/athlete/AthleteGroupsView.jsx',
+      'views/athlete/AthleteGroupProgramsView.jsx',
+      'views/athlete/AthleteChallengesView.jsx',
+      'views/CommunityHub.jsx',
+    ]
       .flatMap(file => [...fs.readFileSync(path.join(SRC, file), 'utf8').matchAll(/\bp\('([^']+)'/g)].map(match => match[1]))
     expect([...new Set(sources)].filter(source => !PROFESSIONAL_PT_BR[source])).toEqual([])
   })

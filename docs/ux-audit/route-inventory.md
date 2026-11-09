@@ -33,7 +33,7 @@ Todas as rotas de view passam primeiro pelo shell global: sem conta ou modo loca
 | `/coach/challenges` | Profissional (`kind=coach`), incl. Nutricionista | Configurações | — | `CoachChallengesView` | lazy | shell: conta ou modo local; guard de papel no router |
 | `/coach/programs` | Profissional (`kind=coach`), incl. Nutricionista | Configurações | — | `CoachGroupProgramsView` | lazy | shell: conta ou modo local; guard de papel no router |
 | `/athlete/groups` | Atleta; dual-role no modo atleta | Configurações | — | `AthleteGroupsView` | lazy | shell: conta ou modo local; sem guard de papel no router; API protege mutações |
-| `/athlete/challenges` | Atleta; dual-role no modo atleta | Configurações | — | `AthleteChallengesView` | lazy | shell: conta ou modo local; sem guard de papel no router; API protege mutações |
+| `/athlete/challenges` | Atleta; dual-role no modo atleta | Configurações, AthleteToday | — | `AthleteChallengesView` | lazy | shell: conta ou modo local; sem guard de papel no router; API protege mutações |
 | `/athlete/programs` | Atleta; dual-role no modo atleta | Configurações | — | `AthleteGroupProgramsView` | lazy | shell: conta ou modo local; sem guard de papel no router; API protege mutações |
 | `/community` | Atleta, profissional e dual-role | tab bar, AthleteChallengesView, AthleteGroupProgramsView, AthleteGroupsView, CoachChallengesView | — | `CommunityHub` | lazy | shell: conta ou modo local; modo/papel decidido dentro da view |
 | `/join` | Atleta; dual-role no modo atleta | deep link / sem origem estática encontrada | — | `AthleteGroupsView` | lazy | shell: conta ou modo local |
