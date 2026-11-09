@@ -230,7 +230,7 @@ body{
 @media (display-mode: standalone){body{min-height:100lvh}}
 button{font:inherit;color:inherit;background:none;border:none;cursor:pointer;letter-spacing:inherit}
 input,select,textarea{font:inherit;color:var(--label);letter-spacing:inherit}
-img{max-width:100%}
+img,video,canvas,iframe{max-width:100%}
 a{color:var(--acc-ink);text-decoration:none}
 :focus{outline:none}
 :focus-visible{outline:2.5px solid var(--acc-ink);outline-offset:2px;border-radius:6px}
@@ -277,8 +277,9 @@ button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp butto
 /* ---------------------------------------------------------------- layout -- */
 #app{
   padding:calc(var(--sat) + var(--conn) + 8px) var(--pad) calc(88px + var(--sab));
-  max-width:560px;margin:0 auto;
+  max-width:560px;margin:0 auto;width:100%;min-width:0;overflow-x:clip;
 }
+body:has(.shell-dual-role-bar) #app{padding-top:calc(var(--conn) + 8px)}
 /* Android 15 with the keyboard up: room to scroll the last field on a page above the keys.
    The tab bar stays where it is, under the keyboard, rather than riding up on it. */
 :root[data-native-kb] #app,:root[data-native-kb] body.resting #app,:root[data-native-kb] body.no-tabbar.resting #app{padding-bottom:calc(88px + var(--native-kb))}
@@ -587,9 +588,11 @@ h4.sec{
    but .btn.ghost outranked .dim, so they all came out in the accent, as loud as the action above
    them. Secondary grey, not the tertiary .dim: these are still words to read (design review 1.4.5). */
 .btn.ghost.dim,.btn.plain.dim{color:var(--label-2)}
+.btn.sm,.btn.xs{position:relative}
 .btn.sm{padding:8px 14px;width:auto;font-size:var(--fs-subhead);border-radius:var(--r-sm);gap:5px}
 .btn.sm .icn{font-size:var(--fs-callout)}
 .btn.xs{padding:5px 10px;width:auto;font-size:var(--fs-footnote);border-radius:7px;gap:4px}
+.btn.sm::before,.btn.xs::before{content:'';position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);min-width:44px;min-height:44px;width:100%;height:100%}
 .btn:disabled{opacity:.32;pointer-events:none}
 .weekly-volume-toggle{padding-block:0}
 .weekly-volume-toggle .icn{transition:transform var(--fast) var(--ease)}
@@ -605,7 +608,7 @@ h4.sec{
 #tabbar{
   position:fixed;inset-inline-start:0;inset-inline-end:0;bottom:0;z-index:50;
   display:flex;justify-content:space-around;align-items:flex-end;
-  padding:7px 6px calc(6px + var(--sab));
+  padding:7px 6px max(calc(6px + var(--sab)), var(--ds-space-3, 12px));
   background:var(--bg-el);background:color-mix(in srgb,var(--bg-el) 94%,transparent);
   -webkit-backdrop-filter:saturate(180%) blur(10px);backdrop-filter:saturate(180%) blur(10px);
   border-top:var(--hair) solid var(--sep-op);
@@ -675,7 +678,7 @@ h4.sec{
    is missing; a browser that has it keeps the bars see-through even with Reduce Transparency on.
    Same opaque fills, on every translucent surface. */
 @media (prefers-reduced-transparency: reduce){
-  #tabbar,#timer,#toast,.conn-bar,.whdr.stick,.stats-index,.shell-dual-role-bar{-webkit-backdrop-filter:none;backdrop-filter:none}
+  #tabbar,#timer,#toast,.conn-bar,.whdr.stick,.stats-index,.shell-dual-role-bar,.pwa-banner{-webkit-backdrop-filter:none;backdrop-filter:none}
   #tabbar{background:var(--bg-el)}
   :root[data-theme="light"] #tabbar{background:#f9f9fb}
   #timer{background:var(--surface-raised)}
@@ -683,6 +686,8 @@ h4.sec{
   .conn-bar,.whdr.stick,.stats-index{background:var(--bg)}
   .shell-dual-role-bar{background:var(--bg-el, var(--ds-surface-base, #121814))}
   :root[data-theme="light"] .shell-dual-role-bar{background:#f9f9fb}
+  .pwa-banner{background:var(--bg-el, #0e0e10)}
+  :root[data-theme="light"] .pwa-banner{background:#f9f9fb}
   /* The badges over an animation and the dim behind a sheet: no frost, and the badge gets a
      darker pill so its white text no longer depends on what the picture shows behind it. */
   .exmedia .gifhint,.exmedia .giftoggle,.mback{-webkit-backdrop-filter:none;backdrop-filter:none}
@@ -1350,7 +1355,7 @@ button.whdr-gym{color:var(--acc-ink);cursor:pointer}
   position:absolute;inset-inline-end:5px;top:5px;width:20px;height:20px;border-radius:99px;
   display:flex;align-items:center;justify-content:center;background:var(--acc);color:#fff;font-size:var(--fs-caption2);
 }
-.pp-cta{position:sticky;bottom:calc(var(--sab) + 10px);display:flex;justify-content:center;margin-top:14px}
+.pp-cta{position:sticky;bottom:max(calc(var(--sab) + 10px), var(--ds-space-3, 12px));display:flex;justify-content:center;margin-top:14px}
 .pp-compare{position:relative;flex:1;min-height:0;overflow:hidden;background:#000;touch-action:none}
 .pp-img{
   position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#000;
@@ -1893,7 +1898,7 @@ button.whdr-gym{color:var(--acc-ink);cursor:pointer}
    inside it. */
 body.no-tabbar #timer{
   inset-inline-start:0;inset-inline-end:0;bottom:0;
-  border-radius:var(--r-xl) var(--r-xl) 0 0;padding:14px 14px calc(10px + var(--sab));
+  border-radius:var(--r-xl) var(--r-xl) 0 0;padding:14px 14px max(calc(10px + var(--sab)), var(--ds-space-3, 12px));
   box-shadow:inset 0 var(--hair) 0 var(--raised-line),0 -10px 30px -14px rgba(0,0,0,.55);
 }
 body.no-tabbar #timer.working{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10px 30px -14px rgba(0,0,0,.55)}
@@ -1945,13 +1950,13 @@ body.no-tabbar #timer.countin{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 .sheet{
   position:absolute;inset-inline-start:0;inset-inline-end:0;bottom:0;background:var(--bg-el);
   border-radius:var(--r-xl) var(--r-xl) 0 0;
-  padding:8px 18px calc(20px + var(--sab));
+  padding:8px 18px max(calc(20px + var(--sab)), var(--ds-space-5, 20px));
   /* A tall sheet stops short of the status bar / Dynamic Island: every cap carries the top
      safe-area inset, which the layout viewport does not (viewport-fit=cover). */
   max-height:90vh;max-height:min(90vh,calc(100dvh - var(--sat) - 8px - var(--native-kb,0px)));
   /* overflow-y:auto alone makes overflow-x auto as well, so one child wider than the sheet (the
      iOS 27 date input, #809) turned into a sideways scrollbar. A sheet only ever scrolls down. */
-  overflow-y:auto;overflow-x:hidden;scroll-padding-bottom:calc(20px + var(--sab));
+  overflow-y:auto;overflow-x:hidden;scroll-padding-bottom:max(calc(20px + var(--sab)), var(--ds-space-5, 20px));
   animation:sheetup .34s var(--ease);
   overscroll-behavior:contain;touch-action:pan-y;will-change:transform;
 }
@@ -3284,7 +3289,7 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
   background: var(--bg-el, var(--ds-surface-base, #121814));
   background: color-mix(in srgb, var(--bg-el, #121814) 94%, transparent);
   border-bottom: 1px solid var(--sep, var(--ds-border-subtle, #2d3931));
-  padding: 4px 12px;
+  padding: calc(var(--sat) + 4px) 12px 4px;
   -webkit-backdrop-filter: saturate(180%) blur(10px);
   backdrop-filter: saturate(180%) blur(10px);
 }
@@ -3368,3 +3373,69 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 .measure-group{margin:0 0 4px;padding:0;border:none}.measure-group legend{padding:0;margin:0 0 8px;font-weight:700;font-size:var(--fs-footnote);color:var(--label-2);text-transform:uppercase;letter-spacing:0.03em}
 .measure-group .measure-field{min-width:0}.measure-form .measure-group{display:contents}
 .measure-form .measure-group{display:grid;grid-template-columns:1fr 1fr;gap:11px 10px;grid-column:1/-1}
+
+/* PWA update banner and pagination touch targets */
+.pwa-banner {
+  position: fixed;
+  bottom: max(calc(72px + var(--sab)), var(--ds-space-16, 64px));
+  inset-inline-start: 50%;
+  transform: translateX(-50%);
+  width: min(calc(100% - 24px), 480px);
+  z-index: 48;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-radius: var(--r, 12px);
+  background: var(--bg-el, #0e0e10);
+  background: color-mix(in srgb, var(--bg-el, #0e0e10) 96%, transparent);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  backdrop-filter: saturate(180%) blur(12px);
+  color: var(--label, #ffffff);
+  border: 1px solid var(--sep, rgba(84,84,88,0.6));
+  box-shadow: 0 8px 24px -4px rgba(0,0,0,0.45);
+}
+:root[data-theme="light"] .pwa-banner {
+  background: rgba(249, 249, 251, 0.96);
+  border-color: var(--sep-op, rgba(60,60,67,0.2));
+  color: var(--label, #000000);
+}
+body.no-tabbar .pwa-banner {
+  bottom: max(calc(20px + var(--sab)), var(--ds-space-4, 16px));
+}
+.pwa-banner-copy {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-subhead, 15px);
+  font-weight: 500;
+  min-width: 0;
+}
+.pwa-banner-copy span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pwa-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.pagination button, .pager button, .page-btn, .focus-pager>button {
+  position: relative;
+  min-width: 44px;
+  min-height: 44px;
+}
+.pagination button::before, .pager button::before, .page-btn::before, .focus-pager>button::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  min-width: 44px;
+  min-height: 44px;
+  width: 100%;
+  height: 100%;
+}

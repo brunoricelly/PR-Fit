@@ -47,6 +47,8 @@
   --ds-space-10: 2.5rem;
   --ds-space-12: 3rem;
   --ds-space-16: 4rem;
+  --ds-safe-area-top: var(--sat, 0px);
+  --ds-safe-area-bottom: var(--sab, 0px);
 
   /* Typography */
   --ds-font-family-sans: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -405,6 +407,8 @@ button.ds-card:active,
   display: grid;
   align-items: end;
   padding: var(--ds-space-3);
+  padding-top: max(var(--sat, 0px), var(--ds-space-3));
+  padding-bottom: max(var(--sab, 0px), var(--ds-space-3));
   background: var(--ds-backdrop);
   overscroll-behavior: contain;
   animation: ds-fade-in var(--ds-motion-duration-fast) var(--ds-motion-ease-standard);
@@ -412,7 +416,7 @@ button.ds-card:active,
 
 .ds-modal {
   width: min(100%, 38rem);
-  max-height: min(90dvh, 48rem);
+  max-height: min(calc(100dvh - var(--sat, 0px) - var(--sab, 0px) - var(--ds-space-6)), 48rem);
   margin-inline: auto;
   overflow: auto;
   overscroll-behavior: contain;
@@ -428,9 +432,11 @@ button.ds-card:active,
   width: min(100%, 32rem);
   margin-inline-end: 0;
   border-radius: var(--ds-radius-xl) 0 0 var(--ds-radius-xl);
+  padding-top: max(var(--sat, 0px), var(--ds-space-3));
+  padding-bottom: max(var(--sab, 0px), var(--ds-space-4));
   animation: ds-slide-left-drawer var(--ds-motion-duration-base) var(--ds-motion-ease-standard);
 }
-.ds-modal-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--ds-space-3); padding: var(--ds-space-4) var(--ds-space-4) var(--ds-space-3); background: var(--ds-surface-overlay); border-bottom: 1px solid var(--ds-border-subtle); }
+.ds-modal-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--ds-space-3); padding: max(var(--sat, 0px), var(--ds-space-4)) var(--ds-space-4) var(--ds-space-3); background: var(--ds-surface-overlay); border-bottom: 1px solid var(--ds-border-subtle); }
 .ds-modal-head h2 { flex: 1; min-width: 0; margin: 0; font-size: var(--ds-font-size-xl); line-height: var(--ds-line-height-tight); }
 .ds-modal-body {
   padding: var(--ds-space-4);
@@ -606,7 +612,7 @@ button.ds-card:active,
 
 @media (min-width: 48rem) {
   .ds-page-header { grid-template-columns: minmax(0, 1fr) auto; align-items: end; }
-  .ds-modal-backdrop { align-items: center; padding: var(--ds-space-6); }
+  .ds-modal-backdrop { align-items: center; padding: max(var(--sat, 0px), var(--ds-space-6)) var(--ds-space-6) max(var(--sab, 0px), var(--ds-space-6)); }
   .ds-modal { border-radius: var(--ds-radius-xl); }
 }
 

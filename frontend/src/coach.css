@@ -61,7 +61,7 @@
 .ob-consent-row b{display:block;font-size:var(--fs-subhead);font-weight:600;margin-bottom:2px;letter-spacing:-.008em}
 .ob-consent-row span{font-size:var(--fs-footnote);color:var(--label-2);line-height:1.4}
 .ob-fine{font-size:var(--fs-footnote);color:var(--label-2);line-height:1.5;display:grid;gap:8px;margin-bottom:20px}
-.ob-foot{position:sticky;bottom:calc(58px + var(--sab));padding:30px 0 14px;background:linear-gradient(to top,var(--bg) 58%,transparent);display:flex;gap:10px;margin-top:18px}
+.ob-foot{position:sticky;bottom:max(calc(58px + var(--sab)), var(--ds-space-4, 16px));padding:30px 0 14px;background:linear-gradient(to top,var(--bg) 58%,transparent);display:flex;gap:10px;margin-top:18px}
 .ob-foot .btn{font-size:var(--fs-body);padding:15px 18px;border-radius:var(--r-lg)}
 .ob-hint{text-align:center;font-size:var(--fs-footnote);color:var(--label-3);margin-top:8px}
 
@@ -158,7 +158,7 @@
 /* composer */
 .composer{
   position:fixed;left:0;right:0;bottom:0;z-index:40;
-  padding:8px var(--pad) calc(10px + var(--sab));
+  padding:8px var(--pad) max(calc(10px + var(--sab)), var(--ds-space-3, 12px));
   background:var(--bg);background:color-mix(in srgb,var(--bg) 88%,transparent);
   -webkit-backdrop-filter:saturate(180%) blur(12px);backdrop-filter:saturate(180%) blur(12px)
 }

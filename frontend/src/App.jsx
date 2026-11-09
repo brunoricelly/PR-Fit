@@ -46,6 +46,7 @@ import ErrorBoundary from './components/ErrorBoundary.jsx'
 import Modals from './components/Modals.jsx'
 import Toast from './components/Toast.jsx'
 import SyncBanner from './components/SyncBanner.jsx'
+import PwaBanner from './components/PwaBanner.jsx'
 import RestTimer from './components/RestTimer.jsx'
 import TimerFlash from './components/TimerFlash.jsx'
 import { SeasonalLayer } from './components/Seasonal.jsx'
@@ -389,6 +390,7 @@ function Shell() {
           would ride along with the page for the length of it. Decides for itself when to show —
           including on the sign-in screen, when the server has just ended the session. */}
       <SyncBanner />
+      <PwaBanner />
       {!noTabs && <TabBar onStart={startFlow} />}
       {!noTabs && authed && <ScrollTopButton off={loc.pathname === '/workout'} path={loc.pathname} />}
       <RestTimer />

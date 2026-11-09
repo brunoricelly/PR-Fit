@@ -1,0 +1,35 @@
+{
+  "id": "./",
+  "name": "PR Fit",
+  "short_name": "PR Fit",
+  "description": "Personal gym & body weight tracker",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "portrait",
+  "background_color": "#0c0e12",
+  "theme_color": "#0c0e12",
+  "lang": "en",
+  "dir": "ltr",
+  "categories": ["fitness", "health", "sports"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Workout",
+      "short_name": "Workout",
+      "url": "./#/workout",
+      "icons": [{ "src": "icon-180.png", "sizes": "180x180" }]
+    },
+    {
+      "name": "Plan",
+      "short_name": "Plan",
+      "url": "./#/plan",
+      "icons": [{ "src": "icon-180.png", "sizes": "180x180" }]
+    }
+  ]
+}

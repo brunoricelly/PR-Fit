@@ -308,7 +308,13 @@ const NET_WAIT_MS = 3000
 // The build's own chunks and stylesheets (assets/<name>-<hash>.js|css): the name changes whenever
 // the content does, so a copy in this build's cache is the file, and a start serves them from
 // here instead of asking the network about each of them again (40-odd round trips before Home).
-const isHashedAsset = p => /\/assets\/[^/]+-[A-Za-z0-9_-]{8}\.(?:js|css)$/.test(p)
+const isHashedAsset = p => /\/assets\/[^/]+-[A-Za-z0-9_-]{8,}\.(?:js|css)$/.test(p)
+
+self.addEventListener('message', e => {
+  if (e.data && (e.data === 'skipWaiting' || e.data.type === 'SKIP_WAITING')) {
+    self.skipWaiting()
+  }
+})
 const cacheFirst = e => caches.match(e.request, { ignoreSearch: true }).then(hit => hit || fetch(e.request).then(res => {
   // Only a real answer is kept: an auth proxy's login page would otherwise stand in for the chunk
   // for the rest of this build.
@@ -343,7 +349,7 @@ self.addEventListener('fetch', e => {
   // cache fallback with it). A request the cache cannot answer keeps waiting for the network, as
   // it always did; and the network's answer, whenever it comes, still refreshes the cache.
   const fromCache = () => caches.match(e.request, { ignoreSearch: true }).then(hit =>
-    hit || (e.request.mode === 'navigate' ? caches.match('index.html') : undefined))
+    hit || (e.request.mode === 'navigate' ? caches.match('index.html').then(h => h || caches.match('./index.html') || caches.match('./')) : undefined))
   e.respondWith(new Promise(resolve => {
     const slow = setTimeout(() => fromCache().then(hit => { if (hit) resolve(hit) }, () => {}), NET_WAIT_MS)
     fetch(e.request).then(res => {

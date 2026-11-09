@@ -1,6 +1,6 @@
 .dashboard-page {
   min-height: 100%;
-  padding: var(--ds-space-5) var(--ds-space-4) calc(7rem + env(safe-area-inset-bottom));
+  padding: max(var(--sat, 0px), var(--ds-space-5)) var(--ds-space-4) calc(7rem + var(--sab, 0px));
   background: var(--ds-surface-page);
 }
 
@@ -104,7 +104,7 @@
 }
 
 @media (min-width: 48rem) {
-  .dashboard-page { padding: var(--ds-space-8) var(--ds-space-6) calc(8rem + env(safe-area-inset-bottom)); }
+  .dashboard-page { padding: max(var(--sat, 0px), var(--ds-space-8)) var(--ds-space-6) calc(8rem + var(--sab, 0px)); }
   .dashboard-page .ds-page-header-actions .ds-button { width: auto; }
   .dashboard-priority-grid { grid-template-columns: minmax(0, 1.15fr) minmax(18rem, .85fr); }
   .dashboard-pulse-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }

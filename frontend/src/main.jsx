@@ -13,6 +13,7 @@ import './index.css'
 import './design-system.css'
 import { hideBoot, handOverFromLaunchScreen } from './lib/boot.js'
 import { guardFocusZoom } from './lib/viewport-zoom.js'
+import { initPwa } from './lib/pwa.js'
 
 // App.jsx restores per-route scroll itself; the browser's own attempt races it.
 // A script that dies before the app draws would otherwise leave the boot logo lifting forever.
@@ -37,8 +38,8 @@ startMediaSync(useStore)
 startNativeKeyboard()
 
 // Not in the mobile build: the native shell already serves everything from disk.
-if (!MOBILE && 'serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {})
+if (!MOBILE && 'serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1')) {
+  initPwa()
   // The plan's exercise media, kept by the worker for a workout opened without a network (#281).
   // It only fetches ahead while the page runs as the installed app; a tab keeps what it has shown.
   import('./lib/media-prefetch.js').then(m => m.startMediaPrefetch(useStore)).catch(() => {})
