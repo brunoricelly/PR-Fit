@@ -208,6 +208,8 @@ html{
   /* 100%, not 16px: the reader's own text size is the root every rem in the type scale grows from (P1). */
   font-size:100%;background:var(--bg);overscroll-behavior:none;overflow-x:clip;
   -webkit-text-size-adjust:100%;
+  scroll-padding-top:calc(var(--sat) + var(--conn) + 16px);
+  scroll-padding-bottom:max(calc(88px + var(--sab)), 24px);
 }
 body{
   background:var(--bg);color:var(--label);
@@ -234,6 +236,15 @@ img,video,canvas,iframe{max-width:100%}
 a{color:var(--acc-ink);text-decoration:none}
 :focus{outline:none}
 :focus-visible{outline:2.5px solid var(--acc-ink);outline-offset:2px;border-radius:6px}
+.skip-link{
+  position:fixed;z-index:10000;inset-block-start:max(8px,var(--sat));inset-inline-start:12px;
+  min-height:44px;padding:10px 14px;border:2px solid var(--acc-ink);border-radius:10px;
+  background:var(--surface-raised);color:var(--label);font-weight:700;
+  transform:translateY(calc(-100% - var(--sat) - 20px));transition:transform .15s var(--ease);
+}
+.skip-link:focus-visible{transform:translateY(0)}
+#main-content{scroll-margin-top:16px}
+#main-content:focus{outline:none}
 button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp button,.sld
 {-webkit-user-select:none;user-select:none}
 
@@ -245,6 +256,11 @@ button,.chip,.tile,.item,.wday,.cal-d,.swatch,.hm-c,.lrow,.seg button,.stp butto
 }
 
 @media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}
+@media (forced-colors:active){
+  :focus-visible,.tap-main:focus-visible::after,#totop:focus-visible{outline:3px solid Highlight!important;box-shadow:none!important}
+  button,input,select,textarea,.card,.ds-card,.ds-surface{border-color:CanvasText!important}
+  .skip-link{background:Canvas;color:CanvasText;border-color:Highlight}
+}
 
 /* ------------------------------------------------------------ type scale -- */
 /* The roles are the --fs-* tokens at the top. These classes carry a role's size, leading and
@@ -1214,6 +1230,8 @@ button.whdr-gym{color:var(--acc-ink);cursor:pointer}
 .wvol{flex:none;font-size:var(--fs-caption);line-height:12px;color:var(--label-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 .exmedia{position:relative;border-radius:var(--r-lg);overflow:hidden;background:#fff;margin-bottom:12px}
 .exmedia img{width:100%;height:320px;object-fit:contain;display:block}
+.exmedia .exmedia-action{position:absolute;inset:0;width:100%;height:100%;border-radius:var(--r-lg)}
+.exmedia .exmedia-action:focus-visible::after{outline-offset:-4px;border-radius:var(--r-lg)}
 .exmedia .gifhint,.exmedia .giftoggle{
   position:absolute;bottom:9px;display:inline-flex;align-items:center;gap:4px;
   background:rgba(0,0,0,.45);color:#fff;border-radius:99px;padding:5px 11px;
@@ -3293,6 +3311,7 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
   -webkit-backdrop-filter: saturate(180%) blur(10px);
   backdrop-filter: saturate(180%) blur(10px);
 }
+:root:has(.shell-dual-role-bar){scroll-padding-top:calc(var(--sat) + var(--conn) + 68px)}
 :root[data-theme="light"] .shell-dual-role-bar {
   background: rgba(249, 249, 251, 0.94);
 }

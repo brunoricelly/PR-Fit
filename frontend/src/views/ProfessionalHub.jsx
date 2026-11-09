@@ -837,6 +837,15 @@ function CoachNutritionWorkspace({ user }) {
         </div>
         <NutritionPanel athleteId={selectedLink.athlete.id} />
       </div>
+      {links.filter(link => link.athlete.id !== selectedLink.athlete.id).map(link => (
+        <div
+          key={link.id}
+          id={`nutrition-athlete-panel-${link.athlete.id}`}
+          role="tabpanel"
+          aria-labelledby={`nutrition-athlete-tab-${link.athlete.id}`}
+          hidden
+        />
+      ))}
     </section>
   )
 }
@@ -1195,7 +1204,7 @@ export default function ProfessionalHub() {
   if (!user) return null
   const coach = user.profile?.kind === 'coach'
   const hasNutrition = coach && (user?.profile?.coachSpecialties?.includes('nutrition') || user?.coachSpecialties?.includes('nutrition'))
-  return <main className="narrow pro-page">
+  return <div className="narrow pro-page">
     <div className="pro-nav"><button data-back="/settings" onClick={() => navigate('/settings')}><Icon name="chevronLeft" />{p('Settings')}</button></div>
     <header className="pro-hero"><div><span className="pro-kicker">{p('Professional relationships')}</span>
       <h1>{coach ? p('My athletes') : p('My professionals')}</h1>
@@ -1203,7 +1212,7 @@ export default function ProfessionalHub() {
       <Icon name={coach ? 'person' : 'shield'} />
     </header>
     <ProfileSetup user={user} />
-    <nav className="pro-sched-nav" role="tablist" style={{ marginTop: 12 }}>
+    <nav className="pro-sched-nav" role="tablist" aria-label={p('Professional relationships')} style={{ marginTop: 12 }}>
       <button
         id="professional-tab-relationships"
         role="tab"
@@ -1288,5 +1297,8 @@ export default function ProfessionalHub() {
         </>
       )}
     </section>
-  </main>
+    {['relationships', 'scheduling', 'community', ...(hasNutrition ? ['nutrition'] : [])]
+      .filter(panel => panel !== tab)
+      .map(panel => <section key={panel} id={`professional-panel-${panel}`} role="tabpanel" aria-labelledby={`professional-tab-${panel}`} hidden />)}
+  </div>
 }

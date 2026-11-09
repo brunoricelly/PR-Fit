@@ -69,10 +69,10 @@ export function CfAccessSheet({ close, server = '' }) {
       {t('Sent only to {0}, never to another server.', new URL(origin).host)}
     </div>}
     <div style={{ height: 10 }} />
-    <input className="input" placeholder="CF-Access-Client-Id" value={clientId} onFocus={onFocus}
+    <input className="input" aria-label={`${t('Cloudflare Access')} · ID`} placeholder="CF-Access-Client-Id" value={clientId} onFocus={onFocus}
       onChange={e => setClientId(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} />
     <div style={{ height: 10 }} />
-    <input className="input" type="password" placeholder="CF-Access-Client-Secret" value={clientSecret} onFocus={onFocus}
+    <input className="input" type="password" aria-label={`${t('Cloudflare Access')} · ${t('API key')}`} placeholder="CF-Access-Client-Secret" value={clientSecret} onFocus={onFocus}
       onChange={e => setClientSecret(e.target.value)} autoCapitalize="none" autoCorrect="off" spellCheck={false} autoComplete="off" />
     <div style={{ height: 12 }} />
     <Button variant="primary" onClick={() => save(clientId, clientSecret)} disabled={busy}>{t('Save')}</Button>
@@ -121,13 +121,13 @@ export function ConnectSheet({ close, initialUrl = '', again = false }) {
         ? t('Open Settings → Account → “Pair the mobile app” on your openGym site in a browser and enter the new code shown there. What this phone kept is merged into your account.')
         : t('Open Settings → Account → “Pair the mobile app” on the openGym site you’re already signed into, then enter its address and the code shown there.')}
     </div>
-    <input ref={ref} className="input" placeholder={t('Server address (e.g. gym.example.com)')} value={url}
+    <input ref={ref} className="input" aria-label={t('Server address (e.g. gym.example.com)')} placeholder={t('Server address (e.g. gym.example.com)')} value={url}
       onFocus={onFocus} onChange={e => setUrl(e.target.value)} autoCapitalize="none" autoCorrect="off" inputMode="url" />
     {plainHttp(url) && <div className="dim small" role="note" style={{ marginTop: 8, lineHeight: 1.45 }}>
       {t('Plain http:// isn’t encrypted. Fine on your home network, but use https:// if your server is reachable from the internet.')}
     </div>}
     <div style={{ height: 10 }} />
-    <input ref={codeRef} className="input" placeholder={t('Pairing code')} maxLength={8} value={code}
+    <input ref={codeRef} className="input" aria-label={t('Pairing code')} placeholder={t('Pairing code')} maxLength={8} value={code}
       onFocus={onFocus} onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
     {error && <div className="small" role="alert" style={{ color: 'var(--red)', marginTop: 10, lineHeight: 1.45, overflowWrap: 'anywhere' }}>{error}</div>}
     <div style={{ height: 12 }} />

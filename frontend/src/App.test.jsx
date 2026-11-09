@@ -265,19 +265,18 @@ describe('Dual-Role Mode Switching & Persistence', () => {
     expect(localStorage.getItem('prfit_active_role_dual_coach_1')).toBe('coach')
   })
 
-  it('renders RoleSwitcher with accessible tablist, state, and touch targets >= 44x44px', async () => {
+  it('renders RoleSwitcher as a named mode control with pressed state', async () => {
     const onSwitch = vi.fn()
     await mount(<RoleSwitcher activeRole="coach" onSwitch={onSwitch} />)
 
-    const switcher = host.querySelector('[role="tablist"]')
+    const switcher = host.querySelector('[role="group"]')
     expect(switcher).toBeTruthy()
     expect(switcher.getAttribute('aria-label')).toBe('Alternar papel')
 
-    const coachTab = host.querySelector('#role-tab-coach')
-    const athleteTab = host.querySelector('#role-tab-athlete')
+    const [coachTab, athleteTab] = host.querySelectorAll('.ds-role-tab')
 
-    expect(coachTab.getAttribute('aria-selected')).toBe('true')
-    expect(athleteTab.getAttribute('aria-selected')).toBe('false')
+    expect(coachTab.getAttribute('aria-pressed')).toBe('true')
+    expect(athleteTab.getAttribute('aria-pressed')).toBe('false')
     expect(coachTab.hasAttribute('aria-controls')).toBe(false)
     expect(athleteTab.hasAttribute('aria-controls')).toBe(false)
 
@@ -337,9 +336,9 @@ describe('Dual-Role Mode Switching & Persistence', () => {
     mocks.user = coachUser
     await mount(<CommunityHub />, '/community')
 
-    const switcher = host.querySelector('[role="tablist"][aria-label="Alternar visão"]')
+    const switcher = host.querySelector('[role="group"][aria-label="Alternar visão"]')
     expect(switcher).toBeTruthy()
-    expect(switcher.querySelectorAll('[role="tab"]')).toHaveLength(2)
+    expect(switcher.querySelectorAll('button[aria-pressed]')).toHaveLength(2)
     expect(switcher.textContent).toContain('Visão do treinador')
     expect(switcher.textContent).toContain('Visão do atleta')
   })

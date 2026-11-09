@@ -25,7 +25,7 @@ export default class ErrorBoundary extends Component {
       <div className="narrow">
         <div className="empty" style={{ marginTop: '18vh' }}>
           <div className="ico"><Icon name="info" /></div>
-          <div style={{ fontWeight: 600, marginBottom: 6 }}>{t('Something went wrong')}</div>
+          <h1 style={{ fontWeight: 600, marginBottom: 6 }}>{t('Something went wrong')}</h1>
           {t('This screen could not be drawn. Your data is safe on this device.')}
         </div>
         <Button variant="primary" icon="reset" onClick={() => location.reload()}>{t('Reload openGym')}</Button>

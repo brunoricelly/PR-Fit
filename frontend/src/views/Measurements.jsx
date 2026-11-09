@@ -265,7 +265,7 @@ export default function Measurements() {
     </div>}
 
     <div className="row between" style={{ margin: '18px 2px 10px' }}>
-      <h4 className="sec" style={{ margin: 0 }}>{t('Measurement history')}</h4>
+      <h2 className="sec" style={{ margin: 0 }}>{t('Measurement history')}</h2>
       <Button size="sm" variant="ghost" icon="gear" onClick={manageMeasurementsSheet}>{t('Fields')}</Button>
     </div>
     {recent.length ? <div className="list">{recent.map(entry => {

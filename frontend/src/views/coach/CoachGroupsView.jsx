@@ -34,7 +34,7 @@ import {
 import '../GroupChallenges.css'
 import './CoachGroupsView.css'
 
-export default function CoachGroupsView({ embedded = false }) {
+export default function CoachGroupsView({ embedded = false, headingLevel }) {
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
   const [groups, setGroups] = useState([])
@@ -244,14 +244,14 @@ export default function CoachGroupsView({ embedded = false }) {
     return groups.filter(group => group.name.toLowerCase().includes(query) || group.category?.toLowerCase().includes(query))
   }, [groups, search])
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
   const maxMembersNum = Number(createForm.maxMembers)
   const isMaxMembersValid = createForm.maxMembers !== '' && !isNaN(maxMembersNum) && maxMembersNum >= 1 && maxMembersNum <= 500
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
       {!embedded && <div className="pro-nav"><button type="button" onClick={() => navigate('/community')}><Icon name="chevronLeft" /><span>{p('Community')}</span></button></div>}
-      <PageHeader className="gc-header" eyebrow={p('Community')} title={p('Groups')} description={p('Create and manage community groups for your athletes, share challenges, and build team spirit.')} />
+      <PageHeader className="gc-header" eyebrow={p('Community')} title={p('Groups')} description={p('Create and manage community groups for your athletes, share challenges, and build team spirit.')} headingLevel={headingLevel ?? (embedded ? 2 : 1)} />
 
       <div className="gc-toolbar">
         <div className="gc-search-box"><Field label={p('Search groups')}><Input name="groupSearch" type="search" value={search} placeholder={p('Search groups…')} onChange={event => setSearch(event.target.value)} /></Field></div>

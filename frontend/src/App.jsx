@@ -7,7 +7,7 @@ import { bindUI } from './components/ui.jsx'
 import { setWeightDecimals } from './lib/format.js'
 import { accentValue, applyAccent } from './lib/accent.js'
 import { seasonAccent } from './lib/seasonal.js'
-import { setLang, useLang, baseLang } from './lib/i18n.js'
+import { setLang, useLang, baseLang, t } from './lib/i18n.js'
 import { effectiveLang } from './lib/default-lang.js'
 import { setPlayOnSilent, setVibrate, setAlarmBuzzer, setNativeBuzzer } from './lib/sound.js'
 import { buzzAsAlarm } from './lib/rest-alert.js'
@@ -367,6 +367,19 @@ function Shell() {
 
   return (
     <>
+      <a
+        className="skip-link"
+        href="#main-content"
+        onClick={event => {
+          const main = document.getElementById('main-content')
+          if (!main) return
+          event.preventDefault()
+          main.focus({ preventScroll: true })
+          main.scrollIntoView({ block: 'start' })
+        }}
+      >
+        {t('Skip to main content')}
+      </a>
       {authed && isDual && !inWorkout && (
         <aside className="shell-dual-role-bar" aria-label="Controle de papel do usuário">
           <div className="shell-dual-role-inner">
@@ -430,7 +443,9 @@ function Page({ loc, render, under = false, scrollY = 0, motion = 'fade' }) {
     data-path={loc.pathname} data-promoted={promoted ? '' : undefined}
     aria-hidden={under || undefined} inert={under || undefined}>
     <div className="page-in" style={under && scrollY ? { transform: `translateY(${-scrollY}px)` } : undefined}>
-      <ErrorBoundary>{render(loc)}</ErrorBoundary>
+      <main id={under ? undefined : 'main-content'} tabIndex={-1}>
+        <ErrorBoundary>{render(loc)}</ErrorBoundary>
+      </main>
     </div>
   </div>
 }

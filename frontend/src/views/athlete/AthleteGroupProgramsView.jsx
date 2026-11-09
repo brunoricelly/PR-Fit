@@ -23,7 +23,7 @@ import {
 import '../GroupChallenges.css'
 import '../coach/CoachGroupsView.css'
 
-export default function AthleteGroupProgramsView({ embedded = false }) {
+export default function AthleteGroupProgramsView({ embedded = false, headingLevel }) {
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
 
@@ -88,7 +88,7 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
     }
   }
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
@@ -106,6 +106,7 @@ export default function AthleteGroupProgramsView({ embedded = false }) {
         eyebrow={p('Community')}
         title={p('Collective programs')}
         description={p('Explore training programs published by your coach for your community groups, and adopt them into your training plan.')}
+        headingLevel={headingLevel ?? (embedded ? 2 : 1)}
       />
 
       {error ? (

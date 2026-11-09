@@ -75,12 +75,13 @@ export function Card({ as: Element = 'article', tone = 'default', className = ''
   return <Element className={`ds-card ${tone}${className ? ` ${className}` : ''}`} {...props}>{children}</Element>
 }
 
-export function PageHeader({ eyebrow, title, description, actions, className = '' }) {
+export function PageHeader({ eyebrow, title, description, actions, className = '', headingLevel = 1, headingId }) {
+  const Heading = `h${Math.min(6, Math.max(1, headingLevel))}`
   return (
     <header className={`ds-page-header${className ? ` ${className}` : ''}`}>
       <div className="ds-page-header-copy">
         {eyebrow && <span className="ds-page-header-eyebrow">{eyebrow}</span>}
-        <h1>{title}</h1>
+        <Heading id={headingId}>{title}</Heading>
         {description && <p>{description}</p>}
       </div>
       {actions && <div className="ds-page-header-actions">{actions}</div>}
@@ -170,6 +171,7 @@ export function LiveFeedback({ success, error, className = '', id }) {
 }
 
 export function Tabs({ tabs, value, onChange, ariaLabel, className = '' }) {
+  const baseId = `tabs-${useId().replace(/:/g, '')}`
   const selectedIndex = Math.max(0, tabs.findIndex(tab => tab.value === value))
   const selectAt = index => onChange(tabs[(index + tabs.length) % tabs.length].value)
   return (
@@ -179,11 +181,11 @@ export function Tabs({ tabs, value, onChange, ariaLabel, className = '' }) {
           <button
             key={tab.value}
             type="button"
-            id={`tab-${tab.value}`}
+            id={`${baseId}-tab-${tab.value}`}
             className="ds-tab"
             role="tab"
             aria-selected={index === selectedIndex}
-            aria-controls={`panel-${tab.value}`}
+            aria-controls={`${baseId}-panel-${tab.value}`}
             tabIndex={index === selectedIndex ? 0 : -1}
             onClick={() => onChange(tab.value)}
             onKeyDown={event => {
@@ -199,9 +201,9 @@ export function Tabs({ tabs, value, onChange, ariaLabel, className = '' }) {
           </button>
         ))}
       </div>
-      {tabs.map((tab, index) => index === selectedIndex && (
-        <div key={tab.value} id={`panel-${tab.value}`} role="tabpanel" aria-labelledby={`tab-${tab.value}`} tabIndex={0}>
-          {tab.content}
+      {tabs.map((tab, index) => (
+        <div key={tab.value} id={`${baseId}-panel-${tab.value}`} role="tabpanel" aria-labelledby={`${baseId}-tab-${tab.value}`} tabIndex={index === selectedIndex ? 0 : -1} hidden={index !== selectedIndex}>
+          {index === selectedIndex ? tab.content : null}
         </div>
       ))}
     </div>

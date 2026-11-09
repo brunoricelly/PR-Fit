@@ -147,7 +147,7 @@ export default function CustomMedia({ ex, id, compact, minimizable }) {
   const mini = !!minimizable && gifSize === 'mini'
   const toggleSize = e => { e.stopPropagation(); update(s => { s.gifSize = mini ? 'full' : 'mini' }) }
   const toggle = minimizable
-    ? <button className="giftoggle" onClick={toggleSize}><Icon name={mini ? 'expand' : 'minimize'} />{mini ? t('Expand') : t('Minimize')}</button>
+    ? <button type="button" className="giftoggle" onClick={toggleSize}><Icon name={mini ? 'expand' : 'minimize'} />{mini ? t('Expand') : t('Minimize')}</button>
     : null
   const cls = 'exmedia' + (compact ? ' compact' : '') + (mini ? ' mini' : '')
   const name = exerciseNameFor(ex)
@@ -187,9 +187,11 @@ function CustomImage({ m, id, cls, name, toggle }) {
   const main = useMediaUrl(m)
   const [broken, setBroken] = useState(false)
   const ok = main.url && !broken
+  const retry = () => { setBroken(false); main.load() }
   return (
-    <div className={cls + (ok ? '' : ' broken')} id={id} onClick={() => { if (!ok) { setBroken(false); main.load() } }}>
+    <div className={cls + ' tap-host' + (ok ? '' : ' broken')} id={id}>
       {ok ? <img decoding="async" draggable={false} src={main.url} alt={name} onError={() => setBroken(true)} /> : <Tile />}
+      {!ok && <button type="button" className="tap-main exmedia-action" aria-label={t('Try again')} onClick={retry} />}
       {toggle}
     </div>
   )
@@ -209,9 +211,11 @@ function CustomGif({ m, id, cls, name, toggle, mini }) {
     if (broken || failed) { setFailed(null); setPlaying(true); main.load(); poster.load(); return }
     setPlaying(p => !p)
   }
+  const actionLabel = broken || failed ? t('Try again') : playing ? t('tap to pause') : t('tap to play')
   return (
-    <div className={cls + (broken ? ' broken' : '')} id={id} onClick={onTap}>
+    <div className={cls + ' tap-host' + (broken ? ' broken' : '')} id={id}>
       {broken ? <Tile /> : <img decoding="async" draggable={false} src={src} alt={name} onError={() => setFailed(showGif ? 'gif' : 'all')} />}
+      <button type="button" className="tap-main exmedia-action" aria-label={actionLabel} onClick={onTap} />
       {toggle}
       {!mini && !broken && !failed && (
         <span className="gifhint"><Icon name={playing ? 'pause' : 'play'} />{playing ? t('tap to pause') : t('tap to play')}</span>
@@ -298,8 +302,10 @@ function CustomVideo({ m, id, cls, name, toggle, mini, still }) {
 
   const loading = !main.url && main.status === 'loading'
   const hint = !mini && !broken && !(open && main.url)
+  const interactive = !(open && main.url)
+  const actionLabel = broken || !main.url ? t('Try again') : playing ? t('tap to pause') : t('tap to play')
   return (
-    <div ref={box} className={cls + (broken || (!main.url && !poster.url) ? ' broken' : '')} id={id} onClick={open && main.url ? undefined : onTap}>
+    <div ref={box} className={cls + ' tap-host' + (broken || (!main.url && !poster.url) ? ' broken' : '')} id={id}>
       {main.url && !broken
         ? <video ref={el => { ref.current = el; if (el && !open) mute(el) }} src={main.url} poster={poster.url || undefined}
             playsInline loop={loop && !open} controls={open} muted={!open}
@@ -308,6 +314,7 @@ function CustomVideo({ m, id, cls, name, toggle, mini, still }) {
         : poster.url && !broken
           ? <img decoding="async" draggable={false} src={poster.url} alt={name} />
           : <Tile />}
+      {interactive && <button type="button" className="tap-main exmedia-action" aria-label={actionLabel} onClick={onTap} />}
       {toggle}
       {hint && (
         <span className="gifhint">

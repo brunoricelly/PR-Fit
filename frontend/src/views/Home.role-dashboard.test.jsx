@@ -6,8 +6,8 @@ import { useStore } from '../store/useStore.js'
 import Home from './Home.jsx'
 import { guardReactWarnings, waitForReact } from '../test/react-warning-guard.js'
 
-vi.mock('./dashboard/CoachDashboard.jsx', () => ({ default: () => <main data-dashboard="coach">Visão do coach</main> }))
-vi.mock('./dashboard/AthleteToday.jsx', () => ({ default: () => <main data-dashboard="athlete">Hoje do atleta</main> }))
+vi.mock('./dashboard/CoachDashboard.jsx', () => ({ default: () => <div data-dashboard="coach">Visão do coach</div> }))
+vi.mock('./dashboard/AthleteToday.jsx', () => ({ default: () => <div data-dashboard="athlete">Hoje do atleta</div> }))
 
 let host
 let root

@@ -55,7 +55,7 @@ function formatParticipantStats(item, challengeType) {
   return parts.length > 0 ? parts.join(' · ') : p('No recent activity')
 }
 
-export default function AthleteChallengesView({ embedded = false }) {
+export default function AthleteChallengesView({ embedded = false, headingLevel }) {
   const user = useStore(state => state.user)
   const navigate = useNavigate()
 
@@ -131,7 +131,7 @@ export default function AthleteChallengesView({ embedded = false }) {
     }
   }
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
@@ -149,15 +149,15 @@ export default function AthleteChallengesView({ embedded = false }) {
         eyebrow={p('Community')}
         title={p('Group challenges')}
         description={p('Push your limits alongside your teammates, climb the leaderboard, and celebrate achievements.')}
+        headingLevel={headingLevel ?? (embedded ? 2 : 1)}
       />
 
       {/* Toolbar / Filters */}
       <div className="gc-toolbar">
-        <div className="gc-filter-group" role="tablist">
+        <div className="gc-filter-group" role="group" aria-label={p('Status')}>
           <button
             type="button"
-            role="tab"
-            aria-selected={statusFilter === 'active'}
+            aria-pressed={statusFilter === 'active'}
             className={`gc-filter-btn ${statusFilter === 'active' ? 'active' : ''}`}
             onClick={() => setStatusFilter('active')}
           >
@@ -165,8 +165,7 @@ export default function AthleteChallengesView({ embedded = false }) {
           </button>
           <button
             type="button"
-            role="tab"
-            aria-selected={statusFilter === 'completed'}
+            aria-pressed={statusFilter === 'completed'}
             className={`gc-filter-btn ${statusFilter === 'completed' ? 'active' : ''}`}
             onClick={() => setStatusFilter('completed')}
           >
@@ -289,7 +288,8 @@ export default function AthleteChallengesView({ embedded = false }) {
                 <div className="pro-empty-inline">{p('No ranking data available yet.')}</div>
               ) : (
                 <div className="gc-leaderboard-table-wrapper">
-                  <table className="gc-leaderboard-table" aria-label={p('Leaderboard')}>
+                  <table className="gc-leaderboard-table">
+                    <caption className="sr-only">{p('Leaderboard')}</caption>
                     <thead>
                       <tr>
                         <th scope="col" style={{ width: 60 }}>{p('Rank')}</th>

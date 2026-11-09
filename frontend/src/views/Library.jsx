@@ -89,7 +89,7 @@ export default function Library() {
         : t('{0} exercises with animations', EXDB.length)}</div>
     </div>
     <div className="search-row" data-tour="lib-search" style={{ marginBottom: 10 }}><div className={'search' + (narrowed ? ' has-count' : '') + (q ? ' has-clear' : '')}><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" /><path d="m21 21-4.3-4.3" /></svg>
-      <input className="input" placeholder={t('Search…')} value={q} onChange={e => { setQ(e.target.value); setShown(40) }} />
+      <input className="input" type="search" aria-label={t('Search…')} placeholder={t('Search…')} value={q} onChange={e => { setQ(e.target.value); setShown(40) }} />
       {narrowed && <span className="search-count" role="status" aria-label={exCount(f.length)}>{fmtNum(f.length)}</span>}
       {q && <button className="clear" onClick={() => { setQ(''); setShown(40) }} aria-label={t('Clear')}><Icon name="xmark" /></button>}</div>
       <ExerciseViewToggle /></div>

@@ -532,8 +532,10 @@ describe('ProfessionalHub', () => {
     const tabs = [...host.querySelectorAll('.pro-athlete-selector [role="tab"]')]
     expect(tabs).toHaveLength(2)
     expect(tabs.map(tab => tab.tabIndex)).toEqual([0, -1])
-    expect(tabs[0].getAttribute('aria-controls')).toBeTruthy()
-    expect(host.querySelector(`#${tabs[0].getAttribute('aria-controls')}[role="tabpanel"]`)).toBeTruthy()
+    for (const tab of tabs) {
+      expect(tab.getAttribute('aria-controls')).toBeTruthy()
+      expect(host.querySelector(`#${tab.getAttribute('aria-controls')}[role="tabpanel"]`)).toBeTruthy()
+    }
     tabs[0].focus()
     await act(async () => tabs[0].dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
     await settle()

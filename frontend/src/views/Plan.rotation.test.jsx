@@ -64,7 +64,7 @@ const byLabel = label => [...host.querySelectorAll('button')].find(b => b.getAtt
 const modeButtons = () => [...host.querySelectorAll('.plan-mode .seg button')]
 const pickMode = label => click(modeButtons().find(b => b.textContent === label))
 const selectedMode = () => modeButtons().find(b => b.className.includes('on'))?.textContent
-const headings = () => [...host.querySelectorAll('h4.sec')].map(h => h.firstChild.textContent)
+const headings = () => [...host.querySelectorAll('h2.sec, h3.sec, h4.sec')].map(h => h.firstChild.textContent)
 const subtitle = () => host.querySelector('.hdr .sub').textContent
 
 describe('Plan — How you train', () => {

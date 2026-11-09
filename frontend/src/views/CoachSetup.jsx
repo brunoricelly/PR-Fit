@@ -181,14 +181,14 @@ export default function CoachSetup() {
       {meta.baseUrl && <Section title={t('Endpoint')}
         footer={isCleartext(baseUrl) && !phoneMayCall(baseUrl) ? <span style={{ color: 'var(--red)' }}>{cleartextRefused()}</span> : t('Plain http only on your home network')}>
         <div style={{ padding: '8px 12px' }}>
-          <TextField value={baseUrl} placeholder="https://ollama.example.com" inputMode="url" autoCapitalize="none" autoCorrect="off"
+          <TextField value={baseUrl} aria-label={t('Endpoint')} placeholder="https://ollama.example.com" inputMode="url" autoCapitalize="none" autoCorrect="off"
             onChange={e => setBaseUrl(e.target.value)} />
         </div>
       </Section>}
 
       <Section title={t('API key')} footer={t('The key is stored in this phone’s secure storage and never leaves it except to call the provider.')}>
         <div style={{ padding: '8px 12px' }}>
-          <TextField value={key} type="password" placeholder={hasKey ? '••••••••  ' + t('(saved)') : (meta.keyPlaceholder || 'sk-…')} autoCapitalize="none" autoCorrect="off"
+          <TextField value={key} type="password" aria-label={t('API key')} placeholder={hasKey ? '••••••••  ' + t('(saved)') : (meta.keyPlaceholder || 'sk-…')} autoCapitalize="none" autoCorrect="off"
             onChange={e => setKey(e.target.value)} />
         </div>
       </Section>
@@ -212,7 +212,7 @@ export default function CoachSetup() {
 
       {models && <Section title={t('Model')}>
         <div style={{ padding: '8px 12px' }}>
-          <select className="input" value={model} disabled={busy} onChange={e => setModel(e.target.value)} style={{ width: '100%' }}>
+          <select className="input" aria-label={t('Model')} value={model} disabled={busy} onChange={e => setModel(e.target.value)} style={{ width: '100%' }}>
             <option value="">{meta.defaultModel ? `(${meta.defaultModel})` : t('Pick a model')}</option>
             {models.map(m => <option key={m} value={m}>{m}</option>)}
           </select>

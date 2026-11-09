@@ -1,10 +1,10 @@
 # PR Fit — Programa de Homologação, UX e Modernização Visual
 
 ## Gate JEV vigente
-- **Limiar**: **0,85**.
+- **Limiar**: **0,86**.
 - **Fonte**: instrução explícita mais recente do usuário; substitui o valor anterior de 0,88 para todo o programa de UX.
 - Executar decisão canônica somente no candidato final de cada release, após testes, builds, probes, inspeção do diff e auditorias.
-- Score abaixo de 0,85, P0/P1 ou evidência bloqueada implica NO-GO.
+- Score abaixo de 0,86, P0/P1 ou evidência bloqueada implica NO-GO.
 
 ## Objetivo
 Transformar o PR Fit atual em uma experiência simples, moderna, leve, acessível e autoexplicativa para treinadores, nutricionistas e alunos, sem adicionar White-label (Fase 9) ou Cobrança (Fase 10) neste ciclo.
@@ -225,3 +225,92 @@ Baseline reproduzida em 2026-11-09, antes de qualquer edição do checkpoint, no
 O maior chunk continua sendo o pack inglês `en-*.js`; hashes não participam do budget. Dois builds
 consecutivos produziram a mesma estrutura e os mesmos tamanhos normalizados. O build ainda avisa
 sobre packs acima de 1.500 kB e sobre `@capacitor/core`; o limite não foi afrouxado para ocultá-los.
+
+## Etapa 7A — auditoria WCAG 2.2 AA e correções semânticas
+
+### Baseline do checkpoint
+
+- Data: **2026-11-09 (UTC)**; branch `feat/ux-modernization`; base e `HEAD` inicial:
+  `065576ca5fca918a87bff4d89e2dc06037302461`; worktree limpa.
+- Contratos focados antes das correções: **21 arquivos / 195 testes**, todos verdes, com **0 bytes
+  em stderr**. O recorte cobriu Design System, contraste/transparência, overlays, TabBar, App,
+  safe areas, teclado nativo, locales, atores e o audit UX.
+- `npm run audit:ux --prefix frontend`: **35 rotas**, **80 achados conhecidos de inglês visível** e
+  inventário gerado sincronizado; nenhuma baseline/allowlist foi ampliada.
+- Locales antes da correção: **19 locales × 3.624 chaves**. O checker de strings-fonte registrava
+  cinco dívidas preexistentes fora dos packs; nenhuma foi criada por este checkpoint.
+
+### Inventário estrutural das 35 rotas
+
+O inventário linha a linha, com ator, origem de navegação, módulo, componente real, carga e guarda,
+continua canônico em `docs/ux-audit/route-inventory.md`. O harness 7A renderiza uma composição
+determinística para cada declaração, inclusive parâmetros, aliases e fallback.
+
+| Composição / papel | Rotas | Componentes reais exercitados |
+| --- | ---: | --- |
+| Pessoal compartilhada — atleta, profissional, dual-role e admin | 16 | `Home`/dashboards por papel, `CheckIn`, `Plan`, `RoutineEdit`, `Programmes`, `ProgrammeEdit`, `Workout`, `Stats`, `History`, `Library`, `Muscles`, `StructuralBalance`, `ProgressPhotos`, `Measurements`, `SettingsRoute` |
+| Hub compartilhado — atleta, profissional e dual-role | 6 | `ProfessionalHub`, `SchedulingView`, `CommunityHub` e aliases de grupos/desafios/programas |
+| Profissional `kind=coach` | 3 | `CoachGroupsView`, `CoachChallengesView`, `CoachGroupProgramsView` |
+| Atleta e dual-role em modo atleta | 4 | `AthleteGroupsView`, `AthleteChallengesView`, `AthleteGroupProgramsView`, inclusive `/join` |
+| Coach de IA, sem equivaler a papel profissional | 4 | `CoachChat`, `CoachIntake`, redirect de proposta e `CoachSetup` |
+| Admin | 1 | `Admin` e `AdminCoach` com respostas determinísticas sem rede |
+| Fallback | 1 | redirect `*` para `/home` |
+
+Além das 35 declarações, o mesmo harness cobre a composição pública sem sessão (`Login`) e o modo
+local guest. `MobileOnboarding` e `PermissionSteps` permanecem interceptores do shell, não novas
+rotas. Contas dual-role continuam cobertas pelos testes de `RoleSwitcher`, `CommunityHub`,
+`ProfessionalHub`, `SchedulingView` e dashboard por papel.
+
+### Matriz de achados e correções
+
+| Prioridade | Rota / componente | Critério WCAG 2.2 afetado | Evidência reproduzível da baseline | Correção / decisão 7A |
+| --- | --- | --- | --- | --- |
+| P1 | Shell das 35 rotas; dashboards; `ProfessionalHub`; `SchedulingView`; grupos/desafios/programas; fallback lazy | 1.3.1, 2.4.1 | Landmarks eram definidos de forma inconsistente pelas views; composições embutidas podiam aninhar ou duplicar `<main>` e várias rotas pessoais não possuíam landmark | `Page` passou a ser o único proprietário do `<main id="main-content">`; previews ficam `inert`/`aria-hidden` e sem id; mains internos viraram containers neutros. O harness exige exatamente um main visível por caso. |
+| P1 | Shell global | 2.4.1, 2.4.3, 2.4.11 | Não existia mecanismo direto de teclado para saltar a navegação fixa | Skip link traduzido nos 19 locales foca e rola o main atual; teste RED→GREEN valida ownership e foco. |
+| P1 | `CommunityHub`, `ProfessionalHub`, `SchedulingView`, views embutidas | 1.3.1, 2.4.6 | H1 duplicado em hubs embutidos e ausência de H1 em Comunidade standalone; saltos H1→H3/H4 em Plano, Evolução, Medidas e Grupos | `PageHeader` aceita nível explícito; standalone usa H1 e embedded usa H2. Headings de seções foram normalizados sem mudar o desenho. O scanner usa o DOM final renderizado. |
+| P1 | `CommunityHub` | 2.1.1, 2.1.2, 4.1.2 | Tabs tinham somente `role`/`aria-selected`: sem `aria-controls`, roving tabindex, setas, Home/End ou painel associado | Implementado padrão APG com ids estáveis, painéis presentes, roving tabindex e ativação por setas/Home/End; teste de teclado usa o componente real. |
+| P1 | `RoleSwitcher`; filtros de desafio | 1.3.1, 4.1.2 | Mudança de papel e filtros eram anunciados indevidamente como tabs sem tabpanel | Reclassificados como grupos de botões com `aria-pressed`; tabs reais permanecem restritas a superfícies com tabpanel. |
+| P1 | `ProfessionalHub`, `SchedulingView`, `Tabs` do Design System | 4.1.2 | Tabs inativas apontavam `aria-controls` para ids ausentes do DOM | Painéis inativos agora existem com `hidden`, sem montar conteúdo/API; o painel ativo mantém foco e conteúdo. |
+| P1 | Mídia de exercício; vídeo de série; listas de rotinas/Admin; seletor de remoção | 2.1.1, 2.4.7, 4.1.2 | Cards de mídia, retries e linhas acionáveis dependiam de `div onClick`; alguns continham um segundo botão de minimizar | A ação primária de mídia usa botão nativo sobreposto, sem botão aninhado; retries, rotinas, usuários e escolhas de remoção usam `<button type="button">`. Testes exercitam nome, estado e ativação nativa. |
+| P1 | Busca da Biblioteca; switches de nomes de exercícios | 1.3.1, 3.3.2, 4.1.2 | Input de busca e dois switches renderizados em `/settings/units` não possuíam nome programático | `aria-label` localizado e coerente com a cópia visível; auditor de DOM falha controles sem nome. |
+| P1 | Leaderboards Coach/Atleta | 1.3.1 | Tabelas tinham `th[scope]`, mas dependiam apenas de `aria-label` e não possuíam caption estrutural | Adicionado `<caption class="sr-only">`; escopos de colunas e texto de posição/atividade/pontuação preservados. |
+| P1 | Agenda e avaliações temporais | 3.3.2; contrato de localização | `formatDateOnly('YYYY-MM-DD', timezone)` construía `Date` UTC e podia exibir o dia anterior em fuso negativo | Datas civis são reconhecidas e formatadas em UTC-noon sem reinterpretar o dia; timestamps continuam respeitando o timezone IANA e o locale ativo. Teste compara Honolulu e Tóquio. |
+| P1 | Foco global, skip link, header/TabBar fixos | 1.4.11, 2.4.7, 2.4.11, 2.4.13 | Não havia offset global defensivo para foco/âncoras; forced-colors não tinha contrato explícito | `scroll-padding`, `scroll-margin`, safe areas, alvo de 44 px e foco de contraste >=3:1 são validados por computed styles; forced-colors preserva `Highlight`, `Canvas` e `CanvasText`. |
+| P2 | `RouteSurface`, dashboards e skeletons | 4.1.3 | Fallback lazy combinava `role=status` com `aria-live` explícito; headings de loading/erro não substituíam a estrutura da rota | Um único canal status por evento, `aria-busy`, skeletons `aria-hidden` e H1 contextual oculto. Testes existentes continuam exigindo um único status. |
+| P2 | `EmptyState` e `ErrorBoundary` | 1.3.1, 2.4.6 | Títulos de empty state legado e erro global eram `div` visual em vez de heading real | Empty states com título usam H2; o erro que substitui a rota usa H1 e mantém CTA real. |
+| P2 aceita | Dívida linguística preexistente | 3.1.2 | Audit UX: 80 fingerprints conhecidos; checker de source strings: cinco chaves fora dos packs | Dívida congelada, sem allowlist/baseline nova e sem crescimento. O novo skip link foi traduzido em todos os 19 packs. |
+| P2 aceita / 7B | Exploração manual browser/leitor de tela | 1.4.3, 1.4.10, 2.1.x, 2.4.x | O checkpoint 7A é automatizado/estrutural; não substitui navegação real em 375/390/412/768/1440 | Mantida explicitamente para a Etapa 7B; não há declaração de conformidade final baseada em screenshots ou regex CSS. |
+
+### Harness determinístico 7A
+
+- `frontend/src/App.a11y-routes.test.jsx` renderiza as 35 declarações com Store e APIs simuladas,
+  sem rede; também cobre pública/guest, skip link e teclado de tabs.
+- `frontend/src/test/a11y-dom-audit.js` inspeciona o DOM final e falha por main/H1, saltos de
+  heading, landmarks repetidos sem nome, controles/links vazios, labels, inválidos sem descrição,
+  imagens sem `alt`, tabelas, tabs, disclosures, controles clicáveis não nativos e live regions
+  aninhadas.
+- `frontend/src/a11y-critical-styles.test.jsx` injeta os estilos reais e usa computed styles para
+  contraste claro/escuro, foco >=3:1, offsets seguros e alvo do skip link. O contrato anterior de
+  contraste/transparência continua complementar; não é usado sozinho para declarar conformidade.
+- `guardReactWarnings()` envolve a nova suíte de rotas; as suítes tocadas mantêm **0 bytes em
+  stderr**, sem warnings de act/Suspense/key.
+
+### Evidência final do candidato 7A
+
+- Recorte obrigatório/focado final: **38 arquivos / 431 testes**, verde, com **0 bytes em stderr**.
+  Rechecagens materiais de mídia, vídeos, hub profissional e harness: **4 arquivos / 96 testes**,
+  também verdes e com stderr vazio.
+- Suíte frontend completa: **688 arquivos / 8.280 testes**, 100% verde, **0 bytes em stderr**.
+- `npm run audit:ux --prefix frontend`: **35 rotas**, **80 achados conhecidos**, inventário atual;
+  nenhuma baseline ou allowlist foi ampliada.
+- Localização: **19 locales × 3.626 chaves**, em paridade. O source checker continua mostrando
+  exatamente as cinco dívidas preexistentes registradas na baseline, sem crescimento.
+- Build de produção e budget: verde; shell **2.757.448 B bruto / 642.965 B gzip**, **42 assets**;
+  maior chunk **1.794.898 B / 307.771 B gzip**; **176 chunks JS**. O script e seus limites não
+  foram alterados. Permanecem apenas os warnings preexistentes de chunk grande e import dinâmico
+  ineficaz de `@capacitor/core`.
+- Inspeção integral do diff desde `065576ca5fca918a87bff4d89e2dc06037302461`, `git diff --check`,
+  busca de segredos e verificação de escopo não encontraram backend, contratos, dependências,
+  persistência, autorização ou budgets alterados.
+- Resultado técnico 7A: **zero P0/P1 aberto na matriz automatizada/estrutural**. O gate técnico do
+  checkpoint é **GO**; a homologação WCAG final continua condicionada à exploração manual 7B.

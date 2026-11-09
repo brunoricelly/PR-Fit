@@ -347,7 +347,7 @@ function MusclesCard({ S, planFocus = false }) {
       <StrengthLegend />
       <div className="muted small" style={{ marginTop: 10 }}>{t('Strength shows retained muscle strength. Train again to reset it.')}</div>
       {sel && <>
-        <h4 className="sec" style={{ marginTop: 14 }}>{t('Exercises')} · {t(MUSCLE_NAME[sel])}</h4>
+        <h3 className="sec" style={{ marginTop: 14 }}>{t('Exercises')} · {t(MUSCLE_NAME[sel])}</h3>
         {/* A row quotes the exercise's estimated 1RM, so a tap opens the exercise history
             sheet: the curve behind that number plus the last sessions set by set. */}
         {muscleExercises.length ? <div className="sbar-list">{muscleExercises.map(row => (
@@ -451,13 +451,13 @@ function EffortCard({ S }) {
         {t('Effort per set is off. Turn it on in Settings → Workout to keep rating.')}
       </div>}
       {pts.length > 1 && <>
-        <h4 className="sec">{t('Week by week')}</h4>
+        <h3 className="sec">{t('Week by week')}</h3>
         {/* Harder is up on either scale, and the axis says so in words: an RIR axis counts down
             as the sets get harder, so its 0 sits at the top. */}
         <div className="chart"><LineChart points={pts} h={140} unit={hd} color="var(--gold-ink)" invert={kind === 'rir'}
           yHint={{ hi: t('Harder') }} tickPrefix={hd + ' '} /></div>
       </>}
-      <h4 className="sec">{t('Where the sets land')}</h4>
+      <h3 className="sec">{t('Where the sets land')}</h3>
       <StackBar parts={parts} ariaLabel={t('Where the sets land')}
         fmtValue={p => (p.n ? p.n + ' · ' + Math.round(p.share * 100) + '%' : '–')} />
       <div className="small dim effort-foot">
@@ -867,7 +867,7 @@ export default function Stats() {
       className="stats-link" onClick={() => openWrapped(y)} />),
   ].filter(Boolean)
   const statsLinks = linkRows.length > 0 && <>
-    <h4 className="sec">{t('More')}</h4>
+    <h2 className="sec">{t('More')}</h2>
     <div className="sect-b stats-links" data-stats-links>{linkRows}</div>
   </>
 
@@ -913,7 +913,7 @@ export default function Stats() {
 
     {workouts.length > 0 && <>
       <div className="row between stats-list-h">
-        <h4 className="sec" style={{ margin: 0 }}>{t('Recent workouts')}</h4>
+        <h3 className="sec" style={{ margin: 0 }}>{t('Recent workouts')}</h3>
         <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={() => nav('/history')}>{t('All')} {workouts.length}</Button>
       </div>
       <div className="list">{recent.map(w => <WorkoutRow key={w.id} w={w} onClick={() => workoutDetailSheet(w)} />)}</div>

@@ -159,10 +159,10 @@ function StartChooser() {
       <Button variant="primary" icon="play" onClick={() => startFlow(todayIds)}>{t('Start {0}', todayName)}</Button>
     </div>}
     {others.length > 0 && <><h4 className="sec">{t('Other routines')}</h4>
-      <div className="list">{others.map(r => <div key={r.id} className="item" onClick={() => startFlow([r.id])}>
+    <div className="list">{others.map(r => <button type="button" key={r.id} className="item" onClick={() => startFlow([r.id])}>
         <span className="lrow-i"><Icon name={glyphOf(r.emoji)} /></span>
         <div className="grow"><div className="tt">{r.name}</div><div className="ss">{exCount(r.ex.length)}</div></div>
-        <span className="tag acc">{t('Start')}</span></div>)}</div></>}
+        <span className="tag acc">{t('Start')}</span></button>)}</div></>}
     <div style={{ height: 14 }} />
     <Button icon="shuffle" onClick={() => startFlow([])}>{t('Freestyle workout (pick as you go)')}</Button>
     {!S.routines.length && <><div style={{ height: 10 }} /><Button variant="primary" onClick={() => nav('/plan')}>{t('Build a plan first')}</Button></>}
@@ -1929,10 +1929,10 @@ function ActiveWorkout() {
           <h3>{t('Remove exercise')}</h3>
           <div className="muted small" style={{ marginBottom: 12 }}>{t('Which exercise in this superset do you want to remove?')}</div>
           <div className="list">
-            {unit.map(idx => <div key={idx} className="item" onClick={() => { close(); confirmRemoveExercise(idx) }}>
+            {unit.map(idx => <button type="button" key={idx} className="item" onClick={() => { close(); confirmRemoveExercise(idx) }}>
               <div className="grow"><div className={`tt ${exerciseNameClass(exOr(A.entries[idx]?.id))}`}>{exerciseNameFor(exOr(A.entries[idx]?.id))}</div></div>
               <Icon name="chevronRight" />
-            </div>)}
+            </button>)}
           </div>
         </div>
       ))

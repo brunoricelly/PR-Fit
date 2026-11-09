@@ -332,12 +332,12 @@ function Schedule({ S, update, nav, mode }) {
     </div>}
 
     {mode === 'week' ? <>
-      <h4 className="sec">{t('This week')}</h4>
+      <h2 className="sec">{t('This week')}</h2>
       <div className="list plan-week" data-tour="plan-week">{weekOrder(ws).map(d => dayRow(d))}</div>
       <p className="sect-f">{t('Want two routines on one day? Tap the day and pick both.')}</p>
     </> : <div className="rotation">
       <div className="row between plan-sec-h">
-        <h4 className="sec">{t('The loop')}{external && <span className="tag" style={{ marginInlineStart: 8 }}>{t('Externally managed')}</span>}</h4>
+        <h2 className="sec">{t('The loop')}{external && <span className="tag" style={{ marginInlineStart: 8 }}>{t('Externally managed')}</span>}</h2>
         {/* A coach's own queue is read-only here: the one way to change what it holds is to
             adopt it first ("Use this rotation" below), never a tap on one of its rows. */}
         {!external && <div className="row plan-sec-acts" style={{ gap: 6 }}>

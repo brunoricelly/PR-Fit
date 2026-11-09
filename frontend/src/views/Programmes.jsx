@@ -234,6 +234,7 @@ export function ProgrammeEdit() {
   const p = programmeById(S, id)
   if (!p) return <div className="narrow"><div className="hdr">
     <button className="iconbtn" data-back="/plan/programmes" onClick={() => nav('/plan/programmes')} aria-label={t('Programmes')}><Icon name="chevronLeft" /></button>
+    <h1 style={{ marginInlineStart: 12 }}>{t('Programme')}</h1>
   </div><div className="empty">{t('This programme is gone.')}</div></div>
   const st = programmeStatus(S)
   const running = st?.programme.id === id
@@ -247,6 +248,7 @@ export function ProgrammeEdit() {
   })
 
   return <div className="narrow">
+    <h1 className="sr-only">{p.name || t('Programme')}</h1>
     <div className="hdr">
       <button className="iconbtn" data-back="/plan/programmes" onClick={() => nav('/plan/programmes')} aria-label={t('Programmes')}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, margin: '0 12px', minWidth: 0 }}>

@@ -140,15 +140,20 @@ export function FormVideoPlayer({ m, label = '', onRemove, onRefilm, compact = f
     else if (typeof v.webkitEnterFullscreen === 'function') v.webkitEnterFullscreen()
   }
   const missing = !main.url && main.status !== 'loading'
+  const retryable = !elsewhere && main.status !== 'loading'
   return <div className={'fv-player' + (compact ? ' compact' : '')}>
     <div className="fv-stage" style={stageShape(m)}>
       {main.url
         ? <video ref={el => { ref.current = el; mute(el); if (el) el.playbackRate = rate }} src={main.url} poster={poster.url || undefined}
             playsInline autoPlay loop controls muted preload="auto" aria-label={label || t('Form video')} />
         : poster.url ? <img src={poster.url} alt="" draggable={false} /> : <div className="fv-x"><Icon name="play" /></div>}
-      {!main.url && <div className="fv-msg" onClick={() => { if (!elsewhere) main.load() }}>
-        {elsewhere && missing ? t('On the phone that filmed it') : main.status === 'loading' ? t('Loading…') : main.status === 'offline' ? t('You’re offline. Try again once you’re back online.') : missing ? t('This video isn’t on this device') : null}
-      </div>}
+      {!main.url && (retryable
+        ? <button type="button" className="fv-msg" onClick={() => main.load()}>
+            {main.status === 'offline' ? t('You’re offline. Try again once you’re back online.') : missing ? t('This video isn’t on this device') : null}
+          </button>
+        : <div className="fv-msg" role="status">
+            {elsewhere && missing ? t('On the phone that filmed it') : main.status === 'loading' ? t('Loading…') : null}
+          </div>)}
     </div>
     <div className="fv-bar">
       <div className="fv-speed" role="group" aria-label={t('Playback speed')}>

@@ -54,8 +54,8 @@ const mountDeepLink = async (hash, user) => {
     boot: vi.fn(),
   })
   act(() => root.render(<App />))
-  await waitForReact(() => expect(host.querySelector('h1')).not.toBeNull(), { timeout: 8000 })
-  return host.querySelector('h1')
+  await waitForReact(() => expect(host.querySelector('h1:not(.sr-only)')).not.toBeNull(), { timeout: 8000 })
+  return host.querySelector('h1:not(.sr-only)')
 }
 
 beforeEach(async () => {

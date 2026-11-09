@@ -142,7 +142,7 @@ export default function TabBar({ onStart }) {
     const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'coach', availableKeys, loc.state)
 
     return (
-      <nav id="tabbar" className="coach-tabbar">
+      <nav id="tabbar" className="coach-tabbar" aria-label={t('Main navigation')}>
         {coachTabs.map(tab => (
           <Tab
             key={tab.key}
@@ -171,7 +171,7 @@ export default function TabBar({ onStart }) {
     const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'athlete', availableKeys, loc.state)
 
     return (
-      <nav id="tabbar" className="athlete-tabbar">
+      <nav id="tabbar" className="athlete-tabbar" aria-label={t('Main navigation')}>
         {athleteTabs.map(tab => (
           <Tab
             key={tab.key}
@@ -192,7 +192,7 @@ export default function TabBar({ onStart }) {
   const activeKey = resolveActiveTabKey(loc.pathname, loc.search, 'legacy', legacyKeys, loc.state)
 
   return (
-    <nav id="tabbar">
+    <nav id="tabbar" aria-label={t('Main navigation')}>
       <Tab active={activeKey === 'home'} icon="house" label={t('Home')} dot={trouble} onClick={() => switchTab('/home')} tour="tab-home" />
       <Tab active={activeKey === 'plan'} icon="calendar" label={t('Plan')} onClick={() => switchTab('/plan')} tour="tab-plan" />
       <button

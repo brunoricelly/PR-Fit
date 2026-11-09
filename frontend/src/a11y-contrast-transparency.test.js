@@ -78,3 +78,13 @@ describe('Reduce Transparency (#708)', () => {
     for (const sel of blurred) expect(off, sel).toContain(sel)
   })
 })
+
+describe('Forced colors', () => {
+  it('preserves native boundaries and a system focus color', () => {
+    const css = read('index.css')
+    const forced = block(css, /@media\s*\(forced-colors:\s*active\)/)
+    expect(forced).toContain('outline:3px solid Highlight')
+    expect(forced).toContain('border-color:CanvasText')
+    expect(forced).toContain('background:Canvas')
+  })
+})

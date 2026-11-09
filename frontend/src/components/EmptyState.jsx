@@ -10,7 +10,7 @@ export default function EmptyState({ icon, title, text, description, action, chi
   const stateClass = designSystem ? ' ds-state' : ''
   return <div className={'empty empty-state' + stateClass + (className ? ' ' + className : '')} data-tour={tour}>
     {icon && <div className={'ico' + (designSystem ? ' ds-state-icon' : '')}><Icon name={icon} /></div>}
-    {title && (designSystem ? <h2 className="empty-t ds-state-title">{title}</h2> : <div className="empty-t">{title}</div>)}
+    {title && <h2 className={'empty-t' + (designSystem ? ' ds-state-title' : '')}>{title}</h2>}
     {body && <div className={'empty-x' + (designSystem ? ' ds-state-text' : '')}>{body}</div>}
     {actions && <div className={'empty-acts' + (designSystem ? ' ds-state-actions' : '')}>{actions}</div>}
   </div>

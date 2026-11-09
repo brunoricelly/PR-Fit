@@ -47,7 +47,8 @@ const dayBounds = date => {
 const athleteName = link => link.athlete?.name || 'Aluno sem nome disponível'
 
 function CoachLoading() {
-  return <main className="ds-scope dashboard-page dashboard-page-coach" aria-busy="true" aria-label="Carregando visão geral">
+  return <div className="ds-scope dashboard-page dashboard-page-coach" aria-busy="true" aria-label="Carregando visão geral">
+    <h1 className="sr-only">Visão geral</h1>
     <span className="sr-only" role="status">Carregando visão geral</span>
     <div className="dashboard-shell">
       <Skeleton announce={false} width="9rem" height="1rem" />
@@ -59,7 +60,7 @@ function CoachLoading() {
         <Skeleton announce={false} height="9rem" />
       </div>
     </div>
-  </main>
+  </div>
 }
 
 function UnavailableState({ text }) {
@@ -229,12 +230,14 @@ export default function CoachDashboard() {
   if (loading && (!sources || Object.values(sources).every(source => source.status === 'loading'))) return <CoachLoading />
 
   const allCoreFailed = sources && ['links', 'inbox', 'appointments'].every(key => sources[key].status === 'error')
-  if (allCoreFailed && !online) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+  if (allCoreFailed && !online) return <div className="ds-scope dashboard-page"><div className="dashboard-shell">
+    <h1 className="sr-only">Visão geral</h1>
     <ErrorState title="Você está offline" text="A visão do coach precisa da conexão para buscar alunos, agenda e mensagens." action={<Button onClick={load}>Tentar novamente</Button>} icon="cloudSlash" />
-  </div></main>
-  if (allCoreFailed) return <main className="ds-scope dashboard-page"><div className="dashboard-shell">
+  </div></div>
+  if (allCoreFailed) return <div className="ds-scope dashboard-page"><div className="dashboard-shell">
+    <h1 className="sr-only">Visão geral</h1>
     <ErrorState title="Não foi possível abrir sua visão geral" text="Tente carregar novamente. Seus dados e permissões não foram alterados." action={<Button onClick={load}>Tentar novamente</Button>} />
-  </div></main>
+  </div></div>
   if (!sources || !view) return <CoachLoading />
 
   const firstName = user?.name?.trim().split(/\s+/)[0] || 'Treinador'
@@ -255,7 +258,7 @@ export default function CoachDashboard() {
     { id: 'community', title: 'Conheça a Comunidade', text: 'Explore grupos, programas e desafios.', route: '/community', cta: 'Abrir Comunidade', completion: 'visit' },
   ]
 
-  return <main className="ds-scope dashboard-page dashboard-page-coach">
+  return <div className="ds-scope dashboard-page dashboard-page-coach">
     <div className="dashboard-shell">
       <PageHeader
         eyebrow={`Hoje, ${today}`}
@@ -349,5 +352,5 @@ export default function CoachDashboard() {
         </div>
       </nav>
     </div>
-  </main>
+  </div>
 }

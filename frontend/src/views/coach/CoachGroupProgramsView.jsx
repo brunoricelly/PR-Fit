@@ -48,7 +48,7 @@ const blankRoutine = () => ({
   ],
 })
 
-export default function CoachGroupProgramsView({ embedded = false }) {
+export default function CoachGroupProgramsView({ embedded = false, headingLevel }) {
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
   const location = useLocation()
@@ -275,7 +275,7 @@ export default function CoachGroupProgramsView({ embedded = false }) {
     return programs.filter(prg => prg.groupId === selectedGroupId)
   }, [programs, selectedGroupId])
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
@@ -293,6 +293,7 @@ export default function CoachGroupProgramsView({ embedded = false }) {
         eyebrow={p('Community')}
         title={p('Collective programs')}
         description={p('Design and publish routine series for entire groups. Once published, versions are immutable.')}
+        headingLevel={headingLevel ?? (embedded ? 2 : 1)}
       />
 
       {/* Toolbar */}

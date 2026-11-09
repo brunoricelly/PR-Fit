@@ -27,7 +27,7 @@ import {
 import '../GroupChallenges.css'
 import '../coach/CoachGroupsView.css'
 
-export default function AthleteGroupsView({ embedded = false }) {
+export default function AthleteGroupsView({ embedded = false, headingLevel }) {
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
   const location = useLocation()
@@ -169,7 +169,7 @@ export default function AthleteGroupsView({ embedded = false }) {
     return groups.filter(g => g.status !== 'pending' && g.membershipStatus !== 'pending')
   }, [groups])
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
@@ -187,13 +187,14 @@ export default function AthleteGroupsView({ embedded = false }) {
         eyebrow={p('Community')}
         title={p('My groups')}
         description={p('Participate in coach community groups, connect with peers, and join team challenges.')}
+        headingLevel={headingLevel ?? (embedded ? 2 : 1)}
       />
 
       {/* Join with Invite Code Card */}
       <Card className="gc-card" style={{ marginBottom: 20 }}>
         <div className="gc-card-header">
           <div className="gc-card-title-group">
-            <h3>{p('Join with code')}</h3>
+            <h2>{p('Join with code')}</h2>
             <span className="gc-card-subtitle">
               {p('Have an invite code from your coach? Enter it below to join the group.')}
             </span>

@@ -67,7 +67,7 @@ function formatParticipantStats(item, challengeType) {
   return parts.length > 0 ? parts.join(' · ') : p('No recent activity')
 }
 
-export default function CoachChallengesView({ embedded = false }) {
+export default function CoachChallengesView({ embedded = false, headingLevel }) {
   const toast = useUI(state => state.toast)
   const navigate = useNavigate()
   const location = useLocation()
@@ -341,7 +341,7 @@ export default function CoachChallengesView({ embedded = false }) {
     }
   }
 
-  const Container = embedded ? 'div' : 'main'
+  const Container = 'div'
 
   return (
     <Container className={`gc-page ds-scope ${embedded ? 'embedded' : 'narrow'}`}>
@@ -359,16 +359,17 @@ export default function CoachChallengesView({ embedded = false }) {
         eyebrow={p('Community')}
         title={p('Group challenges')}
         description={p('Set goals, motivate your community with friendly competition, and track real-time leaderboards.')}
+        headingLevel={headingLevel ?? (embedded ? 2 : 1)}
       />
 
       {/* Toolbar & Filters */}
       <div className="gc-toolbar">
-        <div className="gc-filter-group" role="tablist">
+        <div className="gc-filter-group" role="group" aria-label={p('Status')}>
           {['all', 'draft', 'active', 'completed', 'archived'].map(filter => (
             <button
               key={filter}
-              role="tab"
-              aria-selected={statusFilter === filter}
+              type="button"
+              aria-pressed={statusFilter === filter}
               className={`gc-filter-btn ${statusFilter === filter ? 'active' : ''}`}
               onClick={() => setStatusFilter(filter)}
             >
@@ -625,7 +626,8 @@ export default function CoachChallengesView({ embedded = false }) {
                 <div className="pro-empty-inline">{p('No leaderboard participants yet.')}</div>
               ) : (
                 <div className="gc-leaderboard-table-wrapper">
-                  <table className="gc-leaderboard-table" aria-label={p('Leaderboard')}>
+                  <table className="gc-leaderboard-table">
+                    <caption className="sr-only">{p('Leaderboard')}</caption>
                     <thead>
                       <tr>
                         <th scope="col" style={{ width: 60 }}>{p('Rank')}</th>

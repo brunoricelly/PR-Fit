@@ -386,7 +386,7 @@ describe('AthleteChallengesView', () => {
 
     const table = document.querySelector('table.gc-leaderboard-table')
     expect(table).toBeTruthy()
-    expect(table.getAttribute('aria-label')).toBe('Leaderboard')
+    expect(table.querySelector('caption')?.textContent).toBe('Leaderboard')
     const meRow = table.querySelector('tr.athlete-me-row')
     expect(meRow).toBeTruthy()
     expect(meRow.getAttribute('aria-current')).toBe('true')

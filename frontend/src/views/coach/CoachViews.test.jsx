@@ -374,11 +374,11 @@ describe('CoachGroupsView', () => {
 
     expect(document.body.textContent).toContain('maximum member capacity')
   })
-  it('renders a semantic <main> tag standalone and a <div> tag when embedded', async () => {
+  it('leaves the route-level main landmark to the application shell', async () => {
     mocks.listCoachGroups.mockResolvedValue({ groups: [], page: { hasMore: false } })
     await mount(<CoachGroupsView />)
-    expect(host.querySelector('main.gc-page')).toBeTruthy()
-    expect(host.querySelector('div.gc-page')).toBeNull()
+    expect(host.querySelector('main.gc-page')).toBeNull()
+    expect(host.querySelector('div.gc-page')).toBeTruthy()
 
     await mount(<CoachGroupsView embedded />)
     expect(host.querySelector('main.gc-page')).toBeNull()
@@ -599,7 +599,7 @@ describe('CoachChallengesView', () => {
 
     const table = document.querySelector('table.gc-leaderboard-table')
     expect(table).toBeTruthy()
-    expect(table.getAttribute('aria-label')).toBe('Leaderboard')
+    expect(table.querySelector('caption')?.textContent).toBe('Leaderboard')
     expect(table.querySelectorAll('th[scope="col"]').length).toBe(4)
     expect(table.textContent).toContain('Carla Silva')
     expect(table.textContent).toContain('5 workouts')

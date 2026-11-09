@@ -28,8 +28,9 @@ class RouteImportBoundary extends Component {
 
 export function RouteLoading({ label }) {
   return (
-    <main className="ds-scope route-load-state" aria-busy="true" aria-label={`Carregando ${label}`}>
-      <span className="sr-only" role="status" aria-live="polite">Carregando {label}…</span>
+    <div className="ds-scope route-load-state" aria-busy="true" aria-label={`Carregando ${label}`}>
+      <h1 className="sr-only">Carregando {label}</h1>
+      <span className="sr-only" role="status">Carregando {label}…</span>
       <div className="route-load-skeleton" aria-hidden="true">
         <Skeleton announce={false} width="7rem" height="1rem" />
         <Skeleton announce={false} width="min(28rem, 82%)" height="2.25rem" />
@@ -39,18 +40,19 @@ export function RouteLoading({ label }) {
           <Skeleton announce={false} height="9rem" />
         </div>
       </div>
-    </main>
+    </div>
   )
 }
 
 function RouteLoadError({ label, onRetry }) {
   return (
-    <main className="ds-scope route-load-state route-load-error">
+    <div className="ds-scope route-load-state route-load-error">
+      <h1 className="sr-only">Não foi possível carregar {label}</h1>
       <Alert tone="error" title={`Não foi possível carregar ${label}.`}>
         <p>Verifique sua conexão e tente novamente. Seus dados continuam seguros neste dispositivo.</p>
         <Button variant="secondary" onClick={onRetry}>Tentar novamente</Button>
       </Alert>
-    </main>
+    </div>
   )
 }
 

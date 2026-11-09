@@ -64,8 +64,10 @@ function BuiltinMedia({ ex, id, compact, minimizable }) {
     if (anim.still) return
     setPlaying(p => !p)
   }
+  const interactive = !!failed || !anim.still
+  const actionLabel = failed ? t('Try again') : playing ? t('tap to pause') : t('tap to play')
   return (
-    <div className={'exmedia' + (compact ? ' compact' : '') + (mini ? ' mini' : '') + (failed === 'all' ? ' broken' : '')} id={id} onClick={onTap}>
+    <div className={'exmedia tap-host' + (compact ? ' compact' : '') + (mini ? ' mini' : '') + (failed === 'all' ? ' broken' : '')} id={id}>
       {failed === 'all'
         ? <div className="exmedia-x"><Icon name="dumbbell" /></div>
         : showGif && clip && clipSrc
@@ -77,8 +79,9 @@ function BuiltinMedia({ ex, id, compact, minimizable }) {
             // the phone app is still reading the clip into memory: the still holds its place
             ? <img decoding="async" draggable={false} src={imgSrc(ex, body)} alt={exerciseNameFor(ex)} />
           : <img decoding="async" draggable={false} src={showGif ? gif : imgSrc(ex, body)} alt={exerciseNameFor(ex)} onError={onError} />}
+      {interactive && <button type="button" className="tap-main exmedia-action" aria-label={actionLabel} onClick={onTap} />}
       {minimizable && (
-        <button className="giftoggle" onClick={toggleSize}>
+        <button type="button" className="giftoggle" onClick={toggleSize}>
           <Icon name={mini ? 'expand' : 'minimize'} />{mini ? t('Expand') : t('Minimize')}
         </button>
       )}

@@ -1,5 +1,7 @@
 // Polish UI strings. Keys are the English source strings (see lib/i18n.js).
 export default {
+  'Main navigation': 'Główna nawigacja',
+  'Skip to main content': 'Przejdź do głównej treści',
   "Same muscle and exercise type. The movement may differ.": "Ten sam mięsień i typ ćwiczenia. Ruch może się różnić.",
   "Related muscles and exercise type. The movement may differ.": "Powiązane mięśnie i ten sam typ ćwiczenia. Ruch może się różnić.",
   "Same muscle, different exercise type. Check suitability.": "Ten sam mięsień, inny typ ćwiczenia. Sprawdź, czy jest odpowiednie.",

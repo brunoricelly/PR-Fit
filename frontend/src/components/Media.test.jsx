@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Media, { Thumb } from './Media.jsx'
 import { createMediaStore, memoryBackend, _setMediaStore } from '../lib/media-store.js'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -27,8 +28,15 @@ vi.mock('../store/useStore.js', () => {
 
 const EX = { id: 'bench', n: 'bench press', gif: 'bench.gif', img: 'bench.jpg' }
 
-let host, root
+let host, root, assertNoReactWarnings, suppressIframeErrors
 beforeEach(() => {
+  assertNoReactWarnings = guardReactWarnings()
+  const createElement = document.createElement.bind(document)
+  suppressIframeErrors = vi.spyOn(document, 'createElement').mockImplementation((tagName, options) => {
+    const element = createElement(tagName, options)
+    if (String(tagName).toLowerCase() === 'iframe') element.srcdoc = '<!doctype html>'
+    return element
+  })
   window.happyDOM.settings.disableIframePageLoading = true
   mocks.S = { gifSize: 'full' }
   host = document.createElement('div')
@@ -38,6 +46,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  suppressIframeErrors?.mockRestore()
+  assertNoReactWarnings?.()
 })
 
 const mount = props => act(() => root.render(<Media ex={EX} {...props} />))
@@ -108,6 +118,8 @@ describe('Media gifSize', () => {
     mount({ minimizable: true })
     expect(host.querySelector('.exmedia img')).toBeTruthy()
     expect(host.querySelector('.exmedia.mini')).toBeFalsy()
+    expect(host.querySelector('.exmedia-action').tagName).toBe('BUTTON')
+    expect(host.querySelector('.giftoggle').parentElement.closest('button, [role="button"]')).toBeNull()
     act(() => { host.querySelector('.giftoggle').click() })
     expect(mocks.S.gifSize).toBe('mini')
     mount({ minimizable: true })
@@ -182,10 +194,14 @@ describe('Media — a custom exercise', () => {
     const src = () => host.querySelector('.exmedia img').getAttribute('src')
     const animated = src()
     expect(host.querySelector('.gifhint').textContent).toContain('tap to pause')
-    act(() => { host.querySelector('.exmedia').click() })
+    const action = host.querySelector('.exmedia-action')
+    expect(action.tagName).toBe('BUTTON')
+    expect(action.getAttribute('aria-label')).toBe('tap to pause')
+    act(() => { action.click() })
     expect(src()).not.toBe(animated)
     expect(host.querySelector('.gifhint').textContent).toContain('tap to play')
-    act(() => { host.querySelector('.exmedia').click() })
+    expect(action.getAttribute('aria-label')).toBe('tap to play')
+    act(() => { action.click() })
     expect(src()).toBe(animated)
   })
 
@@ -215,7 +231,7 @@ describe('Media — a custom exercise', () => {
     window.matchMedia = q => ({ matches: q.includes('reduce'), addEventListener() {}, removeEventListener() {} })
     await mountCustom(custom({ media: clip(8) }))
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
-    act(() => { host.querySelector('.exmedia').click() })
+    act(() => { host.querySelector('.exmedia-action').click() })
     await settle()
     expect(HTMLMediaElement.prototype.play).toHaveBeenCalled()
   })
@@ -278,7 +294,7 @@ describe('Media — a custom exercise', () => {
       expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
       expect(host.querySelector('.gifhint').textContent).toContain('tap to play')
       HTMLMediaElement.prototype.play = vi.fn(function () { return Promise.resolve() })
-      act(() => { host.querySelector('.exmedia').click() })
+      act(() => { host.querySelector('.exmedia-action').click() })
       await settle()
       expect(HTMLMediaElement.prototype.play).toHaveBeenCalledTimes(1)
     } finally { globalThis.IntersectionObserver = IO }
@@ -291,7 +307,7 @@ describe('Media — a custom exercise', () => {
     expect(v.hasAttribute('controls')).toBe(false)
     expect(v.loop).toBe(false)
     expect(HTMLMediaElement.prototype.play).not.toHaveBeenCalled()
-    act(() => { host.querySelector('.exmedia').click() })
+    act(() => { host.querySelector('.exmedia-action').click() })
     await settle()
     v = host.querySelector('.exmedia video')
     expect(v.hasAttribute('controls')).toBe(true)

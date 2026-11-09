@@ -155,6 +155,7 @@ describe('playing one', () => {
     await settle()
     expect(host.querySelector('video')).toBeNull()
     expect(host.textContent).toContain('On the phone that filmed it')
+    expect(host.querySelector('.fv-msg').tagName).toBe('DIV')
   })
 })
 

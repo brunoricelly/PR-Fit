@@ -23,6 +23,7 @@ import {
   ConflictError,
 } from '../lib/scheduling-api.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
+import { dateLocale } from '../lib/i18n.js'
 import { useActiveRole } from '../lib/roles.js'
 import Icon from '../components/Icon.jsx'
 import {
@@ -141,11 +142,15 @@ export function AccessibleModal({ id, title, onClose, children, className = '' }
 // Civil Time and Formatting Helpers
 // ==========================================
 
+const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
+const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
+const civilDate = match => new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12))
+
 export function formatSlotTime(isoString, timeZone) {
   if (!isoString) return ''
   try {
     const d = new Date(isoString)
-    return new Intl.DateTimeFormat('pt-BR', {
+    return new Intl.DateTimeFormat(dateLocale(), {
       hour: '2-digit',
       minute: '2-digit',
       hour12: false,
@@ -159,12 +164,13 @@ export function formatSlotTime(isoString, timeZone) {
 export function formatDateOnly(isoString, timeZone) {
   if (!isoString) return ''
   try {
-    const d = new Date(isoString)
-    const parts = new Intl.DateTimeFormat('pt-BR', {
+    const civil = DATE_RE.exec(String(isoString).trim())
+    const d = civil ? civilDate(civil) : new Date(isoString)
+    const parts = new Intl.DateTimeFormat(dateLocale(), {
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
-      timeZone: timeZone || undefined,
+      timeZone: civil ? 'UTC' : (timeZone || undefined),
     }).formatToParts(d)
     const day = parts.find(p => p.type === 'day')?.value || ''
     const month = parts.find(p => p.type === 'month')?.value || ''
@@ -189,11 +195,12 @@ export function formatFullDateTime(isoString, timeZone) {
 export function formatDayHeader(isoString, timeZone) {
   if (!isoString) return ''
   try {
-    const d = new Date(isoString)
+    const civil = DATE_RE.exec(String(isoString).trim())
+    const d = civil ? civilDate(civil) : new Date(isoString)
     const dateFormatted = formatDateOnly(isoString, timeZone)
-    const weekday = new Intl.DateTimeFormat('pt-BR', {
+    const weekday = new Intl.DateTimeFormat(dateLocale(), {
       weekday: 'long',
-      timeZone: timeZone || undefined,
+      timeZone: civil ? 'UTC' : (timeZone || undefined),
     }).format(d)
     const capitalizedWeekday = weekday.charAt(0).toUpperCase() + weekday.slice(1)
     return `${dateFormatted} · ${capitalizedWeekday}`
@@ -201,9 +208,6 @@ export function formatDayHeader(isoString, timeZone) {
     return isoString.slice(0, 10)
   }
 }
-
-const DATE_RE = /^(\d{4})-(\d{2})-(\d{2})$/
-const TIME_RE = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/
 
 export function civilTimeToIso(dateStr, timeStr, timeZone) {
   if (!dateStr || !timeStr) return null
@@ -2276,7 +2280,7 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   }
 
   return (
-    <main className={`narrow pro-page ${embedded ? 'embedded' : ''}`}>
+    <div className={`narrow pro-page ${embedded ? 'embedded' : ''}`}>
       {!embedded && (
         <div className="pro-nav">
           <button data-back="/settings" onClick={() => navigate('/settings')}>
@@ -2290,7 +2294,9 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
         <header className="pro-hero">
           <div>
             <span className="pro-kicker">{p('Scheduling')}</span>
-            <h1>{currentRole === 'coach' ? p('Coach appointments') : p('My appointments')}</h1>
+            {embedded
+              ? <h2>{currentRole === 'coach' ? p('Coach appointments') : p('My appointments')}</h2>
+              : <h1>{currentRole === 'coach' ? p('Coach appointments') : p('My appointments')}</h1>}
             <p>{p('Manage availability, sessions and reminders')}</p>
           </div>
           <Icon name="calendar" />
@@ -2364,6 +2370,9 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
           )
         )}
       </div>
-    </main>
+      {tabs.filter(tab => tab.id !== activeTab).map(tab => (
+        <div key={tab.id} id={`panel-${tab.id}`} role="tabpanel" aria-labelledby={`tab-${tab.id}`} hidden />
+      ))}
+    </div>
   )
 }

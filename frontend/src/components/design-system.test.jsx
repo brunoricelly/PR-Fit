@@ -271,7 +271,7 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Desafios')
     act(() => document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'End', bubbles: true })))
     expect(host.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Programas')
-    expect(host.querySelector('[role="tabpanel"]')?.textContent).toBe('Painel de programas')
+    expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.textContent).toBe('Painel de programas')
   })
 
   it('shows tooltip content for keyboard focus and removes it on blur', () => {

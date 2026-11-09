@@ -861,13 +861,13 @@ export default function Settings({ page = null, find = null, via = null, entryKe
         {ctx.nameLang && <>
           <Row icon="globe" iconTint="var(--purple)" title={t('English exercise names')}
             subtitle={t('Show the English name in parentheses next to the translated one.')}>
-            <Switch checked={S.enParens?.[baseLang(lang)] ?? true}
+            <Switch aria-label={t('English exercise names')} checked={S.enParens?.[baseLang(lang)] ?? true}
               disabled={S.enOnly?.[baseLang(lang)] === true}
               onChange={v => update(s => { s.enParens = { ...(s.enParens || {}), [baseLang(lang)]: v } })} />
           </Row>
           <Row icon="globe" iconTint="var(--purple)" title={t('English names only')}
             subtitle={t('Replace the translated names with the original English ones.')}>
-            <Switch checked={S.enOnly?.[baseLang(lang)] === true}
+            <Switch aria-label={t('English names only')} checked={S.enOnly?.[baseLang(lang)] === true}
               onChange={v => update(s => { s.enOnly = { ...(s.enOnly || {}), [baseLang(lang)]: v } })} />
           </Row>
         </>}
@@ -1493,7 +1493,7 @@ function MobileReminderCard({ S, update, toast }) {
       </Row>
       {S.reminder?.on && (
         <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')}>
-          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time}
+          <input type="time" className="timef" aria-label={t('Reminder time')} value={S.reminder?.time || DEF.reminder.time}
             onChange={e => setReminder({ time: e.target.value })} />
         </Row>
       )}
@@ -1594,7 +1594,7 @@ function PushCard({ S, update, toast }) {
       )}
       {on && S.reminder?.on && (
         <Row icon="clock" iconTint="var(--purple)" title={t('Reminder time')}>
-          <input type="time" className="timef" value={S.reminder?.time || DEF.reminder.time}
+          <input type="time" className="timef" aria-label={t('Reminder time')} value={S.reminder?.time || DEF.reminder.time}
             onChange={e => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), time: e.target.value, tz: localTZ() } })} />
         </Row>
       )}
@@ -1859,7 +1859,7 @@ function RegisterInline({ close, setUser, pushState, pullState, toast }) {
     <TextField ref={nameRef} placeholder={t('Your name')} maxLength={40} />
     {inviteOnly && <>
       <div style={{ height: 10 }} />
-      <input className="input" placeholder={t('Invite code')} maxLength={40} value={code}
+      <input className="input" aria-label={t('Invite code')} placeholder={t('Invite code')} maxLength={40} value={code}
         onChange={e => setCode(e.target.value.toUpperCase())} style={{ letterSpacing: '.14em', fontWeight: 600, textAlign: 'center' }} />
       <div className="dim small" style={{ marginTop: 6 }}>{t('This app is invite-only. Enter the code you were given.')}</div>
     </>}

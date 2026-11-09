@@ -39,7 +39,7 @@
 }
 
 .ds-role-tab.active,
-.ds-role-tab[aria-selected="true"] {
+.ds-role-tab[aria-pressed="true"] {
   background: var(--acc, var(--ds-color-brand, #35d06f));
   color: var(--on-acc, var(--ds-color-on-brand, #07140c));
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);

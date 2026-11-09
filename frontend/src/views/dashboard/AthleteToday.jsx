@@ -46,7 +46,8 @@ const planEmpty = plan => plan === null
 const normalizePrescriptions = payload => (Array.isArray(payload?.prescriptions) ? payload.prescriptions : [])
 
 function AthleteLoading() {
-  return <main className="ds-scope dashboard-page dashboard-page-athlete" aria-busy="true" aria-label="Carregando Hoje">
+  return <div className="ds-scope dashboard-page dashboard-page-athlete" aria-busy="true" aria-label="Carregando Hoje">
+    <h1 className="sr-only">Hoje</h1>
     <span className="sr-only" role="status">Carregando Hoje</span>
     <div className="dashboard-shell">
       <Skeleton announce={false} width="6rem" height="1rem" />
@@ -54,7 +55,7 @@ function AthleteLoading() {
       <Skeleton announce={false} height="13rem" />
       <div className="dashboard-loading-grid" aria-hidden="true"><Skeleton announce={false} height="9rem" /><Skeleton announce={false} height="9rem" /></div>
     </div>
-  </main>
+  </div>
 }
 
 function UnavailableSummary({ title, text }) {
@@ -291,7 +292,7 @@ export default function AthleteToday() {
     { id: 'community', title: 'Conheça a Comunidade', text: 'Explore grupos, programas e desafios.', route: '/community', cta: 'Abrir Comunidade', completion: 'visit' },
   ]
 
-  return <main className="ds-scope dashboard-page dashboard-page-athlete">
+  return <div className="ds-scope dashboard-page dashboard-page-athlete">
     <div className="dashboard-shell">
       <PageHeader
         eyebrow="Hoje"
@@ -523,5 +524,5 @@ export default function AthleteToday() {
         </div>
       </nav>}
     </div>
-  </main>
+  </div>
 }

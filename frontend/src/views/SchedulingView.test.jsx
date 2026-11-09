@@ -51,6 +51,8 @@ import SchedulingView, {
   CancelModal,
   NextAppointmentCard,
   civilTimeToIso,
+  formatDateOnly,
+  formatDayHeader,
 } from './SchedulingView.jsx'
 
 let host, root
@@ -600,6 +602,13 @@ describe('SchedulingView - Full View & Accessibility', () => {
 })
 
 describe('SchedulingView - Civil Timezone Conversion', () => {
+  it('keeps civil YYYY-MM-DD dates on the same day in every IANA timezone', () => {
+    const honolulu = formatDateOnly('2026-01-01', 'Pacific/Honolulu')
+    const tokyo = formatDateOnly('2026-01-01', 'Asia/Tokyo')
+    expect(honolulu).toBe(tokyo)
+    expect(formatDayHeader('2026-01-01', 'Pacific/Honolulu')).toBe(formatDayHeader('2026-01-01', 'Asia/Tokyo'))
+  })
+
   it('converts civil date and time to ISO instant deterministically across time zones', () => {
     // UTC-3
     expect(civilTimeToIso('2026-06-01', '10:00', 'America/Sao_Paulo')).toBe('2026-06-01T13:00:00.000Z')
