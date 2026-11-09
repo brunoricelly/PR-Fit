@@ -191,6 +191,8 @@ export default function AthleteToday() {
   const pullState = useStore(state => state.pullState)
   const toast = useUI(state => state.toast)
   const [adoptingPrescription, setAdoptingPrescription] = useState(null)
+  const [checkingInId, setCheckingInId] = useState(null)
+  const [habitLiveFeedback, setHabitLiveFeedback] = useState('')
 
   const adoptPrescription = async prescription => {
     setAdoptingPrescription(prescription.id)
@@ -203,6 +205,59 @@ export default function AthleteToday() {
       toast('Não foi possível adotar a rotina. Tente novamente.')
     } finally {
       setAdoptingPrescription(null)
+    }
+  }
+
+  const handleQuickCheckin = async habit => {
+    if (checkingInId || habit.relationship?.readOnly) return
+    const isCompleted = !!habit.checkin?.completed
+    const nextCompleted = !isCompleted
+    const targetValue = Number(habit.targetValue || 1)
+    const timeZone = browserTimeZone().value
+    const habitDate = habit.date || localToday()
+    setCheckingInId(habit.id)
+    setHabitLiveFeedback('')
+    try {
+      if (typeof communicationApi?.checkin !== 'function') throw new Error('checkin not supported')
+      const result = await communicationApi.checkin(timeZone, {
+        habitId: habit.id,
+        date: habitDate,
+        value: nextCompleted ? targetValue : 0,
+        completed: nextCompleted,
+        notes: habit.checkin?.notes || '',
+      })
+      setRemoteState(current => {
+        if (!current?.sources?.habits?.data) return current
+        const nextHabits = current.sources.habits.data.map(item => {
+          if (item.id !== habit.id) return item
+          const streakDelta = nextCompleted ? 1 : (item.currentStreak > 0 ? -1 : 0)
+          const currentStreak = typeof item.currentStreak === 'number' ? Math.max(0, item.currentStreak + streakDelta) : undefined
+          return {
+            ...item,
+            checkin: result.checkin,
+            ...(currentStreak !== undefined ? { currentStreak } : {}),
+          }
+        })
+        return {
+          ...current,
+          sources: {
+            ...current.sources,
+            habits: {
+              ...current.sources.habits,
+              data: nextHabits,
+            },
+          },
+        }
+      })
+      const msg = nextCompleted ? 'Check-in realizado com sucesso.' : 'Check-in marcado como pendente.'
+      setHabitLiveFeedback(msg)
+      toast(msg)
+    } catch {
+      const errMsg = 'Não foi possível salvar o check-in. Tente novamente.'
+      setHabitLiveFeedback(errMsg)
+      toast(errMsg)
+    } finally {
+      setCheckingInId(null)
     }
   }
 
@@ -324,9 +379,41 @@ export default function AthleteToday() {
             <Button variant="ghost" onClick={() => navigate('/professionals?tab=nutrition')}>Abrir alimentação</Button>
           </Card>}
 
-          {habits.length > 0 && <Card className="athlete-summary-card">
+          {habits.length > 0 && <Card className="athlete-summary-card athlete-habits-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Hábitos</span><h3>{completedHabits} de {habits.length} concluídos</h3></div><Icon name="checkCircle" aria-hidden="true" /></div>
-            <ul className="athlete-mini-list">{habits.slice(0, 3).map(habit => <li key={habit.id}><span>{habit.title}</span><Badge tone={habit.checkin?.completed ? 'success' : 'neutral'}>{habit.checkin?.completed ? 'Feito' : 'Pendente'}</Badge></li>)}</ul>
+            <div className="sr-only" role="status" aria-live="polite">{habitLiveFeedback}</div>
+            <ul className="athlete-mini-list">
+              {habits.slice(0, 3).map(habit => {
+                const isCompleted = !!habit.checkin?.completed
+                const isPending = checkingInId === habit.id
+                return (
+                  <li key={habit.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '44px', gap: '8px' }}>
+                    <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                      <span>{habit.title}</span>
+                      <small className="dashboard-muted" style={{ fontSize: 'var(--fs-caption2)' }}>
+                        {habit.targetValue} {habit.unit}
+                        {typeof habit.currentStreak === 'number' ? ` · ${habit.currentStreak} dias seguidos` : ''}
+                      </small>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                      <Badge tone={isCompleted ? 'success' : 'neutral'}>{isCompleted ? 'Feito' : 'Pendente'}</Badge>
+                      {!habit.relationship?.readOnly && (
+                        <Button
+                          size="sm"
+                          variant={isCompleted ? 'secondary' : 'primary'}
+                          disabled={isPending}
+                          onClick={() => handleQuickCheckin(habit)}
+                          aria-label={`${isCompleted ? 'Desmarcar' : 'Concluir'} ${habit.title}`}
+                          style={{ minHeight: '44px', minWidth: '44px' }}
+                        >
+                          {isPending ? '…' : isCompleted ? 'Desfazer' : 'Concluir'}
+                        </Button>
+                      )}
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
             <Button variant="ghost" onClick={() => navigate('/professionals')}>Abrir hábitos</Button>
           </Card>}
 

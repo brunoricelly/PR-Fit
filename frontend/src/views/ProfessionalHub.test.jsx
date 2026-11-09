@@ -598,3 +598,43 @@ describe('ProfessionalHub', () => {
     expect(host.textContent).not.toContain('Plano tardio da Ana')
     expect(host.textContent).not.toContain('ana@example.test')
   })
+
+  it('exibe badges de mensagens não lidas, alerta de inbox e filtro de não lidas no portfolio do coach', async () => {
+    const athleteA = { id: 'u_athlete_a', name: 'Atleta Com Mensagem' }
+    const athleteB = { id: 'u_athlete_b', name: 'Atleta Sem Mensagem' }
+    mocks.user = { id: 'u_coach_inbox', name: 'Coach Ricardo', profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [
+      { id: 'link_msg', status: 'active', scopes: ['training'], athlete: athleteA },
+      { id: 'link_clear', status: 'active', scopes: ['training'], athlete: athleteB },
+    ] }
+    mocks.answers['/api/messages/inbox'] = {
+      conversations: [
+        {
+          linkId: 'link_msg',
+          counterpart: athleteA,
+          unreadCount: 3,
+          lastMessage: { id: 'msg_1', senderId: athleteA.id, content: 'Professor, senti uma dor no ombro', createdAt: Date.now() - 1000, readAt: null },
+          lastMessageAt: Date.now() - 1000,
+          status: 'active',
+        },
+      ],
+      page: { limit: 50, hasMore: false, nextCursor: null },
+    }
+
+    await mount('/professionals')
+
+    expect(host.textContent).toContain('3 unread messages')
+    expect(host.textContent).toContain('You have unread messages in your athlete conversations.')
+    expect(host.textContent).toContain('3 unread')
+    expect(host.textContent).toContain('Incoming message')
+
+    const unreadFilterBtn = [...host.querySelectorAll('.pro-status-filter button')].find(b => b.textContent.includes('Unread messages'))
+    expect(unreadFilterBtn).toBeTruthy()
+    expect(unreadFilterBtn.textContent).toContain('(1)')
+
+    await act(async () => { unreadFilterBtn.click() })
+    await settle()
+
+    expect(host.textContent).toContain('Atleta Com Mensagem')
+    expect(host.textContent).not.toContain('Atleta Sem Mensagem')
+  })

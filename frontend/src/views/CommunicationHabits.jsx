@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { communicationApi, browserTimeZone } from '../lib/communication-api.js'
+import { communicationApi, browserTimeZone, dateInTimeZone } from '../lib/communication-api.js'
 import { dateLocale } from '../lib/i18n.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
-import EmptyState from '../components/EmptyState.jsx'
-import { Button, TextArea, TextField } from '../components/ui.jsx'
+import { Alert, Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '../components/design-system.jsx'
 
 const PERIODS = [7, 30, 90]
 const UNITS = ['horas', 'passos', 'ml', 'minutos', 'vezes']
@@ -186,38 +185,79 @@ export function CommunicationPanel({ link, side, actorId, conversation, onConver
     finally { readInFlight.current = false; setReading(false) }
   }
 
+  const handleMessagesKeyDown = event => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return
+    const items = [...(event.currentTarget?.querySelectorAll('li') || [])]
+    const active = document.activeElement
+    const index = items.indexOf(active)
+    if (index === -1) {
+      if (items.length > 0) items[event.key === 'ArrowDown' ? 0 : items.length - 1].focus()
+      return
+    }
+    const next = event.key === 'ArrowDown' ? Math.min(items.length - 1, index + 1) : Math.max(0, index - 1)
+    if (items[next]) {
+      event.preventDefault()
+      items[next].focus()
+    }
+  }
+
   if (!counterpart?.id) return null
   return <section className="pro-comm" aria-labelledby={`messages-${link.id}`}>
-    <button className="pro-comm-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
-      <span><strong id={`messages-${link.id}`}>{p('Messages')}</strong>
-        <small>{conversation?.lastMessage ? conversation.lastMessage.content : p('No messages yet.')}</small></span>
-      <span className="pro-comm-summary">{conversation?.unreadCount > 0 && <b aria-label={p('{0} unread messages', conversation.unreadCount)}>{conversation.unreadCount}</b>}
-        <span>{conversation?.lastMessageAt ? formatDateTime(conversation.lastMessageAt) : statusText(link.status)}</span></span>
+    <button className="pro-comm-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={{ minHeight: '54px' }}>
+      <span>
+        <strong id={`messages-${link.id}`}>{p('Messages')}</strong>
+        <small>{conversation?.lastMessage ? conversation.lastMessage.content : p('No messages yet.')}</small>
+      </span>
+      <span className="pro-comm-summary">
+        {conversation?.unreadCount > 0 && <b aria-label={p('{0} unread messages', conversation.unreadCount)}>{conversation.unreadCount}</b>}
+        <span>{conversation?.lastMessageAt ? formatDateTime(conversation.lastMessageAt) : statusText(link.status)}</span>
+      </span>
     </button>
     {open && <div className="pro-comm-body">
       {readOnly && <p className="pro-readonly" role="status">{p('This relationship is read-only. You can still review its history.')}</p>}
       <LiveFeedback success={success} error={actionError} />
       {loading && messages === null ? <div className="pro-loading">{p('Loading conversation…')}</div>
-        : conversationError && messages === null ? <div className="pro-load-error" role="alert"><p>{p('Could not load this conversation.')}</p><Button size="sm" onClick={() => load(failedCursor.current)}>{p('Try again')}</Button></div>
+        : conversationError && messages === null ? <div className="pro-load-error" role="alert"><p>{p('Could not load this conversation.')}</p><Button size="sm" onClick={() => load(failedCursor.current)} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>
           : messages?.length ? <>
-            {conversationError && <div className="pro-load-error" role="alert"><p>{p('Could not refresh this conversation. Your previous messages are still shown.')}</p><Button size="sm" disabled={loading} onClick={() => load(failedCursor.current)}>{p('Try again')}</Button></div>}
-            {page?.hasMore && !conversationError && <Button size="sm" disabled={loading} onClick={() => load(page.nextCursor)}>{loading ? p('Loading…') : p('Load earlier messages')}</Button>}
-            <ol className="pro-messages" aria-label={p('Conversation history')}>
-              {[...messages].reverse().map(message => <li key={message.id} className={message.senderId === actorId ? 'mine' : 'theirs'}>
-                <div className="pro-message-meta"><span>{message.senderId === actorId ? p('You') : counterpart.name}</span>
-                  <span>{categoryLabel(message.category)} · {formatDateTime(message.createdAt)}</span></div>
+            {conversationError && <div className="pro-load-error" role="alert"><p>{p('Could not refresh this conversation. Your previous messages are still shown.')}</p><Button size="sm" disabled={loading} onClick={() => load(failedCursor.current)} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
+            {page?.hasMore && !conversationError && <Button size="sm" disabled={loading} onClick={() => load(page.nextCursor)} style={{ minHeight: '44px' }}>{loading ? p('Loading…') : p('Load earlier messages')}</Button>}
+            <ol className="pro-messages" aria-label={p('Conversation history')} tabIndex={0} role="log" onKeyDown={handleMessagesKeyDown}>
+              {[...messages].reverse().map(message => <li key={message.id} className={message.senderId === actorId ? 'mine' : 'theirs'} tabIndex={0}>
+                <div className="pro-message-meta">
+                  <span>{message.senderId === actorId ? p('You') : counterpart.name}</span>
+                  <span>{categoryLabel(message.category)} · {formatDateTime(message.createdAt)}</span>
+                </div>
                 <p>{message.content}</p>
-                {message.recipientId === actorId && message.readAt === null && <Button size="sm" disabled={reading} onClick={() => markOne(message)}>{p('Mark as read')}</Button>}
+                <div className="pro-message-footer">
+                  {message.senderId === actorId ? (
+                    <span className="pro-receipt" aria-label={message.readAt ? p('Read') : p('Delivered')}>
+                      {message.readAt ? p('Read {0}', formatDateTime(message.readAt)) : p('Delivered')}
+                    </span>
+                  ) : message.readAt === null ? (
+                    <Button size="sm" disabled={reading} onClick={() => markOne(message)} style={{ minHeight: '44px' }}>
+                      {p('Mark as read')}
+                    </Button>
+                  ) : (
+                    <span className="pro-receipt read">{p('Read')}</span>
+                  )}
+                </div>
               </li>)}
             </ol>
           </> : messages && !conversationError && <EmptyState title={p('No messages yet')} text={readOnly ? p('There is no conversation history for this relationship.') : p('Start the conversation with a clear, respectful message.')} />}
       {!readOnly && options.length > 0 && <form className="pro-message-form" onSubmit={send}>
-        <label className="pro-field"><span>{p('Message category')}</span><select value={category} disabled={sending} onChange={event => setCategory(event.target.value)}>
-          {options.map(value => <option key={value} value={value}>{categoryLabel(value)}</option>)}
-        </select></label>
-        <label className="pro-field" ref={draftRef}><span>{p('Message')}</span><TextArea value={draft} maxLength={2000} rows={3} disabled={sending}
-          onChange={event => setDraft(event.target.value)} /></label>
-        <Button variant="primary" disabled={sending || !draft.trim()}>{sending ? p('Sending…') : p('Send message')}</Button>
+        <label className="pro-field">
+          <span>{p('Message category')}</span>
+          <select value={category} disabled={sending} onChange={event => setCategory(event.target.value)} style={{ minHeight: '44px' }}>
+            {options.map(value => <option key={value} value={value}>{categoryLabel(value)}</option>)}
+          </select>
+        </label>
+        <label className="pro-field" ref={draftRef}>
+          <span>{p('Message')}</span>
+          <Textarea value={draft} maxLength={2000} rows={3} disabled={sending} onChange={event => setDraft(event.target.value)} style={{ minHeight: '44px' }} />
+        </label>
+        <Button variant="primary" disabled={sending || !draft.trim()} style={{ minHeight: '44px' }}>
+          {sending ? p('Sending…') : p('Send message')}
+        </Button>
       </form>}
     </div>}
   </section>
@@ -229,25 +269,63 @@ const blankHabit = () => ({ title: '', description: '', targetValue: '1', unit: 
 function HabitFields({ value, onChange, disabled, prefix }) {
   const set = key => event => onChange({ ...value, [key]: event.target.value })
   return <div className="pro-habit-fields">
-    <label className="pro-field" htmlFor={`${prefix}-title`}><span>{p('Habit title')}</span><TextField id={`${prefix}-title`} value={value.title} maxLength={120} disabled={disabled} onChange={set('title')} /></label>
-    <label className="pro-field" htmlFor={`${prefix}-description`}><span>{p('Description')}</span><TextArea id={`${prefix}-description`} value={value.description} maxLength={1000} rows={2} disabled={disabled} onChange={set('description')} /></label>
+    <label className="pro-field" htmlFor={`${prefix}-title`}>
+      <span>{p('Habit title')}</span>
+      <Input id={`${prefix}-title`} value={value.title} maxLength={120} disabled={disabled} onChange={set('title')} style={{ minHeight: '44px' }} />
+    </label>
+    <label className="pro-field" htmlFor={`${prefix}-description`}>
+      <span>{p('Description')}</span>
+      <Textarea id={`${prefix}-description`} value={value.description} maxLength={1000} rows={2} disabled={disabled} onChange={set('description')} style={{ minHeight: '44px' }} />
+    </label>
     <div className="pro-grid-fields">
-      <label className="pro-field" htmlFor={`${prefix}-target`}><span>{p('Target')}</span><TextField id={`${prefix}-target`} type="number" min="0.01" step="any" value={value.targetValue} disabled={disabled} onChange={set('targetValue')} /></label>
-      <label className="pro-field" htmlFor={`${prefix}-unit`}><span>{p('Unit')}</span><select id={`${prefix}-unit`} value={value.unit} disabled={disabled} onChange={set('unit')}>{UNITS.map(unit => <option key={unit}>{unit}</option>)}</select></label>
-      <label className="pro-field" htmlFor={`${prefix}-frequency`}><span>{p('Frequency')}</span><select id={`${prefix}-frequency`} value={value.frequency} disabled={disabled} onChange={set('frequency')}>{FREQUENCIES.map(item => <option key={item} value={item}>{frequencyLabel(item)}</option>)}</select></label>
+      <label className="pro-field" htmlFor={`${prefix}-target`}>
+        <span>{p('Target')}</span>
+        <Input id={`${prefix}-target`} type="number" min="0.01" step="any" value={value.targetValue} disabled={disabled} onChange={set('targetValue')} style={{ minHeight: '44px' }} />
+      </label>
+      <label className="pro-field" htmlFor={`${prefix}-unit`}>
+        <span>{p('Unit')}</span>
+        <select id={`${prefix}-unit`} value={value.unit} disabled={disabled} onChange={set('unit')} style={{ minHeight: '44px' }}>
+          {UNITS.map(unit => <option key={unit} value={unit}>{unit}</option>)}
+        </select>
+      </label>
+      <label className="pro-field" htmlFor={`${prefix}-frequency`}>
+        <span>{p('Frequency')}</span>
+        <select id={`${prefix}-frequency`} value={value.frequency} disabled={disabled} onChange={set('frequency')} style={{ minHeight: '44px' }}>
+          {FREQUENCIES.map(item => <option key={item} value={item}>{frequencyLabel(item)}</option>)}
+        </select>
+      </label>
     </div>
   </div>
 }
 
 function SummaryView({ summary }) {
   if (!summary) return null
+  const hasScheduled = (summary.scheduledDays || 0) > 0
   return <div className="pro-summary" aria-label={p('Adherence summary')}>
-    <div><strong>{summary.adherencePercent}%</strong><span>{p('Adherence')}</span></div>
-    <div><strong>{summary.completedDays}/{summary.scheduledDays}</strong><span>{p('Completed scheduled days')}</span></div>
-    {summary.habits?.map(habit => <article key={habit.habitId}>
-      <strong>{habit.title}</strong><span>{p('Current streak: {0}', habit.currentStreak)}</span>
-      <span>{p('Longest streak in selected period: {0}', habit.longestStreakInPeriod)}</span>
-    </article>)}
+    <div className="pro-summary-stat">
+      <strong>{hasScheduled ? `${summary.adherencePercent}%` : '—'}</strong>
+      <span>{p('Adherence')}</span>
+      {!hasScheduled && <small className="pro-summary-note">{p('No scheduled habit days in period')}</small>}
+    </div>
+    <div className="pro-summary-stat">
+      <strong>{summary.completedDays}/{summary.scheduledDays}</strong>
+      <span>{p('Completed scheduled days')}</span>
+    </div>
+    {summary.habits?.length > 0 ? summary.habits.map(habit => (
+      <article key={habit.habitId} className="pro-summary-habit">
+        <div className="pro-summary-habit-head">
+          <strong>{habit.title}</strong>
+          <span className="pro-meta-badge">{frequencyLabel(habit.frequency)}</span>
+        </div>
+        <span>{p('Current streak: {0}', habit.currentStreak)}</span>
+        <span>{p('Longest streak in selected period: {0}', habit.longestStreakInPeriod)}</span>
+        {habit.scheduledDays > 0 ? (
+          <span className="pro-summary-adherence">{p('Adherence: {0}%', habit.adherencePercent)}</span>
+        ) : (
+          <span className="pro-summary-note">{p('No scheduled habit days in period')}</span>
+        )}
+      </article>
+    )) : <p className="pro-empty-inline">{p('No habits configured')}</p>}
   </div>
 }
 
@@ -340,42 +418,56 @@ export function CoachHabitsPanel({ link, timeZone = browserTimeZone().value }) {
 
   if (!athleteId) return null
   return <section className="pro-habits" aria-labelledby={`habits-${link.id}`}>
-    <button className="pro-comm-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)}>
+    <button className="pro-comm-toggle" type="button" aria-expanded={open} onClick={() => setOpen(value => !value)} style={{ minHeight: '54px' }}>
       <span><strong id={`habits-${link.id}`}>{p('Habits and check-ins')}</strong><small>{p('Goals, adherence and streaks')}</small></span>
       <span>{readOnly ? p('History only') : p('Manage')}</span>
     </button>
     {open && <div className="pro-comm-body">
       {readOnly && <p className="pro-readonly" role="status">{p('This relationship is read-only. You can still review its history.')}</p>}
-      <div className="pro-period-row"><label className="pro-field"><span>{p('Summary period')}</span><select value={period} disabled={loading} onChange={event => { const next = Number(event.target.value); setPeriod(next); load(next) }}>
-        {PERIODS.map(days => <option key={days} value={days}>{p('{0} days', days)}</option>)}</select></label><span>{p('Timezone: {0}', timeZone)}</span></div>
+      <div className="pro-period-row">
+        <label className="pro-field">
+          <span>{p('Summary period')}</span>
+          <select value={period} disabled={loading} onChange={event => { const next = Number(event.target.value); setPeriod(next); load(next) }} style={{ minHeight: '44px' }}>
+            {PERIODS.map(days => <option key={days} value={days}>{p('{0} days', days)}</option>)}
+          </select>
+        </label>
+        <span>{p('Timezone: {0}', timeZone)}</span>
+      </div>
       <LiveFeedback success={success} error={mutationError} />
       <section aria-labelledby={`summary-${link.id}`}><h3 id={`summary-${link.id}`}>{p('Adherence summary')}</h3>
         {summaryLoading && summary === null ? <div className="pro-loading">{p('Loading adherence summary…')}</div>
-          : summaryError ? <div className="pro-load-error" role="alert"><p>{summary ? p('Could not refresh adherence. Your previous summary is still shown.') : p('Could not load adherence summary.')}</p><Button size="sm" onClick={() => load()}>{p('Try again')}</Button></div> : null}
+          : summaryError ? <div className="pro-load-error" role="alert"><p>{summary ? p('Could not refresh adherence. Your previous summary is still shown.') : p('Could not load adherence summary.')}</p><Button size="sm" onClick={() => load()} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div> : null}
         <SummaryView summary={summary} />
         {!summaryLoading && !summaryError && summary === null && <p className="pro-empty-inline">{p('No adherence summary for this period.')}</p>}
       </section>
       {habitsLoading && habits === null && <div className="pro-loading">{p('Loading habits…')}</div>}
-      {habitsError && <div className="pro-load-error" role="alert"><p>{habits ? p('Could not refresh habits. Your previous habits are still shown.') : p('Could not load habits.')}</p><Button size="sm" onClick={() => load()}>{p('Try again')}</Button></div>}
+      {habitsError && <div className="pro-load-error" role="alert"><p>{habits ? p('Could not refresh habits. Your previous habits are still shown.') : p('Could not load habits.')}</p><Button size="sm" onClick={() => load()} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
       {habits !== null && <><div className="pro-habit-list">{habits.length ? habits.map(habit => <article key={habit.id} className="pro-habit" data-status={habit.status}>
               {editing?.id === habit.id ? <form onSubmit={saveEdit}><HabitFields value={editing} onChange={setEditing} disabled={pending === habit.id} prefix={`edit-${habit.id}`} />
-                <div className="pro-actions"><Button variant="primary" disabled={!!pending}>{p('Save changes')}</Button><Button type="button" disabled={!!pending} onClick={() => setEditing(null)}>{p('Cancel')}</Button></div></form>
+                <div className="pro-actions"><Button variant="primary" disabled={!!pending} style={{ minHeight: '44px' }}>{p('Save changes')}</Button><Button type="button" disabled={!!pending} onClick={() => setEditing(null)} style={{ minHeight: '44px' }}>{p('Cancel')}</Button></div></form>
                 : <><div className="pro-link-head"><div><h3>{habit.title}</h3><div className="pro-meta">{habit.targetValue} {habit.unit} · {frequencyLabel(habit.frequency)}</div></div><span className={`pro-status ${habit.status}`}>{habit.status === 'active' ? p('Active') : p('Archived')}</span></div>
                   {habit.description && <p>{habit.description}</p>}
-                  {!readOnly && <div className="pro-actions"><Button size="sm" disabled={!!pending} onClick={() => setEditing({ ...habit, targetValue: String(habit.targetValue) })}>{p('Edit')}</Button>
-                    <Button size="sm" disabled={!!pending} onClick={() => mutate(habit.id, () => communicationApi.updateHabit(athleteId, habit.id, { status: habit.status === 'active' ? 'archived' : 'active' }), habit.status === 'active' ? p('Habit archived.') : p('Habit reactivated.'))}>{habit.status === 'active' ? p('Archive') : p('Reactivate')}</Button>
-                    {confirmDelete === habit.id ? <span className="pro-inline-confirm"><span>{p('Delete this habit and its check-ins?')}</span><Button ref={confirmRef} size="sm" variant="danger" disabled={!!pending} onClick={() => mutate(habit.id, () => communicationApi.deleteHabit(athleteId, habit.id), p('Habit deleted.')).then(() => setConfirmDelete(null))}>{p('Confirm delete')}</Button><Button size="sm" disabled={!!pending} onClick={() => setConfirmDelete(null)}>{p('Cancel')}</Button></span>
-                      : <Button size="sm" variant="danger" disabled={!!pending} onClick={() => setConfirmDelete(habit.id)}>{p('Delete')}</Button>}</div>}
+                  {!readOnly && <div className="pro-actions">
+                    <Button size="sm" disabled={!!pending} onClick={() => setEditing({ ...habit, targetValue: String(habit.targetValue) })} style={{ minHeight: '44px' }}>{p('Edit')}</Button>
+                    <Button size="sm" disabled={!!pending} onClick={() => mutate(habit.id, () => communicationApi.updateHabit(athleteId, habit.id, { status: habit.status === 'active' ? 'archived' : 'active' }), habit.status === 'active' ? p('Habit archived.') : p('Habit reactivated.'))} style={{ minHeight: '44px' }}>{habit.status === 'active' ? p('Archive') : p('Reactivate')}</Button>
+                    {confirmDelete === habit.id ? <span className="pro-inline-confirm"><span>{p('Delete this habit and its check-ins?')}</span><Button ref={confirmRef} size="sm" variant="danger" disabled={!!pending} onClick={() => mutate(habit.id, () => communicationApi.deleteHabit(athleteId, habit.id), p('Habit deleted.')).then(() => setConfirmDelete(null))} style={{ minHeight: '44px' }}>{p('Confirm delete')}</Button><Button size="sm" disabled={!!pending} onClick={() => setConfirmDelete(null)} style={{ minHeight: '44px' }}>{p('Cancel')}</Button></span>
+                      : <Button size="sm" variant="danger" disabled={!!pending} onClick={() => setConfirmDelete(habit.id)} style={{ minHeight: '44px' }}>{p('Delete')}</Button>}
+                  </div>}
                 </>}
             </article>) : !habitsError && <EmptyState title={p('No habits yet')} text={readOnly ? p('There are no saved habits for this relationship.') : p('Create a measurable habit for this athlete.')} />}</div>
-        {!readOnly && <form className="card pro-habit-create" onSubmit={create}><h3>{p('Create habit')}</h3><HabitFields value={draft} onChange={setDraft} disabled={pending === 'create'} prefix={`create-${link.id}`} />
-          <Button variant="primary" disabled={!!pending || !draft.title.trim() || !(Number(draft.targetValue) > 0)}>{pending === 'create' ? p('Saving…') : p('Create habit')}</Button></form>}</>}
+        {!readOnly && <form className="card pro-habit-create" onSubmit={create}>
+          <h3>{p('Create habit')}</h3>
+          <HabitFields value={draft} onChange={setDraft} disabled={pending === 'create'} prefix={`create-${link.id}`} />
+          <Button variant="primary" disabled={!!pending || !draft.title.trim() || !(Number(draft.targetValue) > 0)} style={{ minHeight: '44px' }}>
+            {pending === 'create' ? p('Saving…') : p('Create habit')}
+          </Button>
+        </form>}</>}
       <section aria-labelledby={`history-${link.id}`}><h3 id={`history-${link.id}`}>{p('Check-in history')}</h3>
         {historyLoading && checkins === null && <div className="pro-loading">{p('Loading check-in history…')}</div>}
-        {historyError && <div className="pro-load-error" role="alert"><p>{checkins ? p('Could not refresh check-in history. Your previous check-ins are still shown.') : p('Could not load check-in history.')}</p><Button size="sm" onClick={() => load(period)}>{p('Try again')}</Button></div>}
+        {historyError && <div className="pro-load-error" role="alert"><p>{checkins ? p('Could not refresh check-in history. Your previous check-ins are still shown.') : p('Could not load check-in history.')}</p><Button size="sm" onClick={() => load(period)} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
         {checkins?.length ? <ul className="pro-checkin-history">{checkins.map(checkin => <li key={checkin.id}><strong>{habitName.get(checkin.habitId) || p('Habit')}</strong><span>{formatCivilDay(checkin.date)} · {checkin.value} · {checkin.completed ? p('Completed') : p('Not completed')}</span>{checkin.notes && <p>{checkin.notes}</p>}</li>)}</ul>
           : checkins && !historyError && <p className="pro-empty-inline">{p('No check-ins in this period.')}</p>}
-        {page?.hasMore && !historyError && <Button size="sm" disabled={historyLoading} onClick={() => load(period, page.nextCursor)}>{historyLoading ? p('Loading…') : p('Load more check-ins')}</Button>}
+        {page?.hasMore && !historyError && <Button size="sm" disabled={historyLoading} onClick={() => load(period, page.nextCursor)} style={{ minHeight: '44px' }}>{historyLoading ? p('Loading…') : p('Load more check-ins')}</Button>}
       </section>
     </div>}
   </section>
@@ -392,8 +484,17 @@ function AthleteCheckin({ habit, timeZone, onSaved }) {
   const mutation = useRef(0)
   const inFlight = useRef(false)
   const readOnly = habit.relationship?.readOnly
+
+  useEffect(() => {
+    if (habit.checkin) {
+      setValue(String(habit.checkin.value ?? 0))
+      setCompleted(habit.checkin.completed ?? false)
+      setNotes(habit.checkin.notes ?? '')
+    }
+  }, [habit.checkin])
+
   const submit = async event => {
-    event.preventDefault()
+    if (event?.preventDefault) event.preventDefault()
     if (inFlight.current || readOnly) return
     inFlight.current = true
     const current = ++mutation.current
@@ -401,21 +502,103 @@ function AthleteCheckin({ habit, timeZone, onSaved }) {
     setError('')
     setSuccess('')
     try {
-      const result = await communicationApi.checkin(timeZone, { habitId: habit.id, date: habit.date, value: Number(value), completed, notes: notes.trim() })
+      const result = await communicationApi.checkin(timeZone, {
+        habitId: habit.id,
+        date: habit.date,
+        value: Number(value),
+        completed,
+        notes: notes.trim(),
+      })
       if (current !== mutation.current) return
       await onSaved(result.checkin)
       setSuccess(p('Check-in saved.'))
-    } catch (caught) { if (current === mutation.current) setError(professionalError(caught)) }
-    finally { inFlight.current = false; if (current === mutation.current) setPending(false) }
+    } catch (caught) {
+      if (current === mutation.current) setError(professionalError(caught))
+    } finally {
+      inFlight.current = false
+      if (current === mutation.current) setPending(false)
+    }
   }
-  return <article className="card pro-athlete-habit"><div className="pro-link-head"><div><h3>{habit.title}</h3><div className="pro-meta">{habit.targetValue} {habit.unit} · {frequencyLabel(habit.frequency)}</div></div>
-    {existing && <span className="pro-status active">{p('Saved')}</span>}</div>{habit.description && <p>{habit.description}</p>}
-    {readOnly ? <p className="pro-readonly">{p('History only for this relationship.')}</p> : <form onSubmit={submit}>
-      <div className="pro-grid-fields"><label className="pro-field"><span>{p('Value')}</span><TextField type="number" min="0" step="any" value={value} disabled={pending} onChange={event => setValue(event.target.value)} /></label>
-        <label className="pro-check"><input type="checkbox" checked={completed} disabled={pending} onChange={event => setCompleted(event.target.checked)} /><span>{p('Completed')}</span></label></div>
-      <label className="pro-field"><span>{p('Notes')}</span><TextArea value={notes} maxLength={500} rows={2} disabled={pending} onChange={event => setNotes(event.target.value)} /></label>
-      <Button variant="primary" disabled={pending || !Number.isFinite(Number(value))}>{pending ? p('Saving…') : p('Save check-in')}</Button>
-    </form>}<LiveFeedback success={success} error={error} /></article>
+
+  const quickToggle = async () => {
+    if (inFlight.current || readOnly) return
+    inFlight.current = true
+    const current = ++mutation.current
+    setPending(true)
+    setError('')
+    setSuccess('')
+    const nextCompleted = !completed
+    const nextValue = nextCompleted ? Number(habit.targetValue || 1) : 0
+    try {
+      const result = await communicationApi.checkin(timeZone, {
+        habitId: habit.id,
+        date: habit.date,
+        value: nextValue,
+        completed: nextCompleted,
+        notes: notes.trim(),
+      })
+      if (current !== mutation.current) return
+      setCompleted(result.checkin.completed)
+      setValue(String(result.checkin.value))
+      await onSaved(result.checkin)
+      setSuccess(p('Check-in saved.'))
+    } catch (caught) {
+      if (current === mutation.current) setError(professionalError(caught))
+    } finally {
+      inFlight.current = false
+      if (current === mutation.current) setPending(false)
+    }
+  }
+
+  return <article className="card pro-athlete-habit">
+    <div className="pro-link-head">
+      <div>
+        <h3>{habit.title}</h3>
+        <div className="pro-meta">{habit.targetValue} {habit.unit} · {frequencyLabel(habit.frequency)}</div>
+      </div>
+      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+        {existing && <span className="pro-status active">{p('Saved')}</span>}
+      </div>
+    </div>
+    {habit.description && <p>{habit.description}</p>}
+    {readOnly ? (
+      <p className="pro-readonly">{p('History only for this relationship.')}</p>
+    ) : (
+      <>
+        <div className="pro-quick-checkin-row" style={{ margin: '8px 0 12px' }}>
+          <Button
+            size="sm"
+            variant={completed ? 'secondary' : 'primary'}
+            disabled={pending}
+            onClick={quickToggle}
+            style={{ minHeight: '44px', width: '100%' }}
+          >
+            {pending ? p('Saving…') : completed ? p('Mark as pending') : p('Complete today with 1 tap')}
+          </Button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="pro-grid-fields">
+            <label className="pro-field">
+              <span>{p('Value')}</span>
+              <Input type="number" min="0" step="any" value={value} disabled={pending} onChange={event => setValue(event.target.value)} style={{ minHeight: '44px' }} />
+            </label>
+            <label className="pro-check" style={{ minHeight: '44px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input type="checkbox" checked={completed} disabled={pending} onChange={event => setCompleted(event.target.checked)} />
+              <span>{p('Completed')}</span>
+            </label>
+          </div>
+          <label className="pro-field">
+            <span>{p('Notes')}</span>
+            <Textarea value={notes} maxLength={500} rows={2} disabled={pending} onChange={event => setNotes(event.target.value)} style={{ minHeight: '44px' }} />
+          </label>
+          <Button variant="primary" disabled={pending || !Number.isFinite(Number(value))} style={{ minHeight: '44px' }}>
+            {pending ? p('Saving…') : p('Save check-in')}
+          </Button>
+        </form>
+      </>
+    )}
+    <LiveFeedback success={success} error={error} />
+  </article>
 }
 
 export function AthleteHabitsDashboard({ links }) {
@@ -487,26 +670,43 @@ export function AthleteHabitsDashboard({ links }) {
   }, [loadHistory, period, selectedLink])
 
   if (!trainingLinks.length) return null
-  return <section aria-labelledby="athlete-habits-title"><h2 className="pro-section-title" id="athlete-habits-title">{p('My habits')}</h2>
-    <div className="card pro-timezone"><strong>{p('Today in {0}', zone.value)}</strong><span>{zone.fallback ? p('Your browser timezone was unavailable, so PR Fit is using UTC.') : p('PR Fit uses your browser IANA timezone for daily check-ins.')}</span></div>
+  return <section aria-labelledby="athlete-habits-title">
+    <h2 className="pro-section-title" id="athlete-habits-title">{p('My habits')}</h2>
+    <div className="card pro-timezone">
+      <strong>{p('Today in {0}', zone.value)}</strong>
+      <span>{zone.fallback ? p('Your browser timezone was unavailable, so PR Fit is using UTC.') : p('PR Fit uses your browser IANA timezone for daily check-ins.')}</span>
+    </div>
     {habitsLoading && habits === null ? <div className="pro-loading">{p('Loading habits…')}</div>
-      : habitsError && habits === null ? <div className="pro-load-error" role="alert"><p>{p('Could not load habits.')}</p><Button size="sm" onClick={loadHabits}>{p('Try again')}</Button></div>
-        : <>{habitsError && <div className="pro-load-error" role="alert"><p>{p('Could not refresh habits. Your previous habits are still shown.')}</p><Button size="sm" onClick={loadHabits}>{p('Try again')}</Button></div>}
+      : habitsError && habits === null ? <div className="pro-load-error" role="alert"><p>{p('Could not load habits.')}</p><Button size="sm" onClick={loadHabits} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>
+        : <>{habitsError && <div className="pro-load-error" role="alert"><p>{p('Could not refresh habits. Your previous habits are still shown.')}</p><Button size="sm" onClick={loadHabits} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
           {habits?.length ? <div className="pro-list">{habits.map(habit => <AthleteCheckin key={habit.id} habit={habit} timeZone={zone.value} onSaved={checkin => savedCheckin(habit, checkin)} />)}</div>
             : !habitsError && <EmptyState title={p('No habits for today')} text={p('Your active scheduled habits will appear here.')} />}</>}
-    <section className="card pro-own-history" aria-labelledby="athlete-history-title"><h3 id="athlete-history-title">{p('My adherence history')}</h3>
-      <div className="pro-grid-fields"><label className="pro-field"><span>{p('Professional')}</span><select value={selectedLink} onChange={event => setSelectedLink(event.target.value)}>{trainingLinks.map(link => <option key={link.id} value={link.id}>{link.coach?.name || p('Unavailable account')} · {statusText(link.status)}</option>)}</select></label>
-        <label className="pro-field"><span>{p('Period')}</span><select value={period} onChange={event => setPeriod(Number(event.target.value))}>{PERIODS.map(days => <option key={days} value={days}>{p('{0} days', days)}</option>)}</select></label></div>
+    <section className="card pro-own-history" aria-labelledby="athlete-history-title">
+      <h3 id="athlete-history-title">{p('My adherence history')}</h3>
+      <div className="pro-grid-fields">
+        <label className="pro-field">
+          <span>{p('Professional')}</span>
+          <select value={selectedLink} onChange={event => setSelectedLink(event.target.value)} style={{ minHeight: '44px' }}>
+            {trainingLinks.map(link => <option key={link.id} value={link.id}>{link.coach?.name || p('Unavailable account')} · {statusText(link.status)}</option>)}
+          </select>
+        </label>
+        <label className="pro-field">
+          <span>{p('Period')}</span>
+          <select value={period} onChange={event => setPeriod(Number(event.target.value))} style={{ minHeight: '44px' }}>
+            {PERIODS.map(days => <option key={days} value={days}>{p('{0} days', days)}</option>)}
+          </select>
+        </label>
+      </div>
       {selected && relationshipReadOnly(selected) && <p className="pro-readonly">{p('This relationship is read-only. You can still review its history.')}</p>}
       {summaryLoading && summary === null && <div className="pro-loading">{p('Loading adherence summary…')}</div>}
-      {summaryError && <div className="pro-load-error" role="alert"><p>{summary ? p('Could not refresh adherence. Your previous summary is still shown.') : p('Could not load adherence summary.')}</p><Button size="sm" onClick={() => loadHistory(selectedLink, period)}>{p('Try again')}</Button></div>}
+      {summaryError && <div className="pro-load-error" role="alert"><p>{summary ? p('Could not refresh adherence. Your previous summary is still shown.') : p('Could not load adherence summary.')}</p><Button size="sm" onClick={() => loadHistory(selectedLink, period)} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
       <SummaryView summary={summary} />
       {!summaryLoading && !summaryError && summary === null && <p>{p('No adherence summary for this period.')}</p>}
       {historyLoading && checkins === null && <div className="pro-loading">{p('Loading check-in history…')}</div>}
-      {historyError && <div className="pro-load-error" role="alert"><p>{checkins ? p('Could not refresh check-in history. Your previous check-ins are still shown.') : p('Could not load check-in history.')}</p><Button size="sm" onClick={() => loadHistory(selectedLink, period)}>{p('Try again')}</Button></div>}
+      {historyError && <div className="pro-load-error" role="alert"><p>{checkins ? p('Could not refresh check-in history. Your previous check-ins are still shown.') : p('Could not load check-in history.')}</p><Button size="sm" onClick={() => loadHistory(selectedLink, period)} style={{ minHeight: '44px' }}>{p('Try again')}</Button></div>}
       {checkins?.length ? <ul className="pro-checkin-history">{checkins.map(checkin => <li key={checkin.id}><strong>{habitNames.get(checkin.habitId) || p('Habit')}</strong><span>{formatCivilDay(checkin.date)} · {checkin.value} · {checkin.completed ? p('Completed') : p('Not completed')}</span>{checkin.notes && <p>{checkin.notes}</p>}</li>)}</ul>
         : checkins && !historyError && <p>{p('No check-ins in this period.')}</p>}
-      {page?.hasMore && !historyError && <Button size="sm" disabled={historyLoading} onClick={() => loadHistory(selectedLink, period, page.nextCursor)}>{historyLoading ? p('Loading…') : p('Load more check-ins')}</Button>}
+      {page?.hasMore && !historyError && <Button size="sm" disabled={historyLoading} onClick={() => loadHistory(selectedLink, period, page.nextCursor)} style={{ minHeight: '44px' }}>{historyLoading ? p('Loading…') : p('Load more check-ins')}</Button>}
     </section>
   </section>
 }

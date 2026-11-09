@@ -384,15 +384,20 @@ function ProfileSetup({ user }) {
   </section>
 }
 
-function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children }) {
+function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children, unreadCount = 0, lastMessage = null, actorId = '' }) {
   const person = side === 'coach' ? link.athlete : link.coach
   const title = person?.name || (link.status === 'pending' ? p('Invitation pending') : p('Unavailable account'))
   const tone = statusTone(link.status)
+  const isIncoming = lastMessage && lastMessage.senderId !== actorId
 
   return <article className="card pro-link" data-status={link.status}>
     <div className="pro-link-head">
       <div>
-        <h2>{title}</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <h2>{title}</h2>
+          {unreadCount > 0 && <Badge tone="warning" className="pro-card-unread-badge">{p('{0} unread', unreadCount)}</Badge>}
+          {isIncoming && <span className="pro-incoming-msg dim small" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--acc)' }}><Icon name="chat" /> {p('Incoming message')}</span>}
+        </div>
         <div className="pro-scopes-badges">
           {link.scopes.map(scope => <Badge key={scope} tone="info">{scopeLabel(scope)}</Badge>)}
         </div>
@@ -545,21 +550,27 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const freshInviteLink = freshInvite ? `${origin}/professionals?invite=${freshInvite.token}&coach=${encodeURIComponent(user.name || '')}&scopes=${freshInvite.scopes.join(',')}` : ''
 
+  const totalUnread = useMemo(() => {
+    return (inbox?.conversations || []).reduce((acc, c) => acc + (c.unreadCount || 0), 0)
+  }, [inbox?.conversations])
+
   const filteredLinks = useMemo(() => {
     if (!links) return null
     if (statusFilter === 'all') return links
+    if (statusFilter === 'unread') return links.filter(item => (inbox?.byLink?.get(item.id)?.unreadCount || 0) > 0)
     return links.filter(item => item.status === statusFilter)
-  }, [links, statusFilter])
+  }, [inbox?.byLink, links, statusFilter])
 
   const counts = useMemo(() => {
-    if (!links) return { all: 0, active: 0, pending: 0, suspended: 0 }
+    if (!links) return { all: 0, active: 0, pending: 0, suspended: 0, unread: 0 }
     return {
       all: links.length,
       active: links.filter(l => l.status === 'active').length,
       pending: links.filter(l => l.status === 'pending').length,
       suspended: links.filter(l => l.status === 'suspended').length,
+      unread: links.filter(l => (inbox?.byLink?.get(l.id)?.unreadCount || 0) > 0).length,
     }
-  }, [links])
+  }, [inbox?.byLink, links])
 
   return <>
     {canInvite && <section className="card pro-invite" aria-labelledby="pro-invite-title">
@@ -653,6 +664,12 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
         <h2 className="pro-section-title" id="pro-coach-list-title" style={{ margin: 0 }}>{p('Portfolio')}</h2>
       </div>
 
+      {totalUnread > 0 && (
+        <Alert tone="warning" title={p('{0} unread messages', totalUnread)} style={{ marginBottom: 14 }}>
+          <p style={{ margin: 0 }}>{p('You have unread messages in your athlete conversations.')}</p>
+        </Alert>
+      )}
+
       {links && links.length > 0 && (
         <div className="pro-status-filter" role="group" aria-label={p('Filter by status')}>
           <button type="button" className={'pro-choice' + (statusFilter === 'all' ? ' on' : '')} aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
@@ -669,6 +686,11 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
               {p('Suspended')} ({counts.suspended})
             </button>
           )}
+          {counts.unread > 0 && (
+            <button type="button" className={'pro-choice' + (statusFilter === 'unread' ? ' on' : '')} aria-pressed={statusFilter === 'unread'} onClick={() => setStatusFilter('unread')}>
+              {p('Unread messages')} ({counts.unread})
+            </button>
+          )}
         </div>
       )}
 
@@ -678,7 +700,10 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
           : filteredLinks.length === 0 ? <p className="pro-empty-inline" style={{ padding: '16px 0' }}>{p('No athletes match the selected filter.')}</p>
             : <div className="pro-list">{filteredLinks.map(link => <RelationshipCard key={link.id} link={link} side="coach" onStatus={status}
               canSuspend={link.status === 'active' && capabilities.has('relationships:suspend')}
-              canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}>
+              canEnd={link.status !== 'ended' && capabilities.has('relationships:end')}
+              unreadCount={inbox?.byLink?.get(link.id)?.unreadCount || 0}
+              lastMessage={inbox?.byLink?.get(link.id)?.lastMessage}
+              actorId={user.id}>
               {link.status === 'active' && link.scopes.includes('training') && link.athlete && <CoachPrescriptionPanel link={link} />}
               {link.status === 'active' && link.scopes.includes('nutrition') && link.athlete && <NutritionPanel athleteId={link.athlete.id} />}
               {link.status === 'active' && link.scopes.includes('assessments') && link.athlete && <AssessmentPanel athleteId={link.athlete.id} />}
@@ -1097,7 +1122,10 @@ function AthleteProfessionals({ initialInvite, initialToken, userId, inbox, embe
         : loadError ? <div className="card pro-load-error" role="alert"><p>{p('Could not load your professional relationships.')}</p><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
         : links.length === 0 ? <EmptyState icon="personCircle" title={p('No linked professionals')} text={p('When you accept an invitation, the professional and authorized scope appear here.')} />
           : <div className="pro-list">{links.map(link => <RelationshipCard key={link.id} link={link} side="athlete" onStatus={end}
-            canSuspend={false} canEnd={link.status !== 'ended'}>
+            canSuspend={false} canEnd={link.status !== 'ended'}
+            unreadCount={inbox?.byLink?.get(link.id)?.unreadCount || 0}
+            lastMessage={inbox?.byLink?.get(link.id)?.lastMessage}
+            actorId={userId}>
             {link.status === 'active' && link.coach?.profile?.coachSpecialties?.includes('assessments') && <div className="pro-actions">
               <Button size="sm" variant={link.scopes.includes('assessments') ? 'danger' : 'primary'} onClick={() => assessmentConsent(link, !link.scopes.includes('assessments'))}>
                 {link.scopes.includes('assessments') ? p('Revoke assessment consent') : p('Grant assessment consent')}
@@ -1149,6 +1177,9 @@ export default function ProfessionalHub() {
   const location = useLocation()
   const navigate = useNavigate()
   const inbox = useCommunicationInbox(user?.id)
+  const totalUnread = useMemo(() => {
+    return (inbox?.conversations || []).reduce((acc, c) => acc + (c.unreadCount || 0), 0)
+  }, [inbox?.conversations])
   const initialParams = useMemo(() => {
     const params = new URLSearchParams(location.search)
     return {
@@ -1185,6 +1216,11 @@ export default function ProfessionalHub() {
       >
         <Icon name="person" />
         <span>{p('Relationships')}</span>
+        {totalUnread > 0 && (
+          <Badge tone="warning" size="sm" style={{ marginLeft: 6 }}>
+            {totalUnread}
+          </Badge>
+        )}
       </button>
       <button
         id="professional-tab-scheduling"

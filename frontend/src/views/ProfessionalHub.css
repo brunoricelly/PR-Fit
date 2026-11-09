@@ -89,13 +89,23 @@
 .pro-messages{display:flex;max-height:420px;margin:0;padding:4px;overflow:auto;flex-direction:column;gap:10px;list-style:none;scrollbar-gutter:stable}
 .pro-messages li{max-width:86%;padding:10px 12px;border-radius:14px;background:var(--surface-2)}.pro-messages li.mine{align-self:flex-end;background:var(--surface-2);background:color-mix(in srgb,var(--acc) 16%,var(--surface-2))}.pro-messages li.theirs{align-self:flex-start}
 .pro-message-meta{display:flex;justify-content:space-between;gap:12px;color:var(--label-2);font-size:var(--fs-caption2)}.pro-messages p{margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere}.pro-messages .btn{margin-top:8px}
+.pro-message-footer{display:flex;justify-content:flex-end;align-items:center;margin-top:6px;gap:8px}
+.pro-receipt{font-size:var(--fs-caption2);color:var(--label-2);display:inline-flex;align-items:center;gap:4px}
+.pro-receipt.read{color:var(--green)}
+.pro-messages:focus-visible,.pro-messages li:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
 .pro-message-form,.pro-habit-create{display:grid;gap:10px}.pro-field select{width:100%;min-height:44px;padding:0 10px;border:1px solid var(--separator);border-radius:var(--r-xs);background:var(--surface);color:var(--label)}
 .pro-period-row{display:flex;align-items:end;justify-content:space-between;gap:12px}.pro-period-row>.pro-field{min-width:150px}.pro-period-row>span{padding-bottom:10px;color:var(--label-2);font-size:var(--fs-caption1)}
 .pro-summary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.pro-summary>div,.pro-summary>article{display:flex;padding:11px;border-radius:var(--r-xs);background:var(--surface-2);flex-direction:column;gap:3px}.pro-summary>article{grid-column:1/-1}.pro-summary span{color:var(--label-2);font-size:var(--fs-caption1)}
+.pro-summary-habit-head{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.pro-meta-badge{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--surface-3);font-size:var(--fs-caption2);color:var(--label-2)}
+.pro-summary-note{color:var(--label-2);font-size:var(--fs-caption2);font-style:italic}
+.pro-summary-adherence{font-weight:600;color:var(--label)}
 .pro-habit-list{display:grid;gap:10px}.pro-habit{padding:12px;border:1px solid var(--separator);border-radius:var(--r-sm)}.pro-habit[data-status=archived]{opacity:.78}.pro-habit h3,.pro-habit-create h3,.pro-own-history h3{margin:0}.pro-habit-fields{display:grid;gap:8px}
 .pro-inline-confirm{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:8px;border-radius:var(--r-xs);background:var(--surface-2);font-size:var(--fs-caption1)}
 .pro-checkin-history{display:grid;gap:8px;margin:8px 0;padding:0;list-style:none}.pro-checkin-history li{display:flex;padding:10px;border-radius:var(--r-xs);background:var(--surface-2);flex-direction:column;gap:3px}.pro-checkin-history span,.pro-checkin-history p{margin:0;color:var(--label-2);font-size:var(--fs-caption1)}
-.pro-athlete-habit{margin:0}.pro-check{display:flex;min-height:44px;align-items:center;gap:9px}.pro-check input{width:20px;height:20px;accent-color:var(--acc)}.pro-timezone{display:flex;margin-bottom:12px;flex-direction:column;gap:3px}.pro-timezone span{color:var(--label-2);font-size:var(--fs-footnote)}.pro-own-history{display:grid;gap:12px;margin-top:14px}
+.pro-athlete-habit{margin:0}.pro-quick-checkin-row{display:flex;width:100%}.pro-check{display:flex;min-height:44px;align-items:center;gap:9px}.pro-check input{width:20px;height:20px;accent-color:var(--acc)}.pro-timezone{display:flex;margin-bottom:12px;flex-direction:column;gap:3px}.pro-timezone span{color:var(--label-2);font-size:var(--fs-footnote)}.pro-own-history{display:grid;gap:12px;margin-top:14px}
+.pro-actions .btn,.pro-message-form .btn,.pro-habit-create .btn,.pro-messages .btn,.pro-comm-toggle{min-height:44px}
+@media (prefers-reduced-motion: reduce){.pro-comm-body,.pro-messages,.pro-habit,.pro-athlete-habit,.pro-summary,.pro-card-unread-badge{animation:none!important;transition:none!important}}
 @media (max-width:600px){.pro-message-meta,.pro-period-row{align-items:stretch;flex-direction:column}.pro-period-row>span{padding-bottom:0}.pro-messages li{max-width:94%}.pro-summary{grid-template-columns:1fr}.pro-summary>article{grid-column:auto}.pro-comm-toggle{align-items:flex-start}.pro-comm-summary{align-items:flex-end;flex-direction:column}}
 
 /* Progress Analytics */

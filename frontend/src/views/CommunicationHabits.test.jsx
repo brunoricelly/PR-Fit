@@ -379,4 +379,69 @@ describe('AthleteHabitsDashboard', () => {
     expect(host.textContent).toContain('Current streak: 7')
     expect(host.textContent).toContain('Confirmado')
   })
+
+  it('renders delivery and read receipts for sent messages, and supports keyboard navigation in feed', async () => {
+    const now = Date.now()
+    const messages = [
+      { id: 'm_sent_unread', linkId: 'cal_1', senderId: 'athlete_1', recipientId: 'coach_1', content: 'Mensagem enviada pendente', category: 'general', refId: null, createdAt: now - 5000, readAt: null },
+      { id: 'm_sent_read', linkId: 'cal_1', senderId: 'athlete_1', recipientId: 'coach_1', content: 'Mensagem enviada lida', category: 'workout_feedback', refId: null, createdAt: now - 3000, readAt: now - 1000 },
+      { id: 'm_recv_read', linkId: 'cal_1', senderId: 'coach_1', recipientId: 'athlete_1', content: 'Resposta do coach', category: 'workout_feedback', refId: null, createdAt: now - 2000, readAt: now - 500 },
+    ]
+    mocks.api.conversation.mockResolvedValue({ messages, page: page() })
+    await render(<CommunicationPanel link={activeLink} side="athlete" actorId="athlete_1" />)
+    await click(host.querySelector('.pro-comm-toggle'))
+
+    expect(host.textContent).toContain('Mensagem enviada pendente')
+    expect(host.textContent).toContain('Mensagem enviada lida')
+    expect(host.textContent).toContain('Delivered')
+    expect(host.textContent).toContain('Read')
+
+    const messageList = host.querySelector('ol.pro-messages')
+    expect(messageList).toBeTruthy()
+    expect(messageList.getAttribute('role')).toBe('log')
+
+    messageList.focus()
+    await act(async () => {
+      messageList.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    })
+    expect(document.activeElement).toBe(messageList.querySelector('li'))
+  })
+
+  it('supports 1-touch quick check-in on athlete habits dashboard', async () => {
+    mocks.api.athleteHabits.mockResolvedValue({ date: '2026-11-07', timezone: 'America/Sao_Paulo', habits: [
+      { id: 'hab_1', title: 'Água', description: '', targetValue: 2000, unit: 'ml', frequency: 'daily', checkin: null, relationship: { linkId: 'cal_1', status: 'active', readOnly: false } },
+    ] })
+    mocks.api.summary.mockResolvedValue({ summary: summary(50, 4) })
+    mocks.api.checkins.mockResolvedValue({ checkins: [], page: page() })
+    mocks.api.checkin.mockResolvedValue({ checkin: { id: 'chk_quick', habitId: 'hab_1', date: '2026-11-07', value: 2000, completed: true, notes: '', updatedAt: 10 } })
+
+    await render(<AthleteHabitsDashboard links={[activeLink]} />)
+
+    const quickBtn = button('Complete today with 1 tap')
+    expect(quickBtn).toBeTruthy()
+
+    await click(quickBtn)
+
+    expect(mocks.api.checkin).toHaveBeenCalledWith('America/Sao_Paulo', {
+      habitId: 'hab_1',
+      date: '2026-11-07',
+      value: 2000,
+      completed: true,
+      notes: '',
+    })
+    expect(host.textContent).toContain('Check-in saved.')
+    expect(button('Mark as pending')).toBeTruthy()
+  })
+
+  it('avoids inventing false 0% adherence when no scheduled days exist in period', async () => {
+    mocks.api.athleteHabits.mockResolvedValue({ date: '2026-11-07', habits: [] })
+    mocks.api.summary.mockResolvedValue({ summary: { from: '2026-11-01', to: '2026-11-07', periodDays: 7, scheduledDays: 0, completedDays: 0, adherencePercent: 0, habits: [] } })
+    mocks.api.checkins.mockResolvedValue({ checkins: [], page: page() })
+
+    await render(<AthleteHabitsDashboard links={[activeLink]} />)
+
+    expect(host.textContent).toContain('No scheduled habit days in period')
+    expect(host.textContent).toContain('No habits configured')
+    expect(host.textContent).not.toContain('0%')
+  })
 })

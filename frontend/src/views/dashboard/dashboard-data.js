@@ -104,10 +104,11 @@ export function normalizeMealAdherence(payload) {
 }
 
 export function normalizeHabits(payload) {
+  const date = payload?.date
   return payloadArray(payload, 'habits', 'Hábitos').map(habit => {
     if (!habit || typeof habit !== 'object' || typeof habit.id !== 'string' || typeof habit.title !== 'string'
       || (habit.checkin != null && typeof habit.checkin !== 'object')) throw new TypeError('Hábito inválido')
-    return habit
+    return date ? { ...habit, date } : habit
   })
 }
 

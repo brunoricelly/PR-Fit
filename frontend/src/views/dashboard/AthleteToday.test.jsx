@@ -11,13 +11,14 @@ const mocks = vi.hoisted(() => ({
   api: vi.fn(),
   inbox: vi.fn(),
   habits: vi.fn(),
+  checkin: vi.fn(),
   appointments: vi.fn(),
   startFlow: vi.fn(),
 }))
 
 vi.mock('../../lib/api.js', () => ({ api: mocks.api }))
 vi.mock('../../lib/communication-api.js', () => ({
-  communicationApi: { inbox: mocks.inbox, athleteHabits: mocks.habits },
+  communicationApi: { inbox: mocks.inbox, athleteHabits: mocks.habits, checkin: mocks.checkin },
   browserTimeZone: () => ({ value: 'America/Sao_Paulo', fallback: false }),
 }))
 vi.mock('../../lib/scheduling-api.js', () => ({ getAthleteAppointments: mocks.appointments }))
@@ -75,6 +76,9 @@ beforeEach(() => {
   mocks.api.mockImplementation(path => Promise.resolve(path === '/api/athlete/meal-plan' ? { mealPlan: null } : { adherenceRecords: [] }))
   mocks.inbox.mockResolvedValue({ conversations: [] })
   mocks.habits.mockResolvedValue({ habits: [] })
+  mocks.checkin.mockImplementation((timeZone, data) => Promise.resolve({
+    checkin: { id: 'chk_1', habitId: data.habitId, date: data.date, value: data.value, completed: data.completed, notes: data.notes || '', updatedAt: Date.now() },
+  }))
   mocks.appointments.mockResolvedValue({ items: [] })
   Object.defineProperty(navigator, 'onLine', { configurable: true, value: true })
 })
@@ -288,5 +292,43 @@ describe('AthleteToday', () => {
     await settle()
 
     expect(mocks.api).toHaveBeenCalledWith('/api/athlete/prescriptions/cpr_99/adopt', expect.objectContaining({ method: 'POST' }))
+  })
+
+  it('permite check-in de hábito com 1 toque no dashboard e atualiza streak e status imediatamente', async () => {
+    const habit = {
+      id: 'hab_water',
+      title: 'Beber água',
+      targetValue: 2000,
+      unit: 'ml',
+      frequency: 'daily',
+      currentStreak: 4,
+      checkin: null,
+      relationship: { linkId: 'cal_1', status: 'active', readOnly: false },
+    }
+    mocks.habits.mockResolvedValue({ date: '2026-11-09', timezone: 'America/Sao_Paulo', habits: [habit] })
+
+    await renderToday()
+
+    expect(host.textContent).toContain('Beber água')
+    expect(host.textContent).toContain('0 de 1 concluídos')
+    expect(host.textContent).toContain('Pendente')
+
+    const checkinBtn = [...host.querySelectorAll('button')].find(b => b.textContent.trim() === 'Concluir' && b.getAttribute('aria-label')?.includes('Beber água'))
+    expect(checkinBtn).toBeTruthy()
+
+    await act(async () => { checkinBtn.click() })
+    await settle()
+
+    expect(mocks.checkin).toHaveBeenCalledTimes(1)
+    expect(mocks.checkin).toHaveBeenCalledWith('America/Sao_Paulo', expect.objectContaining({
+      habitId: 'hab_water',
+      completed: true,
+      value: 2000,
+    }))
+    expect(host.textContent).toContain('1 de 1 concluídos')
+    expect(host.textContent).toContain('Feito')
+    expect(host.textContent).toContain('Desfazer')
+    expect(host.textContent).toContain('5 dias seguidos')
+    expect(host.textContent).toContain('Check-in realizado com sucesso.')
   })
 })
