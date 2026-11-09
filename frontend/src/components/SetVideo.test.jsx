@@ -17,8 +17,10 @@ import { bindUI } from './ui.jsx'
 import { createMediaStore, memoryBackend, _setMediaStore } from '../lib/media-store.js'
 import { filmSetSheet, FormVideosSection, FormVideoPlayer, CompareVideos } from './SetVideo.jsx'
 import { formVideosFor } from '../lib/set-videos.js'
+import { guardReactWarnings, waitForReact } from '../test/react-warning-guard.js'
 
 bindUI(useUI)
+globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 const mounted = []
 const S = () => useStore.getState().S
@@ -48,9 +50,9 @@ async function choose(host, which = 'capture') {
 }
 const active = () => ({ id: 'live', d: '2026-10-28', start: 1, name: 'Legs', entries: [{ id: '0043', target: { sets: 2, reps: 5 }, sets: [{ w: 100, r: 5, done: true }, { w: 100, r: 5, done: false }] }] })
 
-let media
+let media, assertNoReactWarnings
 beforeEach(() => {
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true
+  assertNoReactWarnings = guardReactWarnings()
   useUI.setState({ sheets: [], toastMsg: '' })
   useStore.setState({ S: { ...structuredClone(DEF), active: active(), workouts: [] }, user: null, config: null })
   _setLangState('en', null, null, null)
@@ -62,9 +64,12 @@ beforeEach(() => {
     return { media: r, blobs: [{ hash: r.hash, blob: new Blob(['main']), mime: r.mime }, { hash: r.poster.hash, blob: new Blob(['poster']), mime: 'image/webp' }], warnings: [] }
   })
 })
-afterEach(() => {
+afterEach(async () => {
+  await settle()
   act(() => { mounted.splice(0).forEach(root => root.unmount()) })
+  await settle()
   _setMediaStore(null)
+  assertNoReactWarnings?.()
 })
 
 describe('filming a set', () => {
@@ -123,7 +128,7 @@ describe('filming a set', () => {
     expect(S().active.entries[0].sets[0].media[0].local).toBe(true)
 
     // A server from before v1.4.4 (no media.sets): no switch, a note, and kept here.
-    useStore.setState({ S: { ...S(), formVideoLocal: undefined, active: active() }, config: { media: CAPS } })
+    act(() => { useStore.setState({ S: { ...S(), formVideoLocal: undefined, active: active() }, config: { media: CAPS } }) })
     filmSetSheet({ entry: 0, set: 1 }, 'Film Set 2')
     host = renderTop()
     expect(host.querySelector('button[role="switch"]')).toBeNull()
@@ -137,6 +142,7 @@ describe('playing one', () => {
   it('loops muted inline with controls, and switches to half speed', async () => {
     await media.put(hex(1), new Blob(['main']), { mime: 'video/mp4', pending: true })
     const host = render(<FormVideoPlayer m={video(1)} label="Set 1" />)
+    await waitForReact(() => expect(host.querySelector('video')).not.toBeNull())
     await settle()
     const v = host.querySelector('video')
     expect(v).not.toBeNull()
@@ -152,7 +158,7 @@ describe('playing one', () => {
   it('one kept on another phone says so and is never fetched', async () => {
     useStore.setState({ user: { id: 'u1' }, config: { media: { ...CAPS, sets: true } } })
     const host = render(<FormVideoPlayer m={video(2, { local: true })} />)
-    await settle()
+    await waitForReact(() => expect(host.textContent).toContain('On the phone that filmed it'))
     expect(host.querySelector('video')).toBeNull()
     expect(host.textContent).toContain('On the phone that filmed it')
     expect(host.querySelector('.fv-msg').tagName).toBe('DIV')
@@ -166,6 +172,7 @@ describe('Your form videos', () => {
   })
   it('lists the exercise\'s videos newest first and plays one in a sheet, with Remove', async () => {
     const host = render(<FormVideosSection exId="0043" />)
+    await settle()
     expect(host.querySelector('h4').textContent).toBe('Your form videos')
     const tiles = [...host.querySelectorAll('.fv-tile')]
     const sets = tiles.map(t => t.querySelector('.fv-set').textContent)
@@ -175,19 +182,26 @@ describe('Your form videos', () => {
     act(() => { tiles[0].click() })
     const sheet = renderTop()
     expect(sheet.querySelector('.fv-player')).not.toBeNull()
+    await settle()
     act(() => { sheet.querySelector('button[aria-label="Remove video"]').click() })
     const remove = [...sheet.querySelectorAll('.fv-ask button')].find(b => b.textContent === 'Remove')
     act(() => { remove.click() })
+    await settle()
     expect(formVideosFor(S(), '0043').map(x => x.d)).toEqual(['2026-09-01', '2026-08-01'])
     expect(S().workouts.find(w => w.id === 'w3')._ts).toBeGreaterThan(0)
   })
   it('compares two dates: the newest with the oldest to start, both muted and in step', async () => {
     const host = render(<FormVideosSection exId="0043" />)
+    await settle()
     act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Compare two dates').click() })
     const picked = [...host.querySelectorAll('.fv-tile')].map(t => t.getAttribute('aria-pressed'))
     expect(picked).toEqual(['true', 'false', 'true'])
     act(() => { [...host.querySelectorAll('button')].find(b => b.textContent === 'Compare').click() })
     const sheet = renderTop()
+    await waitForReact(() => expect([...sheet.querySelectorAll('.fv-msg')].map(node => node.textContent)).toEqual([
+      'This video isn’t on this device',
+      'This video isn’t on this device',
+    ]))
     expect([...sheet.querySelectorAll('figcaption b')].map(b => b.textContent)).toHaveLength(2)
     expect(sheet.querySelector('button[aria-label="Restart both"]')).not.toBeNull()
     expect(sheet.querySelector('button[aria-label="Pause both"]')).not.toBeNull()
@@ -196,9 +210,13 @@ describe('Your form videos', () => {
     const host = render(<FormVideosSection exId="0025" />)
     expect(host.innerHTML).toBe('')
   })
-  it('the compare view renders a pair it is handed', () => {
+  it('the compare view renders a pair it is handed', async () => {
     const items = formVideosFor(S(), '0043')
     const host = render(<CompareVideos pair={[items[0], items[2]]} exId="0043" />)
     expect(host.querySelectorAll('.fv-side')).toHaveLength(2)
+    await waitForReact(() => expect([...host.querySelectorAll('.fv-msg')].map(node => node.textContent)).toEqual([
+      'This video isn’t on this device',
+      'This video isn’t on this device',
+    ]))
   })
 })
