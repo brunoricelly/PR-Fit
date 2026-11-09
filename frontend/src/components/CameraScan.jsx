@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { t } from '../lib/i18n.js'
-import { decodeSource } from '../lib/scan-web.js'
 import { Button } from '../components/ui.jsx'
 
 // Live camera scanner for the browser/PWA (the app build uses ML Kit's own UI instead — see
@@ -23,6 +22,9 @@ export default function CameraScan({ onFound, onCancel }) {
     }
     ;(async () => {
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { setError('unavailable'); return }
+      let decodeSource
+      try { ({ decodeSource } = await import('../lib/scan-web.js')) } catch { if (!done) setError('unavailable'); return }
+      if (done) return
       try {
         stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
       } catch (e) {

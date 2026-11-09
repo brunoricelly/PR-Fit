@@ -25,24 +25,27 @@ afterEach(() => {
 })
 
 describe('Home por papel ativo', () => {
-  it('mantém o coach na visão profissional por padrão', () => {
+  it('mantém o coach na visão profissional por padrão', async () => {
     useStore.setState({ user: { id: 'coach_1', profile: { kind: 'coach' } } })
     act(() => root.render(<Home />))
+    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="coach"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="coach"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeFalsy()
   })
 
-  it('respeita o modo atleta persistido de uma conta dual-role', () => {
+  it('respeita o modo atleta persistido de uma conta dual-role', async () => {
     localStorage.setItem('prfit_active_role_coach_1', 'athlete')
     useStore.setState({ user: { id: 'coach_1', profile: { kind: 'coach' } } })
     act(() => root.render(<Home />))
+    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="coach"]')).toBeFalsy()
   })
 
-  it('não expõe a visão de coach para perfil atleta', () => {
+  it('não expõe a visão de coach para perfil atleta', async () => {
     useStore.setState({ user: { id: 'athlete_1', profile: { kind: 'athlete' } } })
     act(() => root.render(<Home />))
+    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="coach"]')).toBeFalsy()
   })

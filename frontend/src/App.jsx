@@ -54,65 +54,41 @@ import { openDeviceLinkRedeem } from './components/Passkeys.jsx'
 import { useAnimPacksBoot } from './components/Animations.jsx'
 import { useNfcTagLinks } from './components/Nfc.jsx'
 import { useRoutineLinks } from './components/RoutineShare.jsx'
+import { createRouteSurface } from './components/RouteSurface.jsx'
 import Login from './views/Login.jsx'
 import MobileOnboarding from './views/MobileOnboarding.jsx'
 import PermissionSteps from './views/PermissionSteps.jsx'
-import Home from './views/Home.jsx'
-import Plan from './views/Plan.jsx'
-import Workout from './views/Workout.jsx'
 
-// Screens most sessions never open (the Coach, the admin dashboard, photos, measurements, the
-// balance check) are their own chunks rather than part of the code every start parses: ~200 KB
-// of the main bundle. They are fetched once the app is idle after the start (the service worker
-// and the phone build hold them locally anyway), so by the time one is opened it renders at once,
-// in the same frame, as before; only a tap within the first moments can see one empty frame.
-const views = []
-function lazyView(load) {
-  let View = null
-  const fetchIt = () => load().then(m => { View = m.default; return m })
-  const Lazy = lazy(fetchIt)
-  views.push(fetchIt)
-  return function LazyView(props) {
-    return View ? <View {...props} /> : <Suspense fallback={null}><Lazy {...props} /></Suspense>
-  }
-}
-const Admin = lazyView(() => import('./views/Admin.jsx'))
-const CoachChat = lazyView(() => import('./views/CoachChat.jsx'))
-const Measurements = lazyView(() => import('./views/Measurements.jsx'))
-const CoachIntake = lazyView(() => import('./views/CoachIntake.jsx'))
-const CoachSetup = lazyView(() => import('./views/CoachSetup.jsx'))
-const StructuralBalance = lazyView(() => import('./views/StructuralBalance.jsx'))
-const ProgressPhotos = lazyView(() => import('./views/ProgressPhotos.jsx'))
-const ProfessionalHub = lazyView(() => import('./views/ProfessionalHub.jsx'))
-const SchedulingView = lazyView(() => import('./views/SchedulingView.jsx'))
-const CoachGroupsView = lazyView(() => import('./views/coach/CoachGroupsView.jsx'))
-const CoachChallengesView = lazyView(() => import('./views/coach/CoachChallengesView.jsx'))
-const CoachGroupProgramsView = lazyView(() => import('./views/coach/CoachGroupProgramsView.jsx'))
-const AthleteGroupsView = lazyView(() => import('./views/athlete/AthleteGroupsView.jsx'))
-const AthleteChallengesView = lazyView(() => import('./views/athlete/AthleteChallengesView.jsx'))
-const AthleteGroupProgramsView = lazyView(() => import('./views/athlete/AthleteGroupProgramsView.jsx'))
-const CommunityHub = lazyView(() => import('./views/CommunityHub.jsx'))
-// The tabs and screens past Home (Stats, History, the Library, Settings, ...) as well: a start
-// only needs Home, and these are fetched right behind it the same way.
-const CheckIn = lazyView(() => import('./views/CheckIn.jsx'))
-const RoutineEdit = lazyView(() => import('./views/RoutineEdit.jsx'))
-const Programmes = lazyView(() => import('./views/Programmes.jsx'))
-const ProgrammeEdit = lazyView(() => import('./views/Programmes.jsx').then(m => ({ default: m.ProgrammeEdit })))
-const Stats = lazyView(() => import('./views/Stats.jsx'))
-const History = lazyView(() => import('./views/History.jsx'))
-const Library = lazyView(() => import('./views/Library.jsx'))
-const Muscles = lazyView(() => import('./views/Muscles.jsx'))
-const SettingsRoute = lazyView(() => import('./views/Settings.jsx').then(m => ({ default: m.SettingsRoute })))
+const Home = createRouteSurface(() => import('./views/Home.jsx'), 'a página inicial')
+const Plan = createRouteSurface(() => import('./views/Plan.jsx'), 'seu plano')
+const Workout = createRouteSurface(() => import('./views/Workout.jsx'), 'o treino')
+const Admin = createRouteSurface(() => import('./views/Admin.jsx'), 'a administração')
+const CoachChat = createRouteSurface(() => import('./views/CoachChat.jsx'), 'a comunicação com o coach')
+const Measurements = createRouteSurface(() => import('./views/Measurements.jsx'), 'as medidas corporais')
+const CoachIntake = createRouteSurface(() => import('./views/CoachIntake.jsx'), 'a avaliação inicial')
+const CoachSetup = createRouteSurface(() => import('./views/CoachSetup.jsx'), 'a configuração do coach')
+const StructuralBalance = createRouteSurface(() => import('./views/StructuralBalance.jsx'), 'o equilíbrio estrutural')
+const ProgressPhotos = createRouteSurface(() => import('./views/ProgressPhotos.jsx'), 'as fotos de evolução')
+const ProfessionalHub = createRouteSurface(() => import('./views/ProfessionalHub.jsx'), 'a área profissional')
+const SchedulingView = createRouteSurface(() => import('./views/SchedulingView.jsx'), 'a agenda')
+const CoachGroupsView = createRouteSurface(() => import('./views/coach/CoachGroupsView.jsx'), 'os grupos do treinador')
+const CoachChallengesView = createRouteSurface(() => import('./views/coach/CoachChallengesView.jsx'), 'os desafios do treinador')
+const CoachGroupProgramsView = createRouteSurface(() => import('./views/coach/CoachGroupProgramsView.jsx'), 'os programas do treinador')
+const AthleteGroupsView = createRouteSurface(() => import('./views/athlete/AthleteGroupsView.jsx'), 'seus grupos')
+const AthleteChallengesView = createRouteSurface(() => import('./views/athlete/AthleteChallengesView.jsx'), 'seus desafios')
+const AthleteGroupProgramsView = createRouteSurface(() => import('./views/athlete/AthleteGroupProgramsView.jsx'), 'seus programas')
+const CommunityHub = createRouteSurface(() => import('./views/CommunityHub.jsx'), 'a comunidade')
+const CheckIn = createRouteSurface(() => import('./views/CheckIn.jsx'), 'o check-in')
+const RoutineEdit = createRouteSurface(() => import('./views/RoutineEdit.jsx'), 'o editor de rotina')
+const Programmes = createRouteSurface(() => import('./views/Programmes.jsx'), 'os programas')
+const ProgrammeEdit = createRouteSurface(() => import('./views/Programmes.jsx').then(module => ({ default: module.ProgrammeEdit })), 'o editor de programa')
+const Stats = createRouteSurface(() => import('./views/Stats.jsx'), 'a evolução')
+const History = createRouteSurface(() => import('./views/History.jsx'), 'o histórico')
+const Library = createRouteSurface(() => import('./views/Library.jsx'), 'a biblioteca')
+const Muscles = createRouteSurface(() => import('./views/Muscles.jsx'), 'o mapa muscular')
+const SettingsRoute = createRouteSurface(() => import('./views/Settings.jsx').then(module => ({ default: module.SettingsRoute })), 'as configurações')
 // The app tour's overlay (components/Tour.jsx): fetched when it opens, never before.
 const Tour = lazy(() => import('./components/Tour.jsx'))
-let viewsPrefetched = false
-const prefetchViews = () => {
-  if (viewsPrefetched) return
-  viewsPrefetched = true
-  const run = () => { for (const f of views) f().catch(() => {}) }
-  if (typeof globalThis.requestIdleCallback === 'function') globalThis.requestIdleCallback(run, { timeout: 4000 })
-  else setTimeout(run, 1500)
-}
 
 // last known scrollY per route, so back-navigation can put the page where it was
 const scrollPositions = new Map()
@@ -460,7 +436,6 @@ function Page({ loc, render, under = false, scrollY = 0, motion = 'fade' }) {
 export default function App() {
   const boot = useStore(s => s.boot)
   useEffect(() => { boot() }, [boot])
-  useEffect(() => { prefetchViews() }, [])
   // Android system back — sheet, then page, then press-again-to-exit (see lib/back.js)
   useEffect(() => {
     let stop = null, gone = false

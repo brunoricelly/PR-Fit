@@ -24,6 +24,7 @@ const pages = () => [...document.querySelectorAll('#app > .page')]
 const under = () => document.querySelector('#app > .page.under')
 const send = detail => act(() => { window.dispatchEvent(new CustomEvent(BACK_PREVIEW_EVENT, { detail })) })
 const go = async hash => { await act(async () => { window.location.hash = hash; window.dispatchEvent(new HashChangeEvent('hashchange')); window.dispatchEvent(new PopStateEvent('popstate')) }) }
+const waitForBack = () => vi.waitFor(() => expect(document.querySelector('#app > .page:not(.under) [data-back]')).not.toBeNull(), { timeout: 8000 })
 const scrolledTo = async y => {
   Object.defineProperty(window, 'scrollY', { configurable: true, value: y })
   await act(async () => { window.dispatchEvent(new Event('scroll')) })
@@ -38,9 +39,9 @@ beforeEach(async () => {
   scrolls = []
   window.scrollTo = vi.fn((x, y) => { scrolls.push([x, y]); Object.defineProperty(window, 'scrollY', { configurable: true, value: y }) })
   await act(async () => { root.render(<App />) })
-  // Settings is its own chunk (App.jsx lazyView); the app fetches it right after the start. On a
-  // busy machine the first import of that chunk outlasts waitFor's default second.
-  await vi.waitFor(() => expect(document.querySelector('#app [data-back], #app .page-in > *')).not.toBeNull(), { timeout: 8000 })
+  // Settings is its own route chunk; a direct start on this URL fetches it immediately. On a busy
+  // machine the first import of that chunk outlasts waitFor's default second.
+  await waitForBack()
   await act(async () => {})
 })
 afterEach(() => {
@@ -54,6 +55,7 @@ describe('the page underneath an edge swipe back', () => {
   it('is the page the back button goes to, at its scroll position, inert and hidden', async () => {
     await scrolledTo(420)
     await go('#/settings/units')
+    await waitForBack()
     expect(pages().map(p => p.dataset.path)).toEqual(['/settings/units'])
     const back = document.querySelector('#app [data-back]')
     expect(back.getAttribute('data-back')).toBe('/settings')
@@ -71,6 +73,7 @@ describe('the page underneath an edge swipe back', () => {
   it('becomes the page when the swipe lands: the same element, no second mount, back where it was scrolled', async () => {
     await scrolledTo(420)
     await go('#/settings/units')
+    await waitForBack()
     send({ path: '/settings' })
     const u = under()
     const marker = u.querySelector('.page-in > *')

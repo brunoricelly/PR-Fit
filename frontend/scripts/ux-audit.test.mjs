@@ -22,13 +22,16 @@ describe('UX audit route inventory', () => {
     const source = `
       import Home from './views/Home.jsx'
       const Admin = lazyView(() => import('./views/Admin.jsx'))
+      const Stats = createRouteSurface(() => import('./views/Stats.jsx'), 'a evolução')
       {isOn(S, 'body') && <Route path="/body" element={<Home />} />}
+      <Route path="/stats" element={<Stats />} />
       <Route path="/admin" element={user?.admin ? <Admin /> : <Navigate to="/home" replace />} />
       <Route path="*" element={<Navigate to="/home" replace />} />
     `
     const routes = inventoryRoutes(source, [])
     expect(routes.map(route => ({ path: route.path, component: route.component, loading: route.loading, module: route.module, redirects: route.redirects }))).toEqual([
       { path: '/body', component: 'Home', loading: 'eager', module: 'body', redirects: [] },
+      { path: '/stats', component: 'Stats', loading: 'lazy', module: '—', redirects: [] },
       { path: '/admin', component: 'Admin', loading: 'lazy', module: '—', redirects: ['/home'] },
       { path: '*', component: 'redirect', loading: 'n/a', module: '—', redirects: ['/home'] },
     ])

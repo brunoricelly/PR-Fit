@@ -31,8 +31,10 @@ import RecoveryHint from '../components/RecoveryHint.jsx'
 import { ChallengesCard } from '../components/Challenges.jsx'
 import { isOn } from '../lib/modules.js'
 import { useActiveRole } from '../lib/roles.js'
-import CoachDashboard from './dashboard/CoachDashboard.jsx'
-import AthleteToday from './dashboard/AthleteToday.jsx'
+import { createRouteSurface } from '../components/RouteSurface.jsx'
+
+const CoachDashboard = createRouteSurface(() => import('./dashboard/CoachDashboard.jsx'), 'a visão do treinador')
+const AthleteToday = createRouteSurface(() => import('./dashboard/AthleteToday.jsx'), 'a visão do atleta')
 
 // Home = what to do now + a quick glance. Deep charts & history live in Stats.
 export default function Home() {

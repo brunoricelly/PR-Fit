@@ -42,6 +42,9 @@ function importedViews(source) {
   for (const match of source.matchAll(/const\s+([A-Za-z0-9_]+)\s*=\s*lazyView\(\(\)\s*=>\s*import\(['"](\.\/views\/[^'"]+)['"]\)/g)) {
     views.set(match[1], { mode: 'lazy', file: match[2].replace(/^\.\//, 'frontend/src/') })
   }
+  for (const match of source.matchAll(/const\s+([A-Za-z0-9_]+)\s*=\s*createRouteSurface\(\(\)\s*=>\s*import\(['"](\.\/views\/[^'"]+)['"]\)/g)) {
+    views.set(match[1], { mode: 'lazy', file: match[2].replace(/^\.\//, 'frontend/src/') })
+  }
   return views
 }
 

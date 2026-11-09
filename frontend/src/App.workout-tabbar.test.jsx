@@ -46,6 +46,7 @@ afterEach(() => {
 // undone). The running workout has the whole screen again; Finish lives in its header.
 it('a running workout has no tab bar and no bottom action; minimized, the tabs and Resume are back', async () => {
   await act(async () => root.render(<App />))
+  await vi.waitFor(() => expect(host.querySelector('.whdr button[aria-label="Minimize"]')).not.toBeNull(), { timeout: 8000 })
   expect(host.querySelector('#tabbar')).toBeNull()
   expect(document.body.classList.contains('no-tabbar')).toBe(true)
   await act(async () => host.querySelector('.whdr button[aria-label="Minimize"]').click())

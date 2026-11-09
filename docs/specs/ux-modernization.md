@@ -139,3 +139,89 @@ Em subcheckpoints sequenciais:
 - Nenhuma rota crítica sem loading/empty/error/retry/permission/offline apropriado.
 - Sem P0/P1, sem falha de teste/build, sem segredos ou vulnerabilidade alta nova.
 - Produção só após prova UI/API/DB/logs/persistência e rollback verificável.
+
+## Etapa 6A — baseline de carregamento por rota
+
+Baseline reproduzida em 2026-11-09, antes de qualquer edição do checkpoint, no commit
+`64c87e91498e365bcfd0aceb53087c709ad52eff`, com Node/Vite instalados no worktree e
+`npm run build --prefix frontend`.
+
+### Saída de produção da base
+
+- 160 chunks JavaScript e 9 folhas CSS (169 assets JS/CSS no total).
+- O HTML referencia 42 assets de entrada: 41 JavaScript (entry + `modulepreload`) e a folha CSS
+  principal. Esses assets somam 3.007.305 bytes brutos e 717.648 bytes gzip; este é o proxy
+  disponível para JavaScript/CSS do shell inicial, pois o repositório não mede first-load de rede.
+- Entry principal: `index-*.js`, 652.273 bytes brutos e 200.888 bytes gzip.
+- Catálogo de exercícios no preload inicial: `exercises-*.js`, 1.225.305 bytes brutos e 155.687
+  bytes gzip.
+- Outros preloads relevantes do shell: `sheets-*.js` 375.003/119.542 bytes bruto/gzip,
+  `professional-copy-*.js` 69.818/21.360, `history-*.js` 54.797/20.108,
+  `useStore-*.js` 50.857/17.888, `sync-merge-*.js` 50.204/17.314,
+  `ui-*.js` 38.298/11.183 e `rotation-*.js` 37.040/13.034.
+- CSS inicial: `index-*.css`, 203.647 bytes brutos e 38.854 bytes gzip.
+- Maior chunk JavaScript: locale inglês `en-*.js`, 1.794.898 bytes brutos e 307.771 bytes gzip.
+  O segundo maior é `hi-*.js` (1.585.003/119.528) e o terceiro é `exercises-*.js`
+  (1.225.305/155.687).
+- Total de JavaScript emitido, incluindo packs de idioma e chunks sob demanda: 29.457.261 bytes
+  brutos e 5.945.796 bytes gzip. Esse total não representa first-load.
+
+### Grafo real e comportamento da base
+
+- `main.jsx` carrega estaticamente `App.jsx`, store, sincronização de mídia, teclado nativo e os
+  estilos globais. `App.jsx` carrega estaticamente Login, onboarding, Home, Plano e Treino, além de
+  `sheets.jsx` e módulos de watch/widget/voz. Esse caminho traz catálogo de exercícios, histórico,
+  folhas e utilitários para o preload inicial mesmo quando a sessão abre em outra superfície.
+- Admin, chat, medições, fotos, profissional, agenda, comunidade, grupos, desafios, programas,
+  check-in, editor de rotina, programas, evolução, histórico, biblioteca, músculos e configurações
+  usam `React.lazy`; porém o helper da base usa `Suspense fallback={null}` e agenda o preload de
+  todas as views após 1,5 s (ou em idle), portanto “lazy” não significa ausência de download logo
+  após o shell.
+- `ProfessionalHub.jsx` importa estaticamente Agenda, Comunidade, Nutrição, Comunicação/Hábitos e
+  Relatórios/Evolução; abrir o hub profissional alcança todas essas superfícies no mesmo grafo.
+- Warnings do build: chunks acima de 1.500 kB; import dinâmico ineficaz de `@capacitor/core`, que
+  também possui consumidores estáticos; import dinâmico ineficaz de `scan-web.js`, também importado
+  estaticamente por `CameraScan.jsx`.
+- Navegação interna e abertura direta por hash/deep link preservam a rota, mas uma view lazy exibe
+  conteúdo vazio enquanto baixa (`fallback={null}`). Rejeição do import chega ao `ErrorBoundary`
+  genérico e só oferece recarregar a aplicação inteira; não há retry isolado do chunk. Aliases de
+  grupos/desafios/programas continuam sendo resolvidos por `Navigate`; um caminho sem hash não é
+  uma rota pública suportada e não foi reinterpretado neste checkpoint.
+
+### Candidato 6A
+
+- Todas as views declaradas no router usam `createRouteSurface`, baseado em `React.lazy` e
+  `Suspense`. Home, Plano e Treino deixaram o entry estático; dentro de Home, os dashboards de
+  treinador e atleta também são carregados por papel, sem baixar a outra visão.
+- O preload oportunista de todas as rotas após 1,5 s foi removido. Uma rota baixa quando é
+  solicitada; uma view já resolvida fica em cache para navegação, preview de back-swipe e retorno.
+- O fallback usa o Design System, mantém uma área com altura estável, expõe um único `role=status`
+  com cópia PT-BR contextual e marca o conteúdo como `aria-busy`; skeletons são decorativos.
+- Falha de import fica contida na superfície, mostra erro em PT-BR e permite um retry explícito.
+  Cada clique cria uma nova instância lazy; não há retry automático nem loop. Erros de render que
+  não são falhas de chunk continuam subindo para o `ErrorBoundary` global existente.
+- `CameraScan` deixou de importar `scan-web.js` estaticamente. O decoder é carregado ao abrir a
+  câmera web, removendo o warning de import dinâmico ineficaz desse módulo. O warning restante é o
+  de `@capacitor/core`, causado por dependências Capacitor que também o importam estaticamente.
+- O inventário canônico reconhece `createRouteSurface` como lazy. O gate de build mede o HTML e os
+  assets sem fixar hashes e falha acima de: 2.780.000 bytes brutos / 660.000 gzip no shell,
+  42 assets iniciais, 1.813.000/311.000 no maior chunk bruto/gzip e 176 chunks JavaScript. Esses
+  limites exigem redução real contra a base, limitam o maior chunk a aproximadamente +1% e limitam
+  a contagem de chunks a +10%.
+
+### Comparativo base → candidato
+
+| Proxy de produção | Base | Candidato | Variação |
+| --- | ---: | ---: | ---: |
+| Shell referenciado por `index.html`, bruto | 3.007.305 B | 2.749.534 B | -257.771 B (-8,57%) |
+| Shell referenciado por `index.html`, gzip | 717.648 B | 641.129 B | -76.519 B (-10,66%) |
+| Entry `index-*.js`, bruto | 652.273 B | 413.028 B | -239.245 B (-36,68%) |
+| Entry `index-*.js`, gzip | 200.888 B | 127.686 B | -73.202 B (-36,44%) |
+| Assets iniciais referenciados | 42 | 42 | 0 |
+| Chunks JavaScript emitidos | 160 | 176 | +16 (+10,00%) |
+| Maior chunk bruto | 1.794.898 B | 1.794.898 B | 0 |
+| Maior chunk gzip | 307.771 B | 307.771 B | 0 |
+
+O maior chunk continua sendo o pack inglês `en-*.js`; hashes não participam do budget. Dois builds
+consecutivos produziram a mesma estrutura e os mesmos tamanhos normalizados. O build ainda avisa
+sobre packs acima de 1.500 kB e sobre `@capacitor/core`; o limite não foi afrouxado para ocultá-los.

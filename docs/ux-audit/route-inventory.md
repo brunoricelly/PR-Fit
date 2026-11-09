@@ -11,13 +11,13 @@ Todas as rotas de view passam primeiro pelo shell global: sem conta ou modo loca
 <!-- ux-audit:routes:start -->
 | Rota | Ator permitido | Origem na navegação | Módulo | View / destino | Carga | Proteção observada |
 | --- | --- | --- | --- | --- | --- | --- |
-| `/home` | Atleta, profissional, dual-role e admin | tab bar, Tour, tour guiado, sheets, CheckIn | — | `Home` | eager | shell: conta ou modo local |
+| `/home` | Atleta, profissional, dual-role e admin | tab bar, Tour, tour guiado, sheets, CheckIn | — | `Home` | lazy | shell: conta ou modo local |
 | `/checkin` | Atleta, profissional, dual-role e admin | Nfc, Home, AthleteToday | `checkin` | `CheckIn` | lazy | shell: conta ou modo local; módulo `checkin` |
-| `/plan` | Atleta, profissional, dual-role e admin | RoutineShare, tab bar, Tour, tour guiado, sheets | — | `Plan` | eager | shell: conta ou modo local |
+| `/plan` | Atleta, profissional, dual-role e admin | RoutineShare, tab bar, Tour, tour guiado, sheets | — | `Plan` | lazy | shell: conta ou modo local |
 | `/plan/r/:id` | Atleta, profissional, dual-role e admin | RoutineShare, Tour, tour guiado, sheets, Plan | — | `RoutineEdit` | lazy | shell: conta ou modo local |
 | `/plan/programmes` | Atleta, profissional, dual-role e admin | Home, Plan, Programmes | — | `Programmes` | lazy | shell: conta ou modo local |
 | `/plan/prog/:id` | Atleta, profissional, dual-role e admin | Programmes | — | `ProgrammeEdit` | lazy | shell: conta ou modo local |
-| `/workout` | Atleta, profissional, dual-role e admin | tab bar, Tour, nav, tour guiado, sheets | — | `Workout` | eager | shell: conta ou modo local |
+| `/workout` | Atleta, profissional, dual-role e admin | tab bar, Tour, nav, tour guiado, sheets | — | `Workout` | lazy | shell: conta ou modo local |
 | `/stats` | Atleta, profissional, dual-role e admin | tab bar, tour guiado, widget-links, History, Home | — | `Stats` | lazy | shell: conta ou modo local |
 | `/history` | Atleta, profissional, dual-role e admin | tour guiado, sheets, Stats, AthleteToday | — | `History` | lazy | shell: conta ou modo local |
 | `/library` | Atleta, profissional, dual-role e admin | tab bar, scroll-top, tour guiado, Muscles | — | `Library` | lazy | shell: conta ou modo local |
