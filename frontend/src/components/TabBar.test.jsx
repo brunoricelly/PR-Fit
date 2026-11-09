@@ -7,6 +7,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TabBar from './TabBar.jsx'
 import { DEF, useStore } from '../store/useStore.js'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 const where = vi.hoisted(() => ({ loc: { pathname: '/home' } }))
 vi.mock('react-router-dom', () => ({
@@ -16,9 +17,10 @@ vi.mock('react-router-dom', () => ({
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-let host, root, originalS, originalUser
+let host, root, originalS, originalUser, assertNoReactWarnings
 
 beforeEach(() => {
+  assertNoReactWarnings = guardReactWarnings()
   const store = useStore.getState()
   originalS = store.S
   originalUser = store.user
@@ -33,6 +35,7 @@ afterEach(() => {
   host.remove()
   useStore.setState({ S: originalS, user: originalUser })
   where.loc = { pathname: '/home' }
+  assertNoReactWarnings?.()
 })
 
 const tabs = () => [...host.querySelectorAll('#tabbar button')]
@@ -70,7 +73,7 @@ describe('the connection dot on Home', () => {
   it('is there for a sync problem only while the banner is switched off', () => {
     const original = useStore.getState().sync
     try {
-      useStore.setState({ sync: { status: 'error', lastError: { status: 502 }, pending: true } })
+      act(() => { useStore.setState({ sync: { status: 'error', lastError: { status: 502 }, pending: true } }) })
       act(() => { root.render(<TabBar onStart={() => {}} />) })
       expect(home().querySelector('.tab-dot')).toBeNull()
       act(() => { useStore.getState().update(s => { s.connStatus = false }, false) })
@@ -79,7 +82,7 @@ describe('the connection dot on Home', () => {
       act(() => { useStore.setState({ sync: { status: 'ok', lastError: null, pending: false } }) })
       expect(home().querySelector('.tab-dot')).toBeNull()
       expect(home().getAttribute('aria-label')).toBeNull()
-    } finally { useStore.setState({ sync: original }) }
+    } finally { act(() => { useStore.setState({ sync: original }) }) }
   })
 })
 

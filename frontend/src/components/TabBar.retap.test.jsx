@@ -7,10 +7,11 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TabBar from './TabBar.jsx'
 import { DEF, useStore } from '../store/useStore.js'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-let host, root, router, originalS, originalUser, page, reduce
+let host, root, router, originalS, originalUser, page, reduce, assertNoReactWarnings
 const tap = async label => {
   const b = [...host.querySelectorAll('#tabbar button')].find(x => x.textContent === label)
   await act(async () => b.click())
@@ -18,6 +19,7 @@ const tap = async label => {
 const at = y => Object.defineProperty(window, 'scrollY', { configurable: true, value: y })
 
 beforeEach(() => {
+  assertNoReactWarnings = guardReactWarnings()
   const store = useStore.getState()
   originalS = store.S; originalUser = store.user
   useStore.setState({ S: JSON.parse(JSON.stringify(DEF)), user: { id: 'test', name: 'test' } })
@@ -39,6 +41,7 @@ afterEach(() => {
   host.remove(); page.remove()
   document.body.style.position = ''
   useStore.setState({ S: originalS, user: originalUser })
+  assertNoReactWarnings?.()
 })
 
 describe('tapping the tab you are on', () => {
