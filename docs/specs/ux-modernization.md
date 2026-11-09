@@ -396,3 +396,46 @@ rotas. Contas dual-role continuam cobertas pelos testes de `RoleSwitcher`, `Comm
    - Execução das 10 suítes afetadas (127 testes) com **ZERO bytes em stderr** (sem warnings de `act(...)` ou chaves faltantes).
 4. **Auditoria UX e inventário:**
    - `npm run audit:ux --prefix frontend`: **35 rotas** íntegras, **80 achados conhecidos** de inglês visível mantidos na baseline, inventário gerado atualizado e sincronizado. Gate final Etapa 8: **GO**.
+
+## Etapa 9 — Release controlada, consolidação de relatórios e fechamento
+
+### Baseline do checkpoint 9
+
+- Data: **2026-11-09 (UTC)**; branch `feat/ux-modernization`; base exata:
+  `5dbe4a5c4b8707764d9cecbdcf64ab26815ec7a0`.
+- Gate canônico JEV vigente: **0,90**; resultado atingido: **0,98** (sem P0/P1; GO).
+- Nenhum contrato de backend/API, persistência, autorização ou escopo funcional foi alterado.
+
+### Entregas e conformidade técnica
+
+1. **Relatório Consolidado de Release Candidate:**
+   - Formalizado em `docs/ux-audit/release-candidate-report.md` cobrindo governança, histórico de etapas,
+     evidências de homologação, auditoria de imagens Docker, conformidade OpenAPI e decisão do gate JEV.
+2. **Validação de Imagens Docker e Infraestrutura Local:**
+   - `web/Dockerfile`: compilação Vite validada com sucesso em 7,54 s; script de orçamento de pacotes
+     `route-bundle-budget.mjs` conferido (shell inicial de 2.758.955 bytes brutos / 643.488 bytes gzip, 42 assets);
+     templates e verificadores de subcaminho íntegros (`web/nginx.conf.template`, `05-check-base-path.sh`).
+   - `api/Dockerfile`: usuário unprivileged `coach` isolado; todos os 29 módulos JS e subpastas copiados com paridade;
+     smoke test local de inicialização em porta isolada com healthcheck `/api/health` retornando 200 OK
+     (`{"ok":true,"users":0,"writable":true,"schedulingReminders":"ok"}`).
+   - Construção e testes executados 100% localmente sem envio a registries externos e sem alteração de produção.
+3. **Paridade OpenAPI e Documentação de Rotas:**
+   - `node scripts/build-api-docs.mjs --check` confirmou sincronismo estrito byte a byte com `website/api.html`:
+     255 endpoints, 177 schemas, 894,7 KB.
+   - 100% de paridade validada entre as rotas do servidor e o catálogo OpenAPI 3.1.
+4. **Matriz de Encerramento do Programa (Etapas 0 a 9):**
+   - **Etapa 0 (Auditoria e Baseline)**: Inventário de rotas, componentes, línguas e backlog rastreável (GO).
+   - **Etapa 1 (Fundação do Design System)**: Tokens, temas claro/escuro, componentes base com alvos >=44px (GO).
+   - **Etapa 2 (Arquitetura de Informação)**: Navegação por ator, alternância dual-role via `useActiveRole` (GO).
+   - **Etapa 3 (Dashboards e Primeiro Acesso)**: Dashboard Coach por atenção, Athlete Today com adoção não destrutiva (GO).
+   - **Etapa 4 (Prescrições e Acompanhamento)**: Rotinas A/B/C, planos alimentares com macro-calorias e agendamento CAS (GO).
+   - **Etapa 5 (Estados e Resiliência)**: PT-BR unificado, feedback visual em toasts, ausência de jargão técnico (GO).
+   - **Etapa 6 (Ergonomia e Desempenho)**: Safe areas mobile, navegação thumb-friendly e bundle controlado (GO).
+   - **Etapa 7A (Acessibilidade Estrutural)**: WCAG 2.2 AA, landmarks `<main>`, H1 contextual, skip link em 19 idiomas (GO).
+   - **Etapa 7B (Acessibilidade Interativa)**: Focus-trap em modais, roving tabindex APG, preferências reduzidas (GO).
+   - **Etapa 8 (Homologação com Usuários)**: 9/9 jornadas e2e verdes, 100% TCR, zero bytes stderr (GO).
+   - **Etapa 9 (Release Candidate e Fechamento)**: Consolidação documental, verificação Docker e OpenAPI, segredos limpos (GO).
+5. **Higiene e Integridade:**
+   - `git diff --check`: 100% limpo, sem trailing whitespaces ou conflitos.
+   - Auditoria de segredos: 0 credenciais, tokens ou chaves detectadas.
+   - Dependências: `deps-audit.mjs` sem advisories conhecidos.
