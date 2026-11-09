@@ -5,11 +5,13 @@ import { createMemoryRouter, RouterProvider } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import TabBar from './TabBar.jsx'
 import { DEF, useStore } from '../store/useStore.js'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
-let host, root, router, originalS, originalUser, onStart
+let host, root, router, originalS, originalUser, onStart, assertNoReactWarnings
 beforeEach(() => {
+  assertNoReactWarnings = guardReactWarnings()
   const store = useStore.getState()
   originalS = store.S
   originalUser = store.user
@@ -26,6 +28,7 @@ afterEach(() => {
   router.dispose()
   host.remove()
   useStore.setState({ S: originalS, user: originalUser })
+  assertNoReactWarnings?.()
 })
 const tap = async label => {
   const button = [...host.querySelectorAll('button')].find(b => b.textContent === label)
@@ -73,7 +76,9 @@ describe('root tab history', () => {
   })
 
   it('preserves the workout chooser return path', async () => {
-    useStore.setState({ S: { ...useStore.getState().S, routines: [] } })
+    act(() => {
+      useStore.setState({ S: { ...useStore.getState().S, routines: [] } })
+    })
     await tap('Start')
     expect(router.state.location.pathname).toBe('/workout')
     await go(-1)
