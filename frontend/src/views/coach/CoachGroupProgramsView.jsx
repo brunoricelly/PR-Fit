@@ -337,7 +337,8 @@ export default function CoachGroupProgramsView({ embedded = false }) {
           action={<Button variant="primary" onClick={() => loadPrograms()}>{p('Try again')}</Button>}
         />
       ) : loading ? (
-        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+        <div className="gc-card-list" aria-busy="true">
+          <span className="sr-only" role="status">{p('Loading programs…')}</span>
           <SkeletonCard />
           <SkeletonCard />
         </div>

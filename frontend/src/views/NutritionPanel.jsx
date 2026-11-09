@@ -546,7 +546,7 @@ function NutritionPanelContent({ athleteId }) {
       setEditing(null)
     }} />}
     {plansError ? <div className="pro-load-inline" role="alert"><span>{professionalError(plansError)}</span><Button size="sm" onClick={load}>{p('Try again')}</Button></div>
-      : plans === null ? <div className="nutrition-panel-skeleton" aria-busy="true" aria-label={p('Loading nutrition for selected athlete')}><Skeleton width="45%" height="1rem" /><Skeleton height="8rem" /></div>
+      : plans === null ? <div className="nutrition-panel-skeleton" aria-busy="true"><span className="sr-only" role="status">{p('Loading nutrition for selected athlete')}</span><Skeleton announce={false} width="45%" height="1rem" /><Skeleton announce={false} height="8rem" /></div>
         : plans.length === 0 && retainedHistoryPlans.length === 0 && !adherenceIncomplete && adherenceState.status !== 'error' ? <p className="pro-empty-inline">{p('No meal plans yet.')}</p>
           : plans.length === 0 && retainedHistoryPlans.length === 0 ? <p className="pro-empty-inline">{p('Meal plan history may be incomplete.')}</p>
           : <div className="nutrition-plan-list">

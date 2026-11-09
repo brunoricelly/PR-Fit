@@ -610,6 +610,7 @@ describe('Stats exercise progress picker', () => {
     vi.spyOn(sheet, 'getBoundingClientRect').mockReturnValue({ bottom: 600 })
     vi.spyOn(firstOption, 'getBoundingClientRect').mockReturnValue({ bottom: 500 })
     Object.defineProperty(window, 'visualViewport', { configurable: true, value: { height: 300 } })
+    input.blur()
     input.focus()
     expect(sheet.style.getPropertyValue('--picker-visual-height')).toBe('300px')
     expect(sheet.style.getPropertyValue('--picker-keyboard-bottom')).toBe(`${Math.max(0, window.innerHeight - 300)}px`)

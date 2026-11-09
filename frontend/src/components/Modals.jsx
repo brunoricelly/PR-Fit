@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { useUI } from '../store/useUI.js'
 import { keyboardOpen } from '../lib/viewport-guard.js'
+import { useOverlayA11y } from './overlay-a11y.js'
 
 // Putting the page back after a sheet closes takes up to three goes (see the un-pin below): now,
 // next frame, and once the keyboard's dismiss animation is over. Anything else that wants to
@@ -46,30 +47,18 @@ const drainScrollRestore = close => {
 
 // One bottom sheet (or centered dialog) with swipe-to-dismiss.
 function Sheet({ sheet }) {
-  const triggerRef = useRef(null)
-  useEffect(() => {
-    const active = document.activeElement
-    if (active && active !== document.body && !ref.current?.contains(active)) {
-      triggerRef.current = active
-    }
-    return () => {
-      const el = triggerRef.current
-      if (el?.isConnected && typeof el.focus === 'function') {
-        try {
-          el.focus()
-          if (typeof requestAnimationFrame === 'function') {
-            requestAnimationFrame(() => {
-              if (el.isConnected && typeof el.focus === 'function') el.focus()
-            })
-          }
-        } catch {
-          // ignore
-        }
-      }
-    }
-  }, [])
   const closeSheet = useUI(s => s.closeSheet)   // not the whole store: an open sheet re-rendered on every rest tick
   const ref = useRef(null)
+  const layerRef = useRef(null)
+  const dismissTimerRef = useRef(null)
+  const close = () => closeSheet(sheet.id)
+  useOverlayA11y({
+    dialogRef: ref,
+    layerRef,
+    onClose: close,
+    closeOnEscape: !sheet.locked,
+    fallbackLabel: sheet.label,
+  })
   // startY null = no gesture. axis stays null until the finger has travelled far enough to
   // tell a vertical pull from a sideways scroll; 'x' hands the gesture to whatever scrolls
   // horizontally under it (chip strips, heatmap) and the sheet stays put.
@@ -119,10 +108,19 @@ function Sheet({ sheet }) {
   const onTouchEnd = () => {
     const el = ref.current, d = drag.current
     if (d.startY === null) return
-    el.style.transition = 'transform .2s'
+    const reducedMotion = (() => {
+      try { return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches } catch { return false }
+    })()
+    el.style.transition = reducedMotion ? 'none' : 'transform .2s'
     // a long pull, or a short but fast flick, dismisses
     const flick = d.delta > 30 && d.vy > 0.6
-    if ((d.delta > 90 || flick) && !sheet.locked) { el.style.transform = 'translateY(110%)'; setTimeout(() => closeSheet(sheet.id), 180) }
+    if ((d.delta > 90 || flick) && !sheet.locked) {
+      if (reducedMotion) close()
+      else {
+        el.style.transform = 'translateY(110%)'
+        dismissTimerRef.current = window.setTimeout(close, 180)
+      }
+    }
     else el.style.transform = ''
     drag.current = idle()
   }
@@ -133,6 +131,7 @@ function Sheet({ sheet }) {
 
   // non-passive touchmove so preventDefault works (bottom sheets only; centered dialogs have no ref)
   useEffect(() => {
+    if (sheet.kind !== 'sheet') return
     const el = ref.current
     if (!el) return
     el.addEventListener('touchmove', onTouchMove, { passive: false })
@@ -140,26 +139,26 @@ function Sheet({ sheet }) {
     return () => {
       el.removeEventListener('touchmove', onTouchMove)
       window.removeEventListener('mouseup', onMouseUp)
+      if (dismissTimerRef.current !== null) window.clearTimeout(dismissTimerRef.current)
     }
   }, [])
 
-  const close = () => closeSheet(sheet.id)
   // Full screen, on black: a photo or video opened from a workout (WorkoutMedia.jsx). No
   // backdrop to tap, no drag to dismiss — the viewer has its own close button, and back closes
   // it like any sheet.
-  if (sheet.kind === 'viewer') return <div>{sheet.render(close)}</div>
+  if (sheet.kind === 'viewer') return <div ref={node => { ref.current = node; layerRef.current = node }} role="dialog" aria-modal="true" tabIndex={-1}>{sheet.render(close)}</div>
   if (sheet.kind === 'center') {
     return (
-      <div>
-        <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-        <div className={'center' + (sheet.wide ? ' wide' : '')}>{sheet.render(close)}</div>
+      <div ref={layerRef}>
+        <div className="mback" onClick={() => { if (!sheet.locked && !layerRef.current?.hasAttribute('inert')) close() }} />
+        <div ref={ref} role="dialog" aria-modal="true" tabIndex={-1} className={'center' + (sheet.wide ? ' wide' : '')}>{sheet.render(close)}</div>
       </div>
     )
   }
   return (
-    <div>
-      <div className="mback" onClick={() => { if (!sheet.locked) close() }} />
-      <div className="sheet" ref={ref} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
+    <div ref={layerRef}>
+      <div className="mback" onClick={() => { if (!sheet.locked && !layerRef.current?.hasAttribute('inert')) close() }} />
+      <div className="sheet" ref={ref} role="dialog" aria-modal="true" tabIndex={-1} onTouchStart={onTouchStart} onTouchEnd={onTouchEnd}
         onMouseDown={onMouseDown} onMouseMove={onMouseMove} onMouseUp={onMouseUp} onMouseLeave={onMouseUp}>
         <div className="grab" />
         {sheet.render(close)}
@@ -228,13 +227,6 @@ export default function Modals() {
     return () => window.removeEventListener('popstate', onPop)
   }, [sheets, closeSheet])
 
-  // lock the page behind any open sheet (iOS-safe)
-  useEffect(() => {
-    if (!sheets.length) return
-    const onKey = e => { if (e.key === 'Escape') { const top = useUI.getState().sheets[useUI.getState().sheets.length - 1]; if (top && !top.locked) useUI.getState().closeSheet(top.id) } }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [sheets.length])
   // A layout effect, not a passive one: the pin and, above all, the un-pin plus the scroll
   // restore have to land in the same frame as the sheet's own mount/unmount. Run after paint,
   // iOS showed a frame with the body un-pinned at scroll 0 — the page "jumped down and back" on

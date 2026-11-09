@@ -48,14 +48,15 @@ const athleteName = link => link.athlete?.name || 'Aluno sem nome disponível'
 
 function CoachLoading() {
   return <main className="ds-scope dashboard-page dashboard-page-coach" aria-busy="true" aria-label="Carregando visão geral">
+    <span className="sr-only" role="status">Carregando visão geral</span>
     <div className="dashboard-shell">
-      <Skeleton width="9rem" height="1rem" />
-      <Skeleton width="min(28rem, 88%)" height="2.5rem" />
-      <Skeleton width="min(36rem, 100%)" height="1.25rem" />
+      <Skeleton announce={false} width="9rem" height="1rem" />
+      <Skeleton announce={false} width="min(28rem, 88%)" height="2.5rem" />
+      <Skeleton announce={false} width="min(36rem, 100%)" height="1.25rem" />
       <div className="dashboard-loading-grid" aria-hidden="true">
-        <Skeleton height="12rem" />
-        <Skeleton height="12rem" />
-        <Skeleton height="9rem" />
+        <Skeleton announce={false} height="12rem" />
+        <Skeleton announce={false} height="12rem" />
+        <Skeleton announce={false} height="9rem" />
       </div>
     </div>
   </main>

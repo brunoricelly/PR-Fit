@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useUI } from '../store/useUI.js'
 import Icon from './Icon.jsx'
 import { t } from '../lib/i18n.js'
@@ -12,6 +13,10 @@ export default function Toast() {
   const { pauseToast, resumeToast, runToastAction, dismissToast } = useUI.getState()
   const live = !!(msg && action)
   const actionIcon = action?.icon || ((action?.label && (/undo|desfazer/i).test(action.label)) ? 'undo' : 'arrow-clockwise')
+  useEffect(() => {
+    useUI.getState().mountToastTimer()
+    return () => useUI.getState().unmountToastTimer()
+  }, [])
   return <div id="toast" role="status" className={(msg ? 'show' : '') + (live ? ' has-action' : '')}
     onPointerEnter={live ? pauseToast : undefined} onPointerDown={live ? pauseToast : undefined}
     onPointerLeave={live ? resumeToast : undefined} onPointerCancel={live ? resumeToast : undefined}

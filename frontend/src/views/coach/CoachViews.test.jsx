@@ -502,6 +502,18 @@ describe('CoachChallengesView', () => {
     rules: { pointsPer1000: 5 },
   }
 
+  it('announces challenge loading outside hidden skeletons and marks the list busy', async () => {
+    mocks.listCoachChallenges.mockImplementationOnce(() => new Promise(() => {}))
+    await mount(<CoachChallengesView />)
+
+    const loading = host.querySelector('.gc-card-list[aria-busy="true"]')
+    expect(loading).toBeTruthy()
+    expect(loading.querySelector('[role="status"]')?.textContent).toBe('Loading challenges…')
+    expect(loading.querySelector('[role="status"]')?.closest('[aria-hidden="true"]')).toBeNull()
+    expect(loading.querySelectorAll('.ds-skeleton-card[aria-hidden="true"]')).toHaveLength(2)
+    expect(loading.querySelectorAll('.ds-skeleton-card [role="status"]')).toHaveLength(0)
+  })
+
   it('lists challenges with badges and actions', async () => {
     mocks.listCoachChallenges.mockResolvedValueOnce({ challenges: [fakeChallenge], page: { hasMore: false } })
     mocks.listCoachGroups.mockResolvedValueOnce({ groups: [{ id: 'grp_1', name: 'Barbell Club' }] })

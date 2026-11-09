@@ -47,11 +47,12 @@ const normalizePrescriptions = payload => (Array.isArray(payload?.prescriptions)
 
 function AthleteLoading() {
   return <main className="ds-scope dashboard-page dashboard-page-athlete" aria-busy="true" aria-label="Carregando Hoje">
+    <span className="sr-only" role="status">Carregando Hoje</span>
     <div className="dashboard-shell">
-      <Skeleton width="6rem" height="1rem" />
-      <Skeleton width="min(24rem, 84%)" height="2.5rem" />
-      <Skeleton height="13rem" />
-      <div className="dashboard-loading-grid" aria-hidden="true"><Skeleton height="9rem" /><Skeleton height="9rem" /></div>
+      <Skeleton announce={false} width="6rem" height="1rem" />
+      <Skeleton announce={false} width="min(24rem, 84%)" height="2.5rem" />
+      <Skeleton announce={false} height="13rem" />
+      <div className="dashboard-loading-grid" aria-hidden="true"><Skeleton announce={false} height="9rem" /><Skeleton announce={false} height="9rem" /></div>
     </div>
   </main>
 }
@@ -203,7 +204,7 @@ export default function AthleteToday() {
   const toast = useUI(state => state.toast)
   const [adoptingPrescription, setAdoptingPrescription] = useState(null)
   const [checkingInId, setCheckingInId] = useState(null)
-  const [habitLiveFeedback, setHabitLiveFeedback] = useState('')
+  const [habitLiveFeedback, setHabitLiveFeedback] = useState(null)
 
   const adoptPrescription = async prescription => {
     setAdoptingPrescription(prescription.id)
@@ -227,7 +228,7 @@ export default function AthleteToday() {
     const timeZone = browserTimeZone().value
     const habitDate = habit.date || localToday()
     setCheckingInId(habit.id)
-    setHabitLiveFeedback('')
+    setHabitLiveFeedback(null)
     try {
       if (typeof communicationApi?.checkin !== 'function') throw new Error('checkin not supported')
       const result = await communicationApi.checkin(timeZone, {
@@ -261,12 +262,10 @@ export default function AthleteToday() {
         }
       })
       const msg = nextCompleted ? 'Check-in realizado com sucesso.' : 'Check-in marcado como pendente.'
-      setHabitLiveFeedback(msg)
-      toast(msg)
+      setHabitLiveFeedback({ type: 'success', message: msg })
     } catch {
       const errMsg = 'Não foi possível salvar o check-in. Tente novamente.'
-      setHabitLiveFeedback(errMsg)
-      toast(errMsg)
+      setHabitLiveFeedback({ type: 'error', message: errMsg })
     } finally {
       setCheckingInId(null)
     }
@@ -401,7 +400,7 @@ export default function AthleteToday() {
           </Card>
         )}
 
-        {loading && !remote ? <div className="dashboard-loading-grid athlete-remote-loading" aria-label="Carregando resumos"><Skeleton height="8rem" /><Skeleton height="8rem" /></div> : <>
+        {loading && !remote ? <div className="dashboard-loading-grid athlete-remote-loading" aria-busy="true"><span className="sr-only" role="status">Carregando resumos</span><Skeleton announce={false} height="8rem" /><Skeleton announce={false} height="8rem" /></div> : <>
           {plan && <Card className="athlete-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Alimentação</span><h3>{plan.title}</h3></div><Icon name="scale" aria-hidden="true" /></div>
             {plan.coach?.name && <p className="pro-meta" style={{ marginTop: '-4px', marginBottom: '8px' }}>Prescrito por {plan.coach.name}</p>}
@@ -431,7 +430,7 @@ export default function AthleteToday() {
 
           {habits.length > 0 && <Card className="athlete-summary-card athlete-habits-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Hábitos</span><h3>{completedHabits} de {habits.length} concluídos</h3></div><Icon name="checkCircle" aria-hidden="true" /></div>
-            <LiveFeedback success={habitLiveFeedback} className="athlete-habit-live" />
+            <LiveFeedback success={habitLiveFeedback?.type === 'success' ? habitLiveFeedback.message : ''} error={habitLiveFeedback?.type === 'error' ? habitLiveFeedback.message : ''} className="athlete-habit-live" />
             <ul className="athlete-mini-list">
               {habits.slice(0, 3).map(habit => {
                 const isCompleted = !!habit.checkin?.completed

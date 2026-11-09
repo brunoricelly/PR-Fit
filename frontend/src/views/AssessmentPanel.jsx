@@ -408,8 +408,9 @@ function fromAssessment(item) {
 function AssessmentLoading() {
   return (
     <div className="assessment-panel" aria-busy="true">
-      <Skeleton width="60%" height="1.25rem" />
-      <Skeleton width="100%" height="8rem" style={{ marginTop: 12 }} />
+      <span className="sr-only" role="status">{p('Loading assessment…')}</span>
+      <Skeleton announce={false} width="60%" height="1.25rem" />
+      <Skeleton announce={false} width="100%" height="8rem" style={{ marginTop: 12 }} />
     </div>
   )
 }

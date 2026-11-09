@@ -409,7 +409,8 @@ export default function CoachChallengesView({ embedded = false }) {
           action={<Button variant="primary" onClick={() => loadChallenges()}>{p('Try again')}</Button>}
         />
       ) : loading ? (
-        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+        <div className="gc-card-list" aria-busy="true">
+          <span className="sr-only" role="status">{p('Loading challenges…')}</span>
           <SkeletonCard />
           <SkeletonCard />
         </div>
@@ -481,7 +482,7 @@ export default function CoachChallengesView({ embedded = false }) {
                 )}
 
                 <div className="gc-card-subtitle">
-                  {formatChallengeTime(challenge.startAt, challenge.timeZone)} —{' '}
+                  {formatChallengeTime(challenge.startAt, challenge.timeZone)} <span aria-hidden="true">·</span><span className="sr-only">,</span>{' '}
                   {formatChallengeTime(challenge.endAt, challenge.timeZone)} ({challenge.timeZone || 'UTC'})
                 </div>
 
@@ -679,7 +680,7 @@ export default function CoachChallengesView({ embedded = false }) {
                       <Icon name="bolt" className="gc-feed-icon" />
                       <div className="gc-feed-content">
                         <div className="gc-feed-desc">
-                          <strong>{feed.displayName || p('Athlete')}</strong> — {feed.description || p('Activity')}
+                          <strong>{feed.displayName || p('Athlete')}</strong> <span aria-hidden="true">·</span><span className="sr-only">,</span> {feed.description || p('Activity')}
                         </div>
                         <div className="gc-feed-meta">
                           {formatChallengeTime(feed.timestamp, leaderboardData.challenge?.timeZone)}

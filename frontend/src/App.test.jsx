@@ -337,10 +337,11 @@ describe('Dual-Role Mode Switching & Persistence', () => {
     mocks.user = coachUser
     await mount(<CommunityHub />, '/community')
 
-    const switcher = host.querySelector('[aria-label="Role switch"], [aria-label="Alternar papel"]')
+    const switcher = host.querySelector('[role="tablist"][aria-label="Alternar visão"]')
     expect(switcher).toBeTruthy()
-    expect(host.textContent).toContain('Coach view')
-    expect(host.textContent).toContain('Athlete view')
+    expect(switcher.querySelectorAll('[role="tab"]')).toHaveLength(2)
+    expect(switcher.textContent).toContain('Visão do treinador')
+    expect(switcher.textContent).toContain('Visão do atleta')
   })
 
   it('cleans up prfit_active_role keys on clearRoleStorage', () => {

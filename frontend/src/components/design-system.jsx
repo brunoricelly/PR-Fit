@@ -111,17 +111,17 @@ export function Badge({ tone = 'neutral', className = '', children, ...props }) 
   return <span className={`ds-badge ${tone}${className ? ` ${className}` : ''}`} {...props}>{children}</span>
 }
 
-export function Skeleton({ width = '100%', height = '1rem', className = '', label = 'Carregando', style, ...props }) {
-  return <span className={`ds-skeleton${className ? ` ${className}` : ''}`} style={{ width, height, ...style }} role="status" aria-label={label} {...props} />
+export function Skeleton({ width = '100%', height = '1rem', className = '', label = 'Carregando', announce = true, style, ...props }) {
+  return <span className={`ds-skeleton${className ? ` ${className}` : ''}`} style={{ width, height, ...style }} {...(announce ? { role: 'status', 'aria-label': label } : { 'aria-hidden': 'true' })} {...props} />
 }
 
 export function SkeletonCard({ className = '' }) {
   return (
     <Card className={`ds-skeleton-card${className ? ` ${className}` : ''}`} aria-hidden="true">
-      <Skeleton width="42%" height="1.25rem" />
-      <Skeleton width="70%" height="0.875rem" />
-      <Skeleton width="100%" height="0.5rem" />
-      <Skeleton width="8rem" height="2.75rem" />
+      <Skeleton announce={false} width="42%" height="1.25rem" />
+      <Skeleton announce={false} width="70%" height="0.875rem" />
+      <Skeleton announce={false} width="100%" height="0.5rem" />
+      <Skeleton announce={false} width="8rem" height="2.75rem" />
     </Card>
   )
 }
@@ -150,22 +150,21 @@ export function Spinner({ size = '1.25rem', label = 'Carregando…', className =
       {...props}
     >
       <span className="ds-spinner-inner" aria-hidden="true" />
-      <span className="sr-only">{label}</span>
     </span>
   )
 }
 
 export function LiveFeedback({ success, error, className = '', id }) {
   const hasContent = Boolean(success || error)
+  const message = error || success || ''
   return (
     <div
       id={id}
       className={`ds-live-feedback pro-live ${hasContent ? (error ? 'is-error' : 'is-success') : ''}${className ? ` ${className}` : ''}`}
-      aria-live="polite"
+      role={error ? 'alert' : 'status'}
       aria-atomic="true"
     >
-      {error && <span role="alert" className="ds-live-feedback-error">{error}</span>}
-      {success && !error && <span role="status" className="ds-live-feedback-success">{success}</span>}
+      {message && <span className={error ? 'ds-live-feedback-error' : 'ds-live-feedback-success'}>{message}</span>}
     </div>
   )
 }

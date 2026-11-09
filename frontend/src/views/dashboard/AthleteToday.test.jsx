@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from '../../store/useStore.js'
+import { useUI } from '../../store/useUI.js'
 import AthleteToday from './AthleteToday.jsx'
 import { setFirstStepsDismissed } from '../../lib/first-steps-store.js'
 
@@ -73,6 +74,7 @@ beforeEach(() => {
   document.body.appendChild(host)
   root = createRoot(host)
   state()
+  useUI.setState({ toastMsg: '', toastAction: null })
   mocks.api.mockImplementation(path => Promise.resolve(path === '/api/athlete/meal-plan' ? { mealPlan: null } : { adherenceRecords: [] }))
   mocks.inbox.mockResolvedValue({ conversations: [] })
   mocks.habits.mockResolvedValue({ habits: [] })
@@ -330,6 +332,32 @@ describe('AthleteToday', () => {
     expect(host.textContent).toContain('Desfazer')
     expect(host.textContent).toContain('5 dias seguidos')
     expect(host.textContent).toContain('Check-in realizado com sucesso.')
+    const message = 'Check-in realizado com sucesso.'
+    const liveRegions = [...host.querySelectorAll('[role="status"], [role="alert"], [aria-live]')]
+      .filter(node => node.textContent.includes(message) && !node.closest('[aria-hidden="true"]'))
+    expect(liveRegions).toHaveLength(1)
+    expect(liveRegions[0].getAttribute('role')).toBe('status')
+    expect(useUI.getState().toastMsg).toBe('')
+  })
+
+  it('announces a quick check-in error once without duplicating it in the toast', async () => {
+    mocks.habits.mockResolvedValue({ habits: [{
+      id: 'hab_water', title: 'Beber água', targetValue: 2000, unit: 'ml', currentStreak: 4,
+      checkin: null, relationship: { linkId: 'cal_1', status: 'active', readOnly: false },
+    }] })
+    mocks.checkin.mockRejectedValueOnce(new Error('offline'))
+    await renderToday()
+
+    const checkinBtn = [...host.querySelectorAll('button')].find(button => button.getAttribute('aria-label')?.includes('Beber água'))
+    await act(async () => { checkinBtn.click() })
+    await settle()
+
+    const message = 'Não foi possível salvar o check-in. Tente novamente.'
+    const liveRegions = [...host.querySelectorAll('[role="status"], [role="alert"], [aria-live]')]
+      .filter(node => node.textContent.includes(message) && !node.closest('[aria-hidden="true"]'))
+    expect(liveRegions).toHaveLength(1)
+    expect(liveRegions[0].getAttribute('role')).toBe('alert')
+    expect(useUI.getState().toastMsg).toBe('')
   })
 
   it('highlights an active community challenge on the dashboard', async () => {

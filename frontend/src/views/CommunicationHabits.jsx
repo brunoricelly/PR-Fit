@@ -298,7 +298,7 @@ function SummaryView({ summary }) {
   const hasScheduled = (summary.scheduledDays || 0) > 0
   return <div className="pro-summary" aria-label={p('Adherence summary')}>
     <div className="pro-summary-stat">
-      <strong>{hasScheduled ? `${summary.adherencePercent}%` : '—'}</strong>
+      <strong>{hasScheduled ? `${summary.adherencePercent}%` : '–'}</strong>
       <span>{p('Adherence')}</span>
       {!hasScheduled && <small className="pro-summary-note">{p('No scheduled habit days in period')}</small>}
     </div>

@@ -261,7 +261,7 @@ export default function CoachGroupsView({ embedded = false }) {
       {error ? (
         <ErrorState title={p('Unable to load groups')} text={error} action={<Button variant="primary" onClick={() => loadGroups()}>{p('Try again')}</Button>} />
       ) : loading ? (
-        <div className="gc-card-list" aria-label={p('Loading groups…')}><SkeletonCard /><SkeletonCard /></div>
+        <div className="gc-card-list" aria-busy="true"><span className="sr-only" role="status">{p('Loading groups…')}</span><SkeletonCard /><SkeletonCard /></div>
       ) : filteredGroups.length === 0 ? (
         <EmptyState icon="person" title={search ? p('No matching groups') : p('No groups created yet')} text={search ? p('Try a different search term.') : p('Create your first group to start building a community with your athletes.')} action={!search && <Button variant="primary" onClick={() => setShowCreateModal(true)}>{p('Create group')}</Button>} />
       ) : (
@@ -286,7 +286,7 @@ export default function CoachGroupsView({ embedded = false }) {
 
       {selectedGroupId && (
         <Modal id="group-details" title={groupDetails?.group?.name || p('Group details')} closeLabel={p('Close')} onClose={() => { setSelectedGroupId(null); setGroupDetails(null) }}>
-          {loadingDetails || !groupDetails ? <div className="gc-details-skeleton" role="status" aria-label={p('Loading group details…')}><Skeleton width="54%" height="1rem" /><Skeleton width="100%" height="5rem" /><Skeleton width="100%" height="8rem" /></div> : (
+          {loadingDetails || !groupDetails ? <div className="gc-details-skeleton" role="status" aria-busy="true" aria-label={p('Loading group details…')}><Skeleton announce={false} width="54%" height="1rem" /><Skeleton announce={false} width="100%" height="5rem" /><Skeleton announce={false} width="100%" height="8rem" /></div> : (
             <div className="pro-modal-form">
               {groupDetails.group?.description && <p className="pro-routine-note">{groupDetails.group.description}</p>}
               <Surface className="gc-invite-box"><div><span className="pro-kicker">{p('Invite code')}</span><div className="gc-invite-code">{groupDetails.group?.invite?.code || groupDetails.group?.inviteCode || p('No active code')}</div></div><div className="gc-inline-actions"><Button size="sm" icon="copy" onClick={() => handleCopyInvite(groupDetails.group?.invite?.code || groupDetails.group?.inviteCode)}>{copiedCode ? p('Copied!') : p('Copy code')}</Button><Button size="sm" icon="arrowPath" loading={rotatingInvite} loadingLabel={p('Rotating code…')} onClick={handleRotateInvite}>{p('Rotate code')}</Button></div></Surface>
@@ -325,7 +325,7 @@ export default function CoachGroupsView({ embedded = false }) {
             {addMemberError && <Alert tone="error">{addMemberError}</Alert>}
             <p className="pro-routine-note">{p('Search among your active athletes with training scope to invite them into this group.')}</p>
             <Field label={p('Search athlete')}><Input name="athleteSearch" type="search" value={athleteQuery} placeholder={p('Type athlete name…')} onChange={event => { setAthleteQuery(event.target.value); setSelectedAthlete(null) }} /></Field>
-            {loadingAthletes ? <div className="gc-athlete-skeleton" role="status" aria-label={p('Loading athletes…')}><Skeleton height="2.75rem" /><Skeleton height="2.75rem" /></div> : <div className="gc-autocomplete-dropdown gc-autocomplete-static">{filteredAthletes.length === 0 ? <div className="pro-empty-inline">{p('No active training athletes found.')}</div> : filteredAthletes.map(athlete => { const isSelected = selectedAthlete?.id === athlete.id; return <button key={athlete.id} type="button" className={`gc-autocomplete-option ${isSelected ? 'selected' : ''}`} aria-pressed={isSelected} onClick={() => setSelectedAthlete(athlete)}><strong>{athlete.name}</strong>{isSelected && <Icon name="checkmark" />}</button> })}</div>}
+            {loadingAthletes ? <div className="gc-athlete-skeleton" role="status" aria-busy="true" aria-label={p('Loading athletes…')}><Skeleton announce={false} height="2.75rem" /><Skeleton announce={false} height="2.75rem" /></div> : <div className="gc-autocomplete-dropdown gc-autocomplete-static">{filteredAthletes.length === 0 ? <div className="pro-empty-inline">{p('No active training athletes found.')}</div> : filteredAthletes.map(athlete => { const isSelected = selectedAthlete?.id === athlete.id; return <button key={athlete.id} type="button" className={`gc-autocomplete-option ${isSelected ? 'selected' : ''}`} aria-pressed={isSelected} onClick={() => setSelectedAthlete(athlete)}><strong>{athlete.name}</strong>{isSelected && <Icon name="checkmark" />}</button> })}</div>}
             {selectedAthlete && <Alert tone="info" className="gc-selected-athlete">{p('Selected')}: <strong>{selectedAthlete.name}</strong></Alert>}
             <div className="pro-actions"><Button type="button" onClick={() => setShowAddMemberModal(false)}>{p('Cancel')}</Button><Button type="button" variant="primary" loading={addingMember} loadingLabel={p('Adding…')} disabled={!selectedAthlete} onClick={handleAddMemberSubmit}>{p('Add athlete')}</Button></div>
           </div>

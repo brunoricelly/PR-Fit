@@ -142,6 +142,58 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(document.activeElement).toBe(opener)
   })
 
+  it('keeps the page inert while open and restores prior accessibility state', () => {
+    host.setAttribute('aria-hidden', 'false')
+    render(<Modal id="inert-modal" title="Editar grupo"><Button>Salvar</Button></Modal>)
+
+    expect(host.hasAttribute('inert')).toBe(true)
+    expect(host.getAttribute('aria-hidden')).toBe('true')
+
+    render(<div>Fechado</div>)
+    expect(host.hasAttribute('inert')).toBe(false)
+    expect(host.getAttribute('aria-hidden')).toBe('false')
+  })
+
+  it('keeps focus inside a dialog with no focusable descendants', () => {
+    render(<Modal id="empty-modal" title="Somente leitura"><p>Conteúdo</p></Modal>)
+    const dialog = document.querySelector('[role="dialog"]')
+    dialog.querySelector('[aria-label="Fechar"]').remove()
+
+    act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })))
+    expect(document.activeElement).toBe(dialog)
+  })
+
+  it('does not let a stale restore frame steal focus from a replacement modal', () => {
+    const frames = []
+    const originalRaf = window.requestAnimationFrame
+    const originalCancel = window.cancelAnimationFrame
+    window.requestAnimationFrame = callback => { frames.push(callback); return frames.length }
+    window.cancelAnimationFrame = vi.fn()
+
+    function Harness() {
+      const [shown, setShown] = useState('first')
+      return <>
+        <button id="opener" type="button">Abrir</button>
+        {shown === 'first' && <Modal key="first" id="first" title="Primeiro" onClose={() => setShown('second')}><Button>Primeira ação</Button></Modal>}
+        {shown === 'second' && <Modal key="second" id="second" title="Segundo" onClose={() => setShown('')}><Button>Segunda ação</Button></Modal>}
+      </>
+    }
+
+    try {
+      render(<Harness />)
+      act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+      const secondDialog = document.querySelector('#second')
+      const secondClose = secondDialog.querySelector('[aria-label="Fechar"]')
+      expect(document.activeElement).toBe(secondClose)
+
+      act(() => frames.splice(0).forEach(frame => frame()))
+      expect(document.activeElement).toBe(secondClose)
+    } finally {
+      window.requestAnimationFrame = originalRaf
+      window.cancelAnimationFrame = originalCancel
+    }
+  })
+
   it('portals modal content to #modal-root when present, otherwise to document.body', () => {
     const modalRoot = document.createElement('div')
     modalRoot.id = 'modal-root'
@@ -152,6 +204,21 @@ describe('PR Fit design-system keyboard behavior', () => {
     } finally {
       modalRoot.remove()
     }
+  })
+
+  it('closes only the top modal when its backdrop is activated', () => {
+    const closeFirst = vi.fn()
+    const closeSecond = vi.fn()
+    render(<>
+      <Modal id="backdrop-first" title="Primeiro" onClose={closeFirst}><Button>Um</Button></Modal>
+      <Modal id="backdrop-second" title="Segundo" onClose={closeSecond}><Button>Dois</Button></Modal>
+    </>)
+
+    const backdrops = document.querySelectorAll('.ds-modal-backdrop')
+    act(() => backdrops[0].click())
+    expect(closeFirst).not.toHaveBeenCalled()
+    act(() => backdrops[1].click())
+    expect(closeSecond).toHaveBeenCalledTimes(1)
   })
 
   it('skips hidden elements when trapping focus', () => {
@@ -217,20 +284,24 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(host.querySelector('[role="tooltip"]')).toBeNull()
   })
 
-  it('renders LiveFeedback with accessible aria-live polite region and status/alert roles', () => {
-    const { rerender } = root
+  it('renders exactly one live region for success and error states', () => {
     render(<LiveFeedback />)
     const emptyFeedback = host.querySelector('.ds-live-feedback')
-    expect(emptyFeedback?.getAttribute('aria-live')).toBe('polite')
+    expect(emptyFeedback?.hasAttribute('aria-live')).toBe(false)
+    expect(emptyFeedback?.getAttribute('role')).toBe('status')
     expect(emptyFeedback?.textContent).toBe('')
 
     render(<LiveFeedback success="Operação concluída com sucesso" />)
-    expect(host.querySelector('.ds-live-feedback.is-success')).toBeTruthy()
-    expect(host.querySelector('[role="status"]')?.textContent).toBe('Operação concluída com sucesso')
+    const success = host.querySelector('.ds-live-feedback.is-success')
+    expect(success?.getAttribute('role')).toBe('status')
+    expect(success?.textContent).toBe('Operação concluída com sucesso')
+    expect(success?.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(0)
 
     render(<LiveFeedback error="Falha ao salvar dados" />)
-    expect(host.querySelector('.ds-live-feedback.is-error')).toBeTruthy()
-    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Falha ao salvar dados')
+    const error = host.querySelector('.ds-live-feedback.is-error')
+    expect(error?.getAttribute('role')).toBe('alert')
+    expect(error?.textContent).toBe('Falha ao salvar dados')
+    expect(error?.querySelectorAll('[role="status"], [role="alert"], [aria-live]')).toHaveLength(0)
   })
 
   it('renders background Spinner with accessible status role and non-blocking structure', () => {
@@ -239,7 +310,7 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(spinner).toBeTruthy()
     expect(spinner?.getAttribute('aria-label')).toBe('Sincronizando em segundo plano')
     expect(spinner?.querySelector('.ds-spinner-inner')).toBeTruthy()
-    expect(spinner?.querySelector('.sr-only')?.textContent).toBe('Sincronizando em segundo plano')
+    expect(spinner?.querySelector('.sr-only')).toBeNull()
   })
 
   it('supports 1-tap retry in ErrorState and Alert', () => {

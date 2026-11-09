@@ -220,7 +220,7 @@ export function Deco({ spot }) {
     // a skeleton hanging off the activity card, cobwebs in two bottom corners, pumpkins peeking.
     case 'stats-hdr': return <><HeaderBats /><MoonWitch /></>
     case 'stats-tile': return <span className="hw-tilespiders" aria-hidden="true"><HangingSpider len={30} /><HangingSpider len={14} className="hw-hang-b" /></span>
-    case 'stats-heatmap': return <span className="hw-skel" aria-hidden="true"><Skeleton /></span>
+    case 'stats-heatmap': return <span className="hw-skel" aria-hidden="true"><Skeleton announce={false} /></span>
     case 'stats-web': return <Web className="hw-web-bl" />
     case 'stats-peek': return <span className="hw-peek hw-peek-two" aria-hidden="true"><span className="hw-pk"><Pumpkin /></span><span className="hw-pk hw-pk-s"><Pumpkin /></span></span>
     // The workout screen: nothing there can be tapped, and nothing sits on a set, a button,

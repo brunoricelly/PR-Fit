@@ -130,11 +130,22 @@ let toastLeft = 0
 let toastT0 = 0
 let toastPaused = false
 let toastSeq = 0
+let toastGeneration = 0
+const clearToastTimer = () => {
+  toastGeneration += 1
+  clearTimeout(toastTm)
+  toastTm = null
+}
 const runToast = set => {
   toastPaused = false
   toastT0 = Date.now()
-  clearTimeout(toastTm)
-  toastTm = setTimeout(() => set({ toastMsg: '', toastAction: null }), toastLeft)
+  clearToastTimer()
+  const generation = toastGeneration
+  toastTm = setTimeout(() => {
+    if (generation !== toastGeneration) return
+    toastTm = null
+    set({ toastMsg: '', toastAction: null })
+  }, toastLeft)
 }
 let timerInt = null
 let timerTick = null
@@ -293,9 +304,9 @@ export const useUI = create((set, get) => ({
     set(s => ({ timerFlashId: s.timerFlashId + 1 }))
   },
 
-  openSheet(render, { kind = 'sheet', locked = false, wide = false } = {}) {
+  openSheet(render, { kind = 'sheet', locked = false, wide = false, label } = {}) {
     const id = uid()
-    set(s => ({ sheets: [...s.sheets, { id, render, kind, locked, wide }] }))
+    set(s => ({ sheets: [...s.sheets, { id, render, kind, locked, wide, label }] }))
     const close = () => get().closeSheet(id)
     return { id, close, lock: v => set(s => ({ sheets: s.sheets.map(x => x.id === id ? { ...x, locked: v } : x) })) }
   },
@@ -310,7 +321,7 @@ export const useUI = create((set, get) => ({
     const resolvedAction = action || (onRetry ? (retryLabel || 'Tentar novamente') : null)
     const resolvedRun = onAction || onRetry
     const withAction = !!(resolvedAction && typeof resolvedRun === 'function')
-    clearTimeout(toastTm)
+    clearToastTimer()
     toastLeft = ms || (withAction ? TOAST_ACTION_MS : TOAST_MS)
     toastSeq += 1
     set({
@@ -327,26 +338,32 @@ export const useUI = create((set, get) => ({
   runToastAction() {
     const act = get().toastAction
     if (!act) return
-    clearTimeout(toastTm)
+    clearToastTimer()
     set({ toastMsg: '', toastAction: null })
     act.run()
   },
   // The toast's ×: gone now, its action with it (what it would have undone stays done).
   dismissToast() {
-    clearTimeout(toastTm)
+    clearToastTimer()
     toastPaused = false
     set({ toastMsg: '', toastAction: null })
   },
   pauseToast() {
     if (!get().toastAction || toastPaused) return
     toastPaused = true
-    clearTimeout(toastTm)
+    clearToastTimer()
     toastLeft = Math.max(400, toastLeft - (Date.now() - toastT0))
   },
   resumeToast() {
     if (!toastPaused) return
     toastPaused = false
     if (get().toastMsg) runToast(set)
+  },
+  mountToastTimer() {
+    if (get().toastMsg && toastTm === null) runToast(set)
+  },
+  unmountToastTimer() {
+    clearToastTimer()
   },
 
   startRest(sec, forIdx, { kind, forSet } = {}) {

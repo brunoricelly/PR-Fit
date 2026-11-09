@@ -182,7 +182,8 @@ export default function AthleteChallengesView({ embedded = false }) {
           action={<Button variant="primary" onClick={() => loadChallenges()}>{p('Try again')}</Button>}
         />
       ) : loading ? (
-        <div className="gc-card-list" aria-label={p('Loading groups…')}>
+        <div className="gc-card-list" aria-busy="true">
+          <span className="sr-only" role="status">{p('Loading challenges…')}</span>
           <SkeletonCard />
           <SkeletonCard />
         </div>
