@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import App from './App.jsx'
 import { DEF, useStore } from './store/useStore.js'
 import { useUI } from './store/useUI.js'
+import { guardReactWarnings, waitForReact } from './test/react-warning-guard.js'
 
 vi.mock('./lib/sound.js', () => ({
   setPlayOnSilent: vi.fn(), setVibrate: vi.fn(), setAlarmBuzzer: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock('./lib/api.js', async importOriginal => ({
 }))
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 let host, root, original
+let assertNoReactWarnings
 
 beforeEach(() => {
   original = useStore.getState()
@@ -31,6 +33,7 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
+  assertNoReactWarnings = guardReactWarnings()
 })
 
 afterEach(() => {
@@ -40,13 +43,19 @@ afterEach(() => {
   useUI.getState().stopWork()
   useStore.setState(original)
   localStorage.clear()
+  assertNoReactWarnings()
+  vi.restoreAllMocks()
 })
+
+const renderApp = async assertion => {
+  act(() => root.render(<App />))
+  await waitForReact(assertion, { timeout: 8000 })
+}
 
 // The owner, 2026-10-14: no extra bottom button to complete or finish during a workout (#563 is
 // undone). The running workout has the whole screen again; Finish lives in its header.
 it('a running workout has no tab bar and no bottom action; minimized, the tabs and Resume are back', async () => {
-  await act(async () => root.render(<App />))
-  await vi.waitFor(() => expect(host.querySelector('.whdr button[aria-label="Minimize"]')).not.toBeNull(), { timeout: 8000 })
+  await renderApp(() => expect(host.querySelector('.whdr button[aria-label="Minimize"]')).not.toBeNull())
   expect(host.querySelector('#tabbar')).toBeNull()
   expect(document.body.classList.contains('no-tabbar')).toBe(true)
   await act(async () => host.querySelector('.whdr button[aria-label="Minimize"]').click())
@@ -59,7 +68,7 @@ it('a running workout has no tab bar and no bottom action; minimized, the tabs a
 
 it.each([{ editingWorkoutId: 'saved' }, { backfill: true }])('past workouts have no tab bar either: %j', async flags => {
   useStore.getState().update(s => Object.assign(s.active, flags), false)
-  await act(async () => root.render(<App />))
+  await renderApp(() => expect(host.querySelector('[aria-busy="true"]')).toBeNull())
   expect(host.querySelector('#tabbar')).toBeNull()
   expect(document.body.classList.contains('no-tabbar')).toBe(true)
 })

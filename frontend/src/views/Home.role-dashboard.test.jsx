@@ -4,12 +4,14 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useStore } from '../store/useStore.js'
 import Home from './Home.jsx'
+import { guardReactWarnings, waitForReact } from '../test/react-warning-guard.js'
 
 vi.mock('./dashboard/CoachDashboard.jsx', () => ({ default: () => <main data-dashboard="coach">Visão do coach</main> }))
 vi.mock('./dashboard/AthleteToday.jsx', () => ({ default: () => <main data-dashboard="athlete">Hoje do atleta</main> }))
 
 let host
 let root
+let assertNoReactWarnings
 
 beforeEach(() => {
   globalThis.IS_REACT_ACT_ENVIRONMENT = true
@@ -17,18 +19,21 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
+  assertNoReactWarnings = guardReactWarnings()
 })
 
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  assertNoReactWarnings()
+  vi.restoreAllMocks()
 })
 
 describe('Home por papel ativo', () => {
   it('mantém o coach na visão profissional por padrão', async () => {
     useStore.setState({ user: { id: 'coach_1', profile: { kind: 'coach' } } })
     act(() => root.render(<Home />))
-    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="coach"]')).toBeTruthy())
+    await waitForReact(() => expect(host.querySelector('[data-dashboard="coach"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="coach"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeFalsy()
   })
@@ -37,7 +42,7 @@ describe('Home por papel ativo', () => {
     localStorage.setItem('prfit_active_role_coach_1', 'athlete')
     useStore.setState({ user: { id: 'coach_1', profile: { kind: 'coach' } } })
     act(() => root.render(<Home />))
-    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
+    await waitForReact(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="coach"]')).toBeFalsy()
   })
@@ -45,7 +50,7 @@ describe('Home por papel ativo', () => {
   it('não expõe a visão de coach para perfil atleta', async () => {
     useStore.setState({ user: { id: 'athlete_1', profile: { kind: 'athlete' } } })
     act(() => root.render(<Home />))
-    await vi.waitFor(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
+    await waitForReact(() => expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy())
     expect(host.querySelector('[data-dashboard="athlete"]')).toBeTruthy()
     expect(host.querySelector('[data-dashboard="coach"]')).toBeFalsy()
   })

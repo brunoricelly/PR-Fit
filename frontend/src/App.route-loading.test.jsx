@@ -6,6 +6,7 @@ import App from './App.jsx'
 import { DEF, useStore } from './store/useStore.js'
 import { setActiveRole } from './lib/roles.js'
 import { setLang } from './lib/i18n.js'
+import { guardReactWarnings, waitForReact } from './test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -37,16 +38,7 @@ vi.mock('./lib/group-challenges-api.js', async importOriginal => ({
 let host
 let root
 let originalStore
-let consoleError
-let consoleWarn
-
-const appear = async find => {
-  const get = typeof find === 'string' ? () => host.querySelector(find) : find
-  for (let attempt = 0; attempt < 200 && !get(); attempt++) {
-    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)) })
-  }
-  return get()
-}
+let assertNoReactWarnings
 
 const mountDeepLink = async (hash, user) => {
   window.location.hash = hash
@@ -61,7 +53,9 @@ const mountDeepLink = async (hash, user) => {
     permSteps: false,
     boot: vi.fn(),
   })
-  await act(async () => { root.render(<App />) })
+  act(() => root.render(<App />))
+  await waitForReact(() => expect(host.querySelector('h1')).not.toBeNull(), { timeout: 8000 })
+  return host.querySelector('h1')
 }
 
 beforeEach(async () => {
@@ -72,8 +66,7 @@ beforeEach(async () => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host, { onCaughtError: () => {} })
-  consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-  consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  assertNoReactWarnings = guardReactWarnings()
 })
 
 afterEach(() => {
@@ -81,17 +74,14 @@ afterEach(() => {
   host.remove()
   useStore.setState(originalStore, true)
   window.location.hash = ''
-  const consoleText = [...consoleError.mock.calls, ...consoleWarn.mock.calls].flat().join(' ')
-  expect(consoleText).not.toMatch(/act\(|unique "key"|Each child in a list/i)
+  assertNoReactWarnings()
   vi.restoreAllMocks()
 })
 
 describe('deep links com superfícies carregadas por rota', () => {
   it('resolve o deep link de treinador sem atravessar a área do atleta', async () => {
     const coach = { id: 'coach-route', name: 'Coach', profile: { kind: 'coach' } }
-    await mountDeepLink('#/coach/groups', coach)
-
-    const heading = await appear('h1')
+    const heading = await mountDeepLink('#/coach/groups', coach)
     expect(window.location.hash).toBe('#/coach/groups')
     expect(heading?.textContent).toBe('Grupos')
     expect(groupMocks.listCoachGroups).toHaveBeenCalledTimes(1)
@@ -100,9 +90,7 @@ describe('deep links com superfícies carregadas por rota', () => {
 
   it('resolve o deep link de atleta sem carregar a área do treinador', async () => {
     const athlete = { id: 'athlete-route', name: 'Atleta', profile: { kind: 'athlete' } }
-    await mountDeepLink('#/athlete/groups', athlete)
-
-    const heading = await appear('h1')
+    const heading = await mountDeepLink('#/athlete/groups', athlete)
     expect(window.location.hash).toBe('#/athlete/groups')
     expect(heading?.textContent).toBe('Meus grupos')
     expect(groupMocks.listAthleteGroups).toHaveBeenCalledTimes(1)
@@ -112,9 +100,7 @@ describe('deep links com superfícies carregadas por rota', () => {
   it('preserva o modo atleta de um usuário dual-role em deep link', async () => {
     const dual = { id: 'dual-route', name: 'Dual', profile: { kind: 'coach' } }
     setActiveRole(dual, 'athlete')
-    await mountDeepLink('#/athlete/groups', dual)
-
-    const heading = await appear('h1')
+    const heading = await mountDeepLink('#/athlete/groups', dual)
     expect(window.location.hash).toBe('#/athlete/groups')
     expect(heading?.textContent).toBe('Meus grupos')
     expect(host.querySelector('.shell-dual-role-current')?.textContent).toContain('Aluno')

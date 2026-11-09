@@ -4,7 +4,6 @@ import { Alert, Button, Skeleton } from './design-system.jsx'
 class RouteChunkError extends Error {
   constructor(cause) {
     super('Não foi possível carregar esta área.')
-    this.name = 'RouteChunkError'
     this.cause = cause
   }
 }
@@ -71,11 +70,11 @@ export function RouteSurface({ load, label, componentProps }) {
 }
 
 export function createRouteSurface(load, label) {
-  let View = null
-  const loadView = () => load().then(module => {
-    View = module.default
-    return module
-  })
+  let View, loading
+  const loadView = () => loading || (loading = load().then(
+    module => (View = module.default, module),
+    error => { loading = null; throw error }
+  ))
   return function LazyRouteSurface(props) {
     return View ? <View {...props} /> : <RouteSurface load={loadView} label={label} componentProps={props} />
   }

@@ -2,14 +2,14 @@
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { RouteSurface } from './RouteSurface.jsx'
+import { createRouteSurface, RouteSurface } from './RouteSurface.jsx'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
 let host
 let root
-let consoleError
-let consoleWarn
+let assertNoReactWarnings
 
 const deferred = () => {
   let resolve
@@ -27,14 +27,13 @@ beforeEach(() => {
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host, { onCaughtError: () => {} })
-  consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
-  consoleWarn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  assertNoReactWarnings = guardReactWarnings()
 })
 
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
-  expect([...consoleError.mock.calls, ...consoleWarn.mock.calls].flat().join(' ')).not.toMatch(/act\(|unique "key"|Each child in a list/i)
+  assertNoReactWarnings()
   vi.restoreAllMocks()
 })
 
@@ -51,8 +50,10 @@ describe('RouteSurface', () => {
     expect(host.querySelector('[role="status"]')?.textContent).toBe('Carregando a agenda…')
     expect(host.querySelectorAll('.ds-skeleton[aria-hidden="true"]')).toHaveLength(5)
 
-    pending.resolve({ default: () => <h1>Agenda pronta</h1> })
-    await settle()
+    await act(async () => {
+      pending.resolve({ default: () => <h1>Agenda pronta</h1> })
+      await pending.promise
+    })
 
     expect(host.textContent).toContain('Agenda pronta')
     expect(host.querySelectorAll('[role="status"]')).toHaveLength(0)
@@ -86,5 +87,45 @@ describe('RouteSurface', () => {
     expect(host.querySelector('h1')?.textContent).toBe('Relatórios carregados')
     expect(load).toHaveBeenCalledTimes(2)
     expect(host.querySelector('[role="alert"]')).toBeNull()
+  })
+
+  it('shares one pending import across concurrent mounts and re-renders', async () => {
+    const pending = deferred()
+    const load = vi.fn(() => pending.promise)
+    const Surface = createRouteSurface(load, 'a agenda')
+
+    act(() => root.render(<><Surface name="Ana" /><Surface name="Bia" /></>))
+    expect(load).toHaveBeenCalledTimes(1)
+
+    act(() => root.render(<><Surface name="Ana Maria" /><Surface name="Bia" /></>))
+    expect(load).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      pending.resolve({ default: ({ name }) => <p>{name}</p> })
+      await pending.promise
+    })
+
+    expect([...host.querySelectorAll('p')].map(node => node.textContent)).toEqual(['Ana Maria', 'Bia'])
+  })
+
+  it('keeps a newer load generation when an older import resolves last', async () => {
+    const older = deferred()
+    const newer = deferred()
+    const oldLoad = vi.fn(() => older.promise)
+    const newLoad = vi.fn(() => newer.promise)
+
+    act(() => root.render(<RouteSurface load={oldLoad} label="a rota" />))
+    act(() => root.render(<RouteSurface load={newLoad} label="a rota" />))
+
+    await act(async () => {
+      newer.resolve({ default: () => <h1>Nova rota</h1> })
+      await newer.promise
+    })
+    await act(async () => {
+      older.resolve({ default: () => <h1>Rota antiga</h1> })
+      await Promise.resolve()
+    })
+
+    expect(host.querySelector('h1')?.textContent).toBe('Nova rota')
   })
 })
