@@ -69,4 +69,14 @@ describe('PR Fit semantic tokens', () => {
     expect(dashboardCss).toMatch(/\.dashboard-pulse-empty \.ico\s*\{\s*color:\s*var\(--ds-state-success\)/)
     expect(dashboardCss).toMatch(/\.dashboard-pulse-unavailable \.ico\s*\{\s*color:\s*var\(--ds-state-warning\)/)
   })
+
+  it('enforces tactile active microinteractions and reduced motion resets', () => {
+    expect(css).toContain('.ds-button:not(:disabled):active')
+    expect(css).toContain('.ds-icon-button:not(:disabled):active')
+    expect(css).toContain('.ds-tab:not(:disabled):active')
+    expect(css).toContain('.ds-card.interactive:active')
+    expect(css).toContain('.ds-modal-backdrop')
+    expect(css).toContain('overscroll-behavior: contain')
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*transform:\s*none !important/)
+  })
 })

@@ -31,4 +31,13 @@ describe('the toast', () => {
     expect(rule).toMatch(/left:50%/)
     expect(rule).toMatch(/width:max-content;max-width:88vw/)
   })
+
+  it('guarantees touch targets >= 44px for actions and close button', () => {
+    const actRule = css.match(/#toast\s+\.toast-act\{([^}]*)\}/)[1]
+    const xRule = css.match(/#toast\s+\.toast-x\{([^}]*)\}/)[1]
+    expect(actRule).toMatch(/min-height:\s*44px/)
+    expect(actRule).toMatch(/min-width:\s*44px/)
+    expect(xRule).toMatch(/min-height:\s*44px/)
+    expect(xRule).toMatch(/min-width:\s*44px/)
+  })
 })

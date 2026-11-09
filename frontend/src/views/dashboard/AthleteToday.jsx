@@ -19,6 +19,7 @@ import {
   Button,
   Card,
   EmptyState,
+  LiveFeedback,
   PageHeader,
   Skeleton,
   Surface,
@@ -430,7 +431,7 @@ export default function AthleteToday() {
 
           {habits.length > 0 && <Card className="athlete-summary-card athlete-habits-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Hábitos</span><h3>{completedHabits} de {habits.length} concluídos</h3></div><Icon name="checkCircle" aria-hidden="true" /></div>
-            <div className="sr-only" role="status" aria-live="polite">{habitLiveFeedback}</div>
+            <LiveFeedback success={habitLiveFeedback} className="athlete-habit-live" />
             <ul className="athlete-mini-list">
               {habits.slice(0, 3).map(habit => {
                 const isCompleted = !!habit.checkin?.completed

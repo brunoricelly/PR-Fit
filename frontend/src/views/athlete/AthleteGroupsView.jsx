@@ -211,7 +211,7 @@ export default function AthleteGroupsView({ embedded = false }) {
               <Input
                 name="inviteCode"
                 value={inviteCodeInput}
-                placeholder="GRP-XXXX..."
+                placeholder={p('Example: GRP-XXXX')}
                 onChange={e => {
                   setInviteCodeInput(e.target.value.toUpperCase())
                   setJoinError(null)

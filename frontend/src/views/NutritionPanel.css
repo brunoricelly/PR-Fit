@@ -15,7 +15,7 @@
 .nutrition-meal-editor{padding:14px;border:1px solid var(--separator);border-radius:var(--r-sm);background:var(--surface)}
 .nutrition-item-editor{margin:10px 0;padding:12px;border-radius:var(--r-sm);background:var(--surface-2)}
 .nutrition-substitute-edit{display:grid;gap:8px;margin:8px 0 12px}
-.nutrition-substitute-row{display:grid;grid-template-columns:1fr 1fr minmax(220px,2fr) auto;gap:8px;align-items:center}.nutrition-substitute-row .btn{min-width:40px}
+.nutrition-substitute-row{display:grid;grid-template-columns:1fr 1fr minmax(220px,2fr) auto;gap:8px;align-items:center}.nutrition-substitute-row .btn{min-width:44px;min-height:44px}
 .nutrition-substitute-nutrients{display:grid;grid-template-columns:repeat(5,minmax(70px,1fr));gap:6px}
 .nutrition-plan-summary{margin:0;background:var(--surface-2)}.nutrition-plan-summary .nutrition-macros>div{background:var(--surface)}
 .nutrition-notes{color:var(--label-2);font-size:var(--fs-footnote);line-height:1.45}

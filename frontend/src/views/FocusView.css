@@ -5,7 +5,7 @@
 .focus-superset-inline strong{min-width:0;font-weight:600;overflow-wrap:anywhere}
 .focus-superset-inline span{color:var(--label-2)}
 .focus-superset-inline .icn{font-size:14px}
-.focus-superset-inline .btn{min-height:32px;padding-inline:8px;color:var(--acc-ink)}
+.focus-superset-inline .btn{min-height:44px;min-width:44px;padding-inline:8px;color:var(--acc-ink)}
 .focus-superset-nav{display:flex;margin-left:auto}
 .focus-superset-nav button{display:grid;place-items:center;width:44px;height:44px;color:var(--label-2)}
 .focus-superset-nav button:disabled{opacity:.3}

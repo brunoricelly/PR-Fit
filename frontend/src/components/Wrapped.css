@@ -28,7 +28,7 @@
 @keyframes wr-fill{from{transform:scaleX(0)}to{transform:scaleX(1)}}
 .wr-bar-row{display:flex;align-items:center;gap:6px}
 .wr-year{margin-inline-end:auto;font-weight:700;font-size:15px;letter-spacing:.02em;color:var(--label-2)}
-.wr-btn{width:40px;height:40px;border-radius:50%;display:grid;place-items:center;font-size:19px;color:var(--label);background:rgba(128,128,128,.18);background:color-mix(in srgb,var(--label) 10%,transparent)}
+.wr-btn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center;font-size:19px;color:var(--label);background:rgba(128,128,128,.18);background:color-mix(in srgb,var(--label) 10%,transparent)}
 .wr-btn:active{transform:scale(.94)}
 
 .wr-stage{position:relative;z-index:1;flex:1;min-height:0;display:flex;outline:none;cursor:pointer}

@@ -1160,7 +1160,7 @@ export function CreateCoachAppointmentModal({ links, defaultAthleteId, onClose, 
             <Input
               name="meetingUrl"
               value={meetingUrl}
-              placeholder="https://..."
+              placeholder="https://meet.google.com/abc-defg-hij"
               maxLength={500}
               onChange={e => setMeetingUrl(e.target.value)}
             />

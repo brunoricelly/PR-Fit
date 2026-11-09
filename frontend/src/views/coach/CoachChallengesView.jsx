@@ -914,7 +914,7 @@ export default function CoachChallengesView({ embedded = false }) {
               <Input
                 name="correctionOf"
                 value={awardForm.correctionOf}
-                placeholder="caft_..."
+                placeholder={p('Example: caft_123')}
                 onChange={e => setAwardForm(prev => ({ ...prev, correctionOf: e.target.value }))}
               />
             </Field>

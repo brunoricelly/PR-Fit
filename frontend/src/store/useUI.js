@@ -306,12 +306,22 @@ export const useUI = create((set, get) => ({
   // the action as a button at its end and holds still while a finger rests on it (pauseToast). A
   // new toast replaces the one showing, action and all: the old Undo is gone, what it would have
   // undone stays done. The action runs once at most, and the toast goes with it.
-  toast(msg, { action, onAction, ms } = {}) {
-    const withAction = !!(action && typeof onAction === 'function')
+  toast(msg, { action, onAction, onRetry, retryLabel, icon, ms } = {}) {
+    const resolvedAction = action || (onRetry ? (retryLabel || 'Tentar novamente') : null)
+    const resolvedRun = onAction || onRetry
+    const withAction = !!(resolvedAction && typeof resolvedRun === 'function')
     clearTimeout(toastTm)
     toastLeft = ms || (withAction ? TOAST_ACTION_MS : TOAST_MS)
     toastSeq += 1
-    set({ toastMsg: msg, toastAction: withAction ? { label: action, run: onAction, id: toastSeq } : null })
+    set({
+      toastMsg: msg,
+      toastAction: withAction ? {
+        label: resolvedAction,
+        run: resolvedRun,
+        icon: icon || (onRetry ? 'arrow-clockwise' : undefined),
+        id: toastSeq,
+      } : null,
+    })
     runToast(set)
   },
   runToastAction() {

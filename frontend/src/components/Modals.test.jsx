@@ -517,3 +517,20 @@ describe('the restore window under StrictMode', () => {
     vi.useRealTimers()
   })
 })
+
+describe('Sheet focus management', () => {
+  it('restores focus to the triggering element when the sheet closes', async () => {
+    const trigger = dom.document.createElement('button')
+    trigger.id = 'sheet-trigger'
+    trigger.focus = vi.fn()
+    dom.document.body.appendChild(trigger)
+    Object.defineProperty(dom.document, 'activeElement', { configurable: true, value: trigger })
+
+    await setSheets([sheet('test-focus-sheet')])
+    expect(mocks.state.sheets).toHaveLength(1)
+
+    await setSheets([])
+    expect(trigger.focus).toHaveBeenCalled()
+    trigger.remove()
+  })
+})

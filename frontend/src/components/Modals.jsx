@@ -46,6 +46,28 @@ const drainScrollRestore = close => {
 
 // One bottom sheet (or centered dialog) with swipe-to-dismiss.
 function Sheet({ sheet }) {
+  const triggerRef = useRef(null)
+  useEffect(() => {
+    const active = document.activeElement
+    if (active && active !== document.body && !ref.current?.contains(active)) {
+      triggerRef.current = active
+    }
+    return () => {
+      const el = triggerRef.current
+      if (el?.isConnected && typeof el.focus === 'function') {
+        try {
+          el.focus()
+          if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(() => {
+              if (el.isConnected && typeof el.focus === 'function') el.focus()
+            })
+          }
+        } catch {
+          // ignore
+        }
+      }
+    }
+  }, [])
   const closeSheet = useUI(s => s.closeSheet)   // not the whole store: an open sheet re-rendered on every rest tick
   const ref = useRef(null)
   // startY null = no gesture. axis stays null until the finger has travelled far enough to

@@ -11,6 +11,7 @@ export default function Toast() {
   const action = useUI(s => s.toastAction)
   const { pauseToast, resumeToast, runToastAction, dismissToast } = useUI.getState()
   const live = !!(msg && action)
+  const actionIcon = action?.icon || ((action?.label && (/undo|desfazer/i).test(action.label)) ? 'undo' : 'arrow-clockwise')
   return <div id="toast" role="status" className={(msg ? 'show' : '') + (live ? ' has-action' : '')}
     onPointerEnter={live ? pauseToast : undefined} onPointerDown={live ? pauseToast : undefined}
     onPointerLeave={live ? resumeToast : undefined} onPointerCancel={live ? resumeToast : undefined}
@@ -20,7 +21,7 @@ export default function Toast() {
     </button>}
     <span className="toast-msg">{msg}</span>
     {live && <button type="button" className="toast-act" key={action.id} onClick={runToastAction}>
-      <Icon name="undo" />{action.label}
+      <Icon name={actionIcon} />{action.label}
     </button>}
   </div>
 }

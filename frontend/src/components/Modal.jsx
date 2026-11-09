@@ -134,7 +134,14 @@ export default function Modal({
       if (index !== -1) modalStack.splice(index, 1)
       unlockScroll()
       const previousFocus = previousFocusRef.current
-      if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus()
+      if (previousFocus?.isConnected && typeof previousFocus.focus === 'function') {
+        previousFocus.focus()
+        if (typeof requestAnimationFrame === 'function') {
+          requestAnimationFrame(() => {
+            if (previousFocus.isConnected && typeof previousFocus.focus === 'function') previousFocus.focus()
+          })
+        }
+      }
     }
   }, [])
 

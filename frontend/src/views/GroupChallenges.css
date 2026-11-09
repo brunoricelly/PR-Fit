@@ -143,24 +143,24 @@
 }
 
 .gc-badge.status-active {
-  background: rgba(34, 197, 94, 0.15);
-  color: var(--green, #16a34a);
+  background: var(--ds-state-success-surface, rgba(34, 197, 94, 0.15));
+  color: var(--ds-state-success, var(--green, #16a34a));
 }
 .gc-badge.status-draft {
-  background: rgba(245, 158, 11, 0.15);
-  color: var(--orange, #d97706);
+  background: var(--ds-state-warning-surface, rgba(245, 158, 11, 0.15));
+  color: var(--ds-state-warning, var(--orange, #d97706));
 }
 .gc-badge.status-completed {
-  background: rgba(59, 130, 246, 0.15);
-  color: var(--blue, #2563eb);
+  background: var(--ds-state-info-surface, rgba(59, 130, 246, 0.15));
+  color: var(--ds-state-info, var(--blue, #2563eb));
 }
 .gc-badge.status-archived {
-  background: rgba(107, 114, 128, 0.15);
-  color: var(--label-2, #6b7280);
+  background: var(--ds-surface-subtle, rgba(107, 114, 128, 0.15));
+  color: var(--ds-text-secondary, var(--label-2, #6b7280));
 }
 .gc-badge.status-pending {
-  background: rgba(168, 85, 247, 0.15);
-  color: #9333ea;
+  background: var(--ds-surface-subtle, rgba(168, 85, 247, 0.15));
+  color: var(--ds-text-primary, #9333ea);
 }
 
 .gc-capacity-meter {
@@ -531,6 +531,14 @@
 .gc-tab,
 .gc-feed-item {
   min-height: 44px;
+  min-width: 44px;
+}
+
+/* Microinteractions: responsive press feedback */
+.gc-tab:active,
+.gc-filter-btn:active,
+.gc-card-actions button:active {
+  transform: scale(0.97);
 }
 
 /* Prefers Reduced Motion */
@@ -540,9 +548,11 @@
   }
   .gc-tab,
   .gc-filter-btn,
+  .gc-card-actions button,
   .gc-leaderboard-row,
   .gc-progress-fill,
   .gc-leaderboard-table tr {
     transition: none !important;
+    transform: none !important;
   }
 }

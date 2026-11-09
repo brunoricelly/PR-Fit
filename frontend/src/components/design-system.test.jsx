@@ -13,9 +13,11 @@ import {
   Field,
   IconButton,
   Input,
+  LiveFeedback,
   Modal,
   Select,
   Skeleton,
+  Spinner,
   Surface,
   Switch,
   Tabs,
@@ -213,5 +215,50 @@ describe('PR Fit design-system keyboard behavior', () => {
     expect(trigger.getAttribute('aria-describedby')).toBe(host.querySelector('[role="tooltip"]')?.id)
     act(() => trigger.dispatchEvent(new FocusEvent('focusout', { bubbles: true })))
     expect(host.querySelector('[role="tooltip"]')).toBeNull()
+  })
+
+  it('renders LiveFeedback with accessible aria-live polite region and status/alert roles', () => {
+    const { rerender } = root
+    render(<LiveFeedback />)
+    const emptyFeedback = host.querySelector('.ds-live-feedback')
+    expect(emptyFeedback?.getAttribute('aria-live')).toBe('polite')
+    expect(emptyFeedback?.textContent).toBe('')
+
+    render(<LiveFeedback success="Operação concluída com sucesso" />)
+    expect(host.querySelector('.ds-live-feedback.is-success')).toBeTruthy()
+    expect(host.querySelector('[role="status"]')?.textContent).toBe('Operação concluída com sucesso')
+
+    render(<LiveFeedback error="Falha ao salvar dados" />)
+    expect(host.querySelector('.ds-live-feedback.is-error')).toBeTruthy()
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Falha ao salvar dados')
+  })
+
+  it('renders background Spinner with accessible status role and non-blocking structure', () => {
+    render(<Spinner label="Sincronizando em segundo plano" />)
+    const spinner = host.querySelector('.ds-spinner[role="status"]')
+    expect(spinner).toBeTruthy()
+    expect(spinner?.getAttribute('aria-label')).toBe('Sincronizando em segundo plano')
+    expect(spinner?.querySelector('.ds-spinner-inner')).toBeTruthy()
+    expect(spinner?.querySelector('.sr-only')?.textContent).toBe('Sincronizando em segundo plano')
+  })
+
+  it('supports 1-tap retry in ErrorState and Alert', () => {
+    const onRetryError = vi.fn()
+    const onRetryAlert = vi.fn()
+
+    render(<>
+      <ErrorState title="Erro de rede" text="Não foi possível conectar." onRetry={onRetryError} retryLabel="Tentar de novo" />
+      <Alert tone="error" title="Aviso" onRetry={onRetryAlert} retryLabel="Recarregar">Falha momentânea.</Alert>
+    </>)
+
+    const errorRetryBtn = host.querySelector('.ds-error-retry')
+    expect(errorRetryBtn?.textContent).toContain('Tentar de novo')
+    act(() => errorRetryBtn.click())
+    expect(onRetryError).toHaveBeenCalledTimes(1)
+
+    const alertRetryBtn = host.querySelector('.ds-alert-retry')
+    expect(alertRetryBtn?.textContent).toContain('Recarregar')
+    act(() => alertRetryBtn.click())
+    expect(onRetryAlert).toHaveBeenCalledTimes(1)
   })
 })

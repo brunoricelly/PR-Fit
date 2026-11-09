@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { communicationApi, browserTimeZone, dateInTimeZone } from '../lib/communication-api.js'
 import { dateLocale } from '../lib/i18n.js'
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
-import { Alert, Badge, Button, Card, EmptyState, Field, Input, Select, Textarea } from '../components/design-system.jsx'
+import { Alert, Badge, Button, Card, EmptyState, Field, Input, LiveFeedback, Select, Textarea } from '../components/design-system.jsx'
 
 const PERIODS = [7, 30, 90]
 const UNITS = ['horas', 'passos', 'ml', 'minutos', 'vezes']
@@ -79,12 +79,7 @@ export function useCommunicationInbox(userId) {
   return { conversations, byLink, page, loading, error, retry, loadMore, update }
 }
 
-function LiveFeedback({ success, error }) {
-  return <div className="pro-live" aria-live="polite" aria-atomic="true">
-    {success && <span role="status">{success}</span>}
-    {error && <span role="alert">{error}</span>}
-  </div>
-}
+
 
 export function CommunicationPanel({ link, side, actorId, conversation, onConversationChange }) {
   const counterpart = side === 'coach' ? link.athlete : link.coach

@@ -88,15 +88,21 @@ export function PageHeader({ eyebrow, title, description, actions, className = '
   )
 }
 
-export function Alert({ tone = 'info', title, children, action, className = '' }) {
+export function Alert({ tone = 'info', title, children, action, onRetry, retryLabel = 'Tentar novamente', className = '' }) {
   const liveRole = tone === 'error' ? 'alert' : 'status'
+  const resolvedAction = action || (onRetry ? (
+    <Button variant="ghost" size="sm" onClick={onRetry} className="ds-alert-retry">
+      <Icon name="arrow-clockwise" />
+      <span>{retryLabel}</span>
+    </Button>
+  ) : null)
   return (
     <div className={`ds-alert ${tone}${className ? ` ${className}` : ''}`} role={liveRole}>
       <div className="ds-alert-content">
         {title && <strong className="ds-alert-title">{title}</strong>}
         {children}
       </div>
-      {action}
+      {resolvedAction}
     </div>
   )
 }
@@ -124,8 +130,44 @@ export function EmptyState(props) {
   return <EmptyStateBase {...props} designSystem />
 }
 
-export function ErrorState({ title, text, action, icon = 'warning', className = '' }) {
-  return <EmptyStateBase icon={icon} title={title} text={text} action={action} designSystem className={`ds-error-state${className ? ` ${className}` : ''}`} />
+export function ErrorState({ title, text, action, onRetry, retryLabel = 'Tentar novamente', icon = 'warning', className = '' }) {
+  const resolvedAction = action || (onRetry ? (
+    <Button variant="secondary" onClick={onRetry} className="ds-error-retry">
+      <Icon name="arrow-clockwise" />
+      <span>{retryLabel}</span>
+    </Button>
+  ) : null)
+  return <EmptyStateBase icon={icon} title={title} text={text} action={resolvedAction} designSystem className={`ds-error-state${className ? ` ${className}` : ''}`} />
+}
+
+export function Spinner({ size = '1.25rem', label = 'Carregando…', className = '', inline = false, ...props }) {
+  return (
+    <span
+      className={`ds-spinner${inline ? ' inline' : ''}${className ? ` ${className}` : ''}`}
+      style={{ width: size, height: size }}
+      role="status"
+      aria-label={label}
+      {...props}
+    >
+      <span className="ds-spinner-inner" aria-hidden="true" />
+      <span className="sr-only">{label}</span>
+    </span>
+  )
+}
+
+export function LiveFeedback({ success, error, className = '', id }) {
+  const hasContent = Boolean(success || error)
+  return (
+    <div
+      id={id}
+      className={`ds-live-feedback pro-live ${hasContent ? (error ? 'is-error' : 'is-success') : ''}${className ? ` ${className}` : ''}`}
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      {error && <span role="alert" className="ds-live-feedback-error">{error}</span>}
+      {success && !error && <span role="status" className="ds-live-feedback-success">{success}</span>}
+    </div>
+  )
 }
 
 export function Tabs({ tabs, value, onChange, ariaLabel, className = '' }) {
