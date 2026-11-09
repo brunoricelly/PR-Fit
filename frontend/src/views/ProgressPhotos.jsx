@@ -277,7 +277,7 @@ export default function ProgressPhotos() {
         {busy ? t('Loading…') : t('Add photos')}
       </Button>
       <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onFiles} />
-      <span className="small muted" style={{ marginInlineStart: 8 }}>{t('Private to your account')}</span>
+      <span className="small muted" style={{ marginInlineStart: 8 }}>{t('Keeps your data safe and separate per person.')}</span>
     </div>}
 
     {comparing && <div className="small dim" style={{ margin: '0 0 12px' }}>

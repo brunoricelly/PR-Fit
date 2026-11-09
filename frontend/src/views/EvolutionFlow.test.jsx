@@ -74,7 +74,7 @@ describe('Measurements flow modernizations', () => {
     })
 
     const screen = render(<Stats />)
-    expect(screen.textContent).toContain('Recent measurements')
+    expect(screen.textContent).toContain('Body measurements')
     expect(screen.textContent).toContain('82')
     expect(screen.textContent).toContain('15')
   })
@@ -90,7 +90,7 @@ describe('Measurements flow modernizations', () => {
     })
 
     const screen = render(<Measurements />)
-    expect(screen.textContent).toContain('No measurements configured')
+    expect(screen.textContent).toContain('No measurements yet')
     expect(screen.textContent).toContain('Choose measurements')
   })
 })

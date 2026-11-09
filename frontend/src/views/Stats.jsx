@@ -950,7 +950,7 @@ export default function Stats() {
         const waistDisplay = waistData ? (S.unit === 'lb' ? Math.round(waistData.value / 2.54 * 10) / 10 : waistData.value) : null
         return <div className="card" style={{ marginTop: 12 }}>
           <div className="row between" style={{ marginBottom: 4 }}>
-            <h3 style={{ margin: 0, fontSize: 'var(--fs-subhead)' }}>{t('Recent measurements')}</h3>
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-subhead)' }}>{t('Body measurements')}</h3>
             <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={() => nav('/measurements')}>{t('Details')}</Button>
           </div>
           <div className="row" style={{ gap: 16 }}>

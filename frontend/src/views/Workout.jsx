@@ -104,10 +104,10 @@ function StartChooser() {
     try {
       await api(`/api/athlete/prescriptions/${cpr.id}/adopt`, { method: 'POST', body: '{}' })
       if (pullState) await pullState()
-      toast(t('Added to your routines.'))
+      toast(t('Added to your routines'))
       setCoachPrescriptions(prev => prev.filter(p => p.id !== cpr.id))
     } catch {
-      toast(t('Não foi possível adotar a rotina.'))
+      toast(t('Could not save'))
     } finally {
       setAdoptingId(null)
     }

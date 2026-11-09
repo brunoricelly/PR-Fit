@@ -108,7 +108,7 @@ describe('Workout Prescription Adoption in StartChooser', () => {
       expect.objectContaining({ method: 'POST' })
     )
     expect(mocks.pullState).toHaveBeenCalled()
-    expect(mocks.toast).toHaveBeenCalledWith('Added to your routines.')
+    expect(mocks.toast).toHaveBeenCalledWith('Added to your routines')
 
     // History is completely intact in store
     const storeState = useStore.getState().S

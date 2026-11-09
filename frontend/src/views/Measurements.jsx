@@ -258,7 +258,7 @@ export default function Measurements() {
     {!available.length && <div className="card">
       <DSEmptyState
         icon="ruler"
-        title={t('No measurements configured')}
+        title={t('No measurements yet')}
         text={t('Choose the measurements you want to track, then log your first check-in.')}
         action={<Button onClick={manageMeasurementsSheet} style={{ minHeight: '44px' }}>{t('Choose measurements')}</Button>}
       />

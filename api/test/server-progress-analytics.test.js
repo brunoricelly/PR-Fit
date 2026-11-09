@@ -133,7 +133,7 @@ test('progress goals and summaries are scoped to the exact relationship and life
     assert.equal(response.body.summary.period.preset, period);
     assert.equal(response.body.summary.timezone, zone);
   }
-  response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&period=7&timezone=UTC&metrics=workouts_per_week,body_fat_percent`);
+  response = await request(server, IDS.coachA, 'GET', `/api/coach/athletes/${IDS.athleteA}/progress-summary?linkId=cal_new&from=2026-11-01&to=2026-11-07&timezone=UTC&metrics=workouts_per_week,body_fat_percent`);
   assert.equal(response.body.summary.metrics.workouts_per_week.currentValue, 2);
   assert.deepEqual([response.body.summary.metrics.body_fat_percent.available, response.body.summary.metrics.body_fat_percent.currentValue], [false, null]);
   assert.equal(response.body.summary.goals[0].progress.percent, 66.7);
