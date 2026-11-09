@@ -3,6 +3,7 @@ import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -36,20 +37,18 @@ vi.mock('../sheets.jsx', () => ({ confirmSheet: options => mocks.confirms.push(o
 
 import ProfessionalHub from './ProfessionalHub.jsx'
 
-let host, root, consoleError
+let host, root, assertNoReactWarnings
 beforeEach(() => {
   Object.assign(mocks, { user: null, calls: [], answers: {}, toast: vi.fn(), setUser: vi.fn(), pullState: vi.fn(), confirms: [], copied: [] })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
-  consoleError = vi.spyOn(console, 'error')
+  assertNoReactWarnings = guardReactWarnings()
 })
 afterEach(async () => {
   await act(async () => root.unmount())
-  const reactWarnings = consoleError.mock.calls.filter(args => args.some(value => /act\(|unique "key"/i.test(String(value))))
-  consoleError.mockRestore()
   host.remove()
-  expect(reactWarnings).toEqual([])
+  assertNoReactWarnings()
 })
 
 const settle = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 0)) })
@@ -73,6 +72,24 @@ const type = async (input, value) => {
 }
 
 describe('ProfessionalHub', () => {
+  it.each([
+    ['athlete nutrition deep link', { id: 'athlete_tabs', name: 'Athlete', profile: { kind: 'athlete' } }, '/professionals?tab=nutrition'],
+    ['unknown deep link', { id: 'coach_tabs', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['nutrition'] } }, '/professionals?tab=qualquer'],
+  ])('normalizes an invalid %s to the role default tab', async (_label, user, entry) => {
+    mocks.user = user
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    await mount(entry)
+
+    const selected = [...host.querySelectorAll('[role="tab"]')].filter(tab => tab.getAttribute('aria-selected') === 'true')
+    expect(selected).toHaveLength(1)
+    expect(selected[0].id).toBe('professional-tab-relationships')
+    expect(selected[0].tabIndex).toBe(0)
+    const panel = host.querySelector('[role="tabpanel"]:not([hidden])')
+    expect(panel?.getAttribute('aria-labelledby')).toBe(selected[0].id)
+    expect(host.textContent).not.toContain('Nutrition prescription workspace')
+  })
+
   it('lets an athlete grant and revoke assessment consent explicitly', async () => {
     mocks.user = { id: 'u_athlete', name: 'Ana', admin: false }
     const link = { id: 'cal_1', status: 'active', scopes: ['training'], coach: { name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['training', 'assessments'] } } }

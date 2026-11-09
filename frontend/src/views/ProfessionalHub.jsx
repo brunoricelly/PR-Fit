@@ -1185,6 +1185,14 @@ export default function ProfessionalHub() {
   const user = useStore(state => state.user)
   const location = useLocation()
   const navigate = useNavigate()
+  const coach = user?.profile?.kind === 'coach'
+  const hasNutrition = !!(coach && (user?.profile?.coachSpecialties?.includes('nutrition') || user?.coachSpecialties?.includes('nutrition')))
+  const allowedTabs = useMemo(
+    () => ['relationships', 'scheduling', 'community', ...(hasNutrition ? ['nutrition'] : [])],
+    [hasNutrition]
+  )
+  const requestedTab = useMemo(() => new URLSearchParams(location.search).get('tab') || '', [location.search])
+  const tab = allowedTabs.includes(requestedTab) ? requestedTab : 'relationships'
   const inbox = useCommunicationInbox(user?.id)
   const totalUnread = useMemo(() => {
     return (inbox?.conversations || []).reduce((acc, c) => acc + (c.unreadCount || 0), 0)
@@ -1198,12 +1206,27 @@ export default function ProfessionalHub() {
     }
   }, [])
   useEffect(() => {
-    if (initialParams.invite && location.search) navigate('/professionals', { replace: true })
-  }, [initialParams.invite, location.search, navigate])
-  const [tab, setTab] = useState(() => new URLSearchParams(location.search).get('tab') || 'relationships')
+    if (!initialParams.invite || !location.search) return
+    const params = new URLSearchParams(location.search)
+    params.delete('invite')
+    params.delete('coach')
+    params.delete('scopes')
+    const search = params.toString()
+    navigate({ pathname: location.pathname, search: search ? `?${search}` : '' }, { replace: true })
+  }, [initialParams.invite, location.pathname, location.search, navigate])
+  useEffect(() => {
+    if (!user || !requestedTab || requestedTab === tab) return
+    const params = new URLSearchParams(location.search)
+    params.set('tab', tab)
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true })
+  }, [location.pathname, location.search, navigate, requestedTab, tab, user])
+  const selectTab = useCallback(nextTab => {
+    if (!allowedTabs.includes(nextTab) || nextTab === tab) return
+    const params = new URLSearchParams(location.search)
+    params.set('tab', nextTab)
+    navigate({ pathname: location.pathname, search: `?${params.toString()}` })
+  }, [allowedTabs, location.pathname, location.search, navigate, tab])
   if (!user) return null
-  const coach = user.profile?.kind === 'coach'
-  const hasNutrition = coach && (user?.profile?.coachSpecialties?.includes('nutrition') || user?.coachSpecialties?.includes('nutrition'))
   return <div className="narrow pro-page">
     <div className="pro-nav"><button data-back="/settings" onClick={() => navigate('/settings')}><Icon name="chevronLeft" />{p('Settings')}</button></div>
     <header className="pro-hero"><div><span className="pro-kicker">{p('Professional relationships')}</span>
@@ -1220,7 +1243,7 @@ export default function ProfessionalHub() {
         aria-controls="professional-panel-relationships"
         tabIndex={tab === 'relationships' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'relationships' ? 'active' : '')}
-        onClick={() => setTab('relationships')}
+        onClick={() => selectTab('relationships')}
         onKeyDown={handleRovingTabs}
       >
         <Icon name="person" />
@@ -1238,7 +1261,7 @@ export default function ProfessionalHub() {
         aria-controls="professional-panel-scheduling"
         tabIndex={tab === 'scheduling' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'scheduling' ? 'active' : '')}
-        onClick={() => setTab('scheduling')}
+        onClick={() => selectTab('scheduling')}
         onKeyDown={handleRovingTabs}
       >
         <Icon name="calendar" />
@@ -1251,7 +1274,7 @@ export default function ProfessionalHub() {
         aria-controls="professional-panel-community"
         tabIndex={tab === 'community' ? 0 : -1}
         className={"pro-sched-tab " + (tab === 'community' ? 'active' : '')}
-        onClick={() => setTab('community')}
+        onClick={() => selectTab('community')}
         onKeyDown={handleRovingTabs}
       >
         <Icon name="trophy" />
@@ -1265,7 +1288,7 @@ export default function ProfessionalHub() {
           aria-controls="professional-panel-nutrition"
           tabIndex={tab === 'nutrition' ? 0 : -1}
           className={"pro-sched-tab " + (tab === 'nutrition' ? 'active' : '')}
-          onClick={() => setTab('nutrition')}
+          onClick={() => selectTab('nutrition')}
           onKeyDown={handleRovingTabs}
         >
           <Icon name="scale" />
@@ -1291,13 +1314,13 @@ export default function ProfessionalHub() {
         <>
           {inbox.loading && inbox.conversations.length === 0 && !inbox.error && <div className="pro-loading">{p('Loading messaging summaries…')}</div>}
           {inbox.error && <div className="card pro-load-error" role="alert"><p>{inbox.conversations.length ? p('Could not load more conversations. Previous messaging summaries are still shown.') : p('Could not load messaging summaries.')}</p><Button size="sm" disabled={inbox.loading} onClick={inbox.retry}>{p('Try again')}</Button></div>}
-          {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => setTab('scheduling')} /><AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} embedded /></>
-            : <AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => setTab('scheduling')} />}
+          {coach ? <><CoachPortfolio user={user} inbox={inbox} onSchedule={() => selectTab('scheduling')} /><AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => selectTab('scheduling')} embedded /></>
+            : <AthleteProfessionals initialInvite={initialParams} initialToken={initialParams.invite} userId={user.id} inbox={inbox} onSchedule={() => selectTab('scheduling')} />}
           {inbox.page?.hasMore && !inbox.error && <div className="pro-actions"><Button size="sm" disabled={inbox.loading} onClick={inbox.loadMore}>{inbox.loading ? p('Loading…') : p('Load more conversations')}</Button></div>}
         </>
       )}
     </section>
-    {['relationships', 'scheduling', 'community', ...(hasNutrition ? ['nutrition'] : [])]
+    {allowedTabs
       .filter(panel => panel !== tab)
       .map(panel => <section key={panel} id={`professional-panel-${panel}`} role="tabpanel" aria-labelledby={`professional-tab-${panel}`} hidden />)}
   </div>

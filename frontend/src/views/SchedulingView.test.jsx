@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import React, { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { guardReactWarnings } from '../test/react-warning-guard.js'
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true
 
@@ -55,7 +56,13 @@ import SchedulingView, {
   formatDayHeader,
 } from './SchedulingView.jsx'
 
-let host, root
+let host, root, assertNoReactWarnings
+
+function LocationProbe() {
+  const location = useLocation()
+  mocks.location = `${location.pathname}${location.search}`
+  return null
+}
 
 beforeEach(() => {
   Object.assign(mocks, {
@@ -64,15 +71,18 @@ beforeEach(() => {
     answers: {},
     toast: vi.fn(),
     pullState: vi.fn(),
+    location: '',
   })
   host = document.createElement('div')
   document.body.appendChild(host)
   root = createRoot(host)
+  assertNoReactWarnings = guardReactWarnings()
 })
 
 afterEach(() => {
   act(() => root.unmount())
   host.remove()
+  assertNoReactWarnings()
 })
 
 const settle = () => act(async () => {
@@ -84,6 +94,7 @@ const mount = async (component, entry = '/scheduling') => {
   act(() => {
     root.render(
       <MemoryRouter initialEntries={[entry]}>
+        <LocationProbe />
         {component}
       </MemoryRouter>
     )
@@ -554,6 +565,28 @@ describe('SchedulingView - Reminder Preferences', () => {
 })
 
 describe('SchedulingView - Full View & Accessibility', () => {
+  it.each([
+    ['coach rejects book', { id: 'coach_query', name: 'Coach', profile: { kind: 'coach' } }, '/scheduling?tab=book', 'appointments'],
+    ['athlete rejects availability', { id: 'athlete_query', name: 'Athlete', profile: { kind: 'athlete' } }, '/scheduling?tab=availability', 'book'],
+    ['athlete rejects unknown', { id: 'athlete_unknown', name: 'Athlete', profile: { kind: 'athlete' } }, '/scheduling?tab=qualquer', 'book'],
+  ])('%s and replaces the invalid query with the role default', async (_label, user, entry, expectedTab) => {
+    mocks.user = user
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    mocks.answers['/api/athlete/coaches'] = { links: [] }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+    mocks.answers['/api/athlete/appointments'] = { items: [] }
+    await mount(<SchedulingView />, entry)
+
+    const tabs = [...host.querySelectorAll('[role="tab"]')]
+    const selected = tabs.filter(tab => tab.getAttribute('aria-selected') === 'true')
+    expect(selected).toHaveLength(1)
+    expect(selected[0].id).toBe(`tab-${expectedTab}`)
+    expect(selected[0].tabIndex).toBe(0)
+    const panel = host.querySelector('[role="tabpanel"]:not([hidden])')
+    expect(panel?.getAttribute('aria-labelledby')).toBe(selected[0].id)
+    expect(mocks.location).toBe(`/scheduling?tab=${expectedTab}`)
+  })
+
   it('renders top tabs for Coach and allows navigation between subviews', async () => {
     mocks.user = { id: 'coach_1', name: 'Coach Bruno', profile: { kind: 'coach' } }
     mocks.answers['/api/coach/athletes'] = { links: [] }
@@ -696,6 +729,29 @@ describe('SchedulingView - Civil Timezone Conversion', () => {
 })
 
 describe('SchedulingView - Dual-Role Mode Switching', () => {
+  it('normalizes a role-only tab after switching roles and keeps the URL in sync', async () => {
+    mocks.user = { id: 'dual_query', name: 'Dual Role Coach', profile: { kind: 'coach' } }
+    mocks.answers['/api/coach/athletes'] = { links: [] }
+    mocks.answers['/api/athlete/coaches'] = { links: [{ id: 'dual_link', coach: { id: 'coach_2', name: 'Coach Two' } }] }
+    mocks.answers['/api/coach/availability'] = { availability: null }
+    mocks.answers['/api/coach/appointments'] = { items: [] }
+    mocks.answers['/api/athlete/appointments'] = { items: [] }
+    mocks.answers['/api/athlete/coaches/coach_2/availability-slots'] = { items: [] }
+
+    await mount(<SchedulingView />, '/scheduling?role=coach&tab=availability')
+    expect(host.querySelector('#tab-availability')?.getAttribute('aria-selected')).toBe('true')
+
+    await act(async () => { button('Atleta / Meus Treinadores').click() })
+    await settle()
+
+    const selected = [...host.querySelectorAll('[role="tab"]')].filter(tab => tab.getAttribute('aria-selected') === 'true')
+    expect(selected).toHaveLength(1)
+    expect(selected[0].id).toBe('tab-book')
+    expect(selected[0].tabIndex).toBe(0)
+    expect(host.querySelector('[role="tabpanel"]:not([hidden])')?.getAttribute('aria-labelledby')).toBe('tab-book')
+    expect(mocks.location).toBe('/scheduling?role=athlete&tab=book')
+  })
+
   it('renders mode switcher for dual-role coach and toggles between coach and athlete views', async () => {
     mocks.user = { id: 'dual_user', name: 'Dual Role Coach', profile: { kind: 'coach' } }
     mocks.answers['/api/coach/athletes'] = {

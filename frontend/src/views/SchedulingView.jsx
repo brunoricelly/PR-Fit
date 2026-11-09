@@ -50,6 +50,22 @@ const WEEKDAYS = [
   { day: 6, key: 'Saturday' },
 ]
 
+const SCHEDULING_TABS = {
+  coach: [
+    { id: 'appointments', label: 'Appointments', icon: 'calendar' },
+    { id: 'availability', label: 'Availability', icon: 'clock' },
+    { id: 'reminders', label: 'Reminders', icon: 'bell' },
+  ],
+  athlete: [
+    { id: 'book', label: 'Book session', icon: 'plus' },
+    { id: 'appointments', label: 'My appointments', icon: 'calendar' },
+    { id: 'reminders', label: 'Reminders', icon: 'bell' },
+  ],
+}
+
+const defaultSchedulingTab = role => role === 'coach' ? 'appointments' : 'book'
+const normalizedSchedulingTab = (tab, role) => SCHEDULING_TABS[role]?.some(item => item.id === tab) ? tab : defaultSchedulingTab(role)
+
 const REMINDER_OFFSETS = [
   { value: 15, label: '15 minutes before' },
   { value: 30, label: '30 minutes before' },
@@ -2176,17 +2192,17 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   const isCoach = user?.profile?.kind === 'coach'
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search])
-  const queryRole = useMemo(() => searchParams.get('role') || '', [searchParams])
-  const queryTab = useMemo(() => initialTab || searchParams.get('tab') || '', [initialTab, searchParams])
+  const queryRole = useMemo(() => initialRole || (embedded ? '' : searchParams.get('role') || ''), [embedded, initialRole, searchParams])
+  const queryTab = useMemo(() => initialTab || (embedded ? '' : searchParams.get('tab') || ''), [embedded, initialTab, searchParams])
   const queryAthleteId = useMemo(() => searchParams.get('athleteId') || '', [searchParams])
 
   const [globalRole, setGlobalRole] = useActiveRole(user)
 
   const [roleMode, setRoleMode] = useState(() => {
     if (initialRole) return initialRole
-    if (queryRole === 'athlete') return 'athlete'
-    if (queryTab === 'book') return 'athlete'
-    return globalRole || (isCoach ? 'coach' : 'athlete')
+    if (isCoach && queryRole === 'athlete') return 'athlete'
+    if (isCoach) return 'coach'
+    return globalRole || 'athlete'
   })
 
   useEffect(() => {
@@ -2196,9 +2212,8 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   }, [globalRole, initialRole, queryRole, queryTab, roleMode])
 
   const [activeTab, setActiveTab] = useState(() => {
-    if (queryTab) return queryTab
-    const startingRole = initialRole || (queryRole === 'athlete' ? 'athlete' : (queryTab === 'book' ? 'athlete' : (isCoach ? 'coach' : 'athlete')))
-    return startingRole === 'coach' ? 'appointments' : 'book'
+    const startingRole = initialRole || (queryRole === 'athlete' ? 'athlete' : (queryRole === 'coach' ? 'coach' : (isCoach ? 'coach' : 'athlete')))
+    return normalizedSchedulingTab(queryTab, startingRole)
   })
 
   // Load links (coach's athletes and athlete's coaches)
@@ -2240,29 +2255,54 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   const hasAthleteRole = athleteLinks.length > 0
   const canSwitchRole = isCoach && hasAthleteRole
   const currentRole = isCoach ? (canSwitchRole ? roleMode : 'coach') : 'athlete'
+  const tabs = SCHEDULING_TABS[currentRole].map(tab => ({ ...tab, label: p(tab.label) }))
+  const normalizedQueryTab = normalizedSchedulingTab(queryTab, currentRole)
+
+  useEffect(() => {
+    if (embedded || initialTab) return
+    const params = new URLSearchParams(location.search)
+    let changed = false
+    if (queryTab && queryTab !== normalizedQueryTab) {
+      params.set('tab', normalizedQueryTab)
+      changed = true
+    }
+    if (queryRole && queryRole !== currentRole) {
+      params.set('role', currentRole)
+      changed = true
+    }
+    if (changed) {
+      navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true })
+    }
+  }, [currentRole, embedded, initialTab, location.pathname, location.search, navigate, normalizedQueryTab, queryRole, queryTab])
+
+  const selectTab = useCallback(nextTab => {
+    if (!SCHEDULING_TABS[currentRole].some(tab => tab.id === nextTab)) return
+    setActiveTab(nextTab)
+    if (!embedded && !initialTab) {
+      const params = new URLSearchParams(location.search)
+      params.set('tab', nextTab)
+      if (canSwitchRole) {
+        params.set('role', currentRole)
+      }
+      navigate({ pathname: location.pathname, search: `?${params.toString()}` })
+    }
+  }, [canSwitchRole, currentRole, embedded, initialTab, location.pathname, location.search, navigate])
 
   const handleSwitchRole = mode => {
-    if (mode === roleMode) return
+    if (mode === currentRole) return
+    const nextTab = normalizedSchedulingTab(activeTab, mode)
     setRoleMode(mode)
     setGlobalRole(mode)
-    if (mode === 'athlete' && activeTab === 'availability') {
-      setActiveTab('book')
-    } else if (mode === 'coach' && activeTab === 'book') {
-      setActiveTab('appointments')
+    setActiveTab(nextTab)
+    if (!embedded && !initialTab) {
+      const params = new URLSearchParams(location.search)
+      params.set('role', mode)
+      params.set('tab', nextTab)
+      navigate({ pathname: location.pathname, search: `?${params.toString()}` }, { replace: true })
     }
   }
 
-  const tabs = currentRole === 'coach'
-    ? [
-        { id: 'appointments', label: p('Appointments'), icon: 'calendar' },
-        { id: 'availability', label: p('Availability'), icon: 'clock' },
-        { id: 'reminders', label: p('Reminders'), icon: 'bell' },
-      ]
-    : [
-        { id: 'book', label: p('Book session'), icon: 'plus' },
-        { id: 'appointments', label: p('My appointments'), icon: 'calendar' },
-        { id: 'reminders', label: p('Reminders'), icon: 'bell' },
-      ]
+
 
   const handleTabKeyDown = (event, index) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
@@ -2274,7 +2314,7 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
         : event.key === 'ArrowRight'
           ? (index + 1) % tabs.length
           : (index - 1 + tabs.length) % tabs.length
-    setActiveTab(tabs[nextIndex].id)
+    selectTab(tabs[nextIndex].id)
     const targetButton = event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[nextIndex]
     targetButton?.focus()
   }
@@ -2336,7 +2376,7 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
               aria-controls={`panel-${tab.id}`}
               tabIndex={isSelected ? 0 : -1}
               className={`pro-sched-tab ${isSelected ? 'active' : ''}`}
-              onClick={() => setActiveTab(tab.id)}
+              onClick={() => selectTab(tab.id)}
               onKeyDown={e => handleTabKeyDown(e, index)}
             >
               <Icon name={tab.icon} />
@@ -2362,7 +2402,7 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
           )
         ) : (
           activeTab === 'book' ? (
-            <AthleteBookingView links={athleteLinks} onBookSuccess={() => setActiveTab('appointments')} />
+            <AthleteBookingView links={athleteLinks} onBookSuccess={() => selectTab('appointments')} />
           ) : activeTab === 'appointments' ? (
             <AthleteAppointmentsView />
           ) : (
