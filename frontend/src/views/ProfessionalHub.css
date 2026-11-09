@@ -352,3 +352,6 @@
     animation: none !important;
   }
 }
+.assessment-medical-alert{margin:10px 0}
+.assessment-panel .pro-actions button{min-height:44px;min-width:44px}
+.assessment-form .ds-field{min-height:44px}

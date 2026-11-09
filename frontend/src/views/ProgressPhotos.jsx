@@ -23,6 +23,7 @@ import { syncMedia } from '../lib/media-sync.js'
 import { useMediaPicker } from '../components/CustomMediaField.jsx'
 import { CustomThumb, MediaView, useMediaUrl } from '../components/CustomMedia.jsx'
 import { Button } from '../components/ui.jsx'
+import { EmptyState as DSEmptyState, Alert as DSAlert } from '../components/design-system.jsx'
 import DateField from '../components/DateField.jsx'
 import Icon from '../components/Icon.jsx'
 
@@ -272,10 +273,11 @@ export default function ProgressPhotos() {
     </div>
 
     {!comparing && showAdd && <div className="row" style={{ marginBottom: 16 }}>
-      <Button icon={busy ? 'image' : 'camera'} disabled={!canAdd || busy} onClick={() => fileRef.current?.click()}>
+      <Button icon={busy ? 'image' : 'camera'} disabled={!canAdd || busy} onClick={() => fileRef.current?.click()} style={{ minHeight: '44px' }}>
         {busy ? t('Loading…') : t('Add photos')}
       </Button>
       <input ref={fileRef} type="file" accept="image/*" multiple hidden onChange={onFiles} />
+      <span className="small muted" style={{ marginInlineStart: 8 }}>{t('Private to your account')}</span>
     </div>}
 
     {comparing && <div className="small dim" style={{ margin: '0 0 12px' }}>
@@ -283,9 +285,10 @@ export default function ProgressPhotos() {
     </div>}
 
     {!photos.length
-      ? <div className="empty"><div className="ico"><Icon name="image" /></div>
-          {t('No progress photos yet. Add one for today or any day before.')}
-        </div>
+      ? <DSEmptyState
+          icon="image"
+          title={t('No progress photos yet. Add one for today or any day before.')}
+        />
       : groups.map(g => (
         <div key={g.d} style={{ marginBottom: 18 }}>
           <div className="small muted" style={{ marginBottom: 6 }}>{fmtDate(g.d, true, true)}</div>

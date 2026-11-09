@@ -11,6 +11,8 @@ import { startFlow } from '../../sheets.jsx'
 import { useStore } from '../../store/useStore.js'
 import { useUI } from '../../store/useUI.js'
 import { useOnline } from '../../components/ServerSync.jsx'
+import { latestMeasurement } from '../../lib/measurements.js'
+import { fmtNum } from '../../lib/format.js'
 import {
   Alert,
   Badge,
@@ -416,6 +418,22 @@ export default function AthleteToday() {
             </ul>
             <Button variant="ghost" onClick={() => navigate('/professionals')}>Abrir hábitos</Button>
           </Card>}
+
+          {(() => {
+            const waistData = latestMeasurement(S, "waist")
+            const fatData = latestMeasurement(S, "bodyFat")
+            if (!waistData && !fatData) return null
+            const unit = S.unit === "lb" ? "in" : "cm"
+            const waistDisplay = waistData ? (S.unit === "lb" ? Math.round(waistData.value / 2.54 * 10) / 10 : waistData.value) : null
+            return <Card className="athlete-summary-card">
+              <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Evolução corporal</span><h3>Últimas medidas</h3></div><Icon name="chart" aria-hidden="true" /></div>
+              <div style={{ display: "flex", gap: 16, margin: "8px 0" }}>
+                {waistData && <div><span className="dashboard-muted">Cintura</span><strong style={{ display: "block" }}>{fmtNum(waistDisplay)} {unit}</strong></div>}
+                {fatData && <div><span className="dashboard-muted">% gordura</span><strong style={{ display: "block" }}>{fmtNum(fatData.value)}%</strong></div>}
+              </div>
+              <Button variant="ghost" onClick={() => navigate("/measurements")}>Ver evolução</Button>
+            </Card>
+          })()}
 
           {nextAppointment && <Card className="athlete-summary-card">
             <div className="dashboard-section-heading"><div><span className="dashboard-kicker">Próximo compromisso</span><h3>{nextAppointment.title || 'Sessão'}</h3></div><Icon name="calendar" aria-hidden="true" /></div>

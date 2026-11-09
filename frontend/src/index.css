@@ -3365,3 +3365,6 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
     animation: none !important;
   }
 }
+.measure-group{margin:0 0 4px;padding:0;border:none}.measure-group legend{padding:0;margin:0 0 8px;font-weight:700;font-size:var(--fs-footnote);color:var(--label-2);text-transform:uppercase;letter-spacing:0.03em}
+.measure-group .measure-field{min-width:0}.measure-form .measure-group{display:contents}
+.measure-form .measure-group{display:grid;grid-template-columns:1fr 1fr;gap:11px 10px;grid-column:1/-1}

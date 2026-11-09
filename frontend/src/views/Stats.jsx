@@ -45,6 +45,7 @@ import { tappable } from '../lib/use-sheet-keyboard.js'
 import { isWarmupRow } from '../lib/workout-model.js'
 import { exView, exUnitOf, shownWeight } from '../lib/ex-unit.js'
 import { isOn } from '../lib/modules.js'
+import { latestMeasurement } from '../lib/measurements.js'
 
 // Set 1 to 5 on the per-set chart — system colours, so each line keeps its hue in dark mode.
 const SET_COLORS = ['var(--blue)', 'var(--green)', 'var(--orange)', 'var(--purple)', 'var(--pink)']
@@ -941,6 +942,23 @@ export default function Stats() {
       </div>}
       <SeasonDeco spot="stats-web" />
     </div>
+      {(() => {
+        const waistData = latestMeasurement(S, 'waist')
+        const fatData = latestMeasurement(S, 'bodyFat')
+        if (!waistData && !fatData) return null
+        const unit = S.unit === 'lb' ? 'in' : 'cm'
+        const waistDisplay = waistData ? (S.unit === 'lb' ? Math.round(waistData.value / 2.54 * 10) / 10 : waistData.value) : null
+        return <div className="card" style={{ marginTop: 12 }}>
+          <div className="row between" style={{ marginBottom: 4 }}>
+            <h3 style={{ margin: 0, fontSize: 'var(--fs-subhead)' }}>{t('Recent measurements')}</h3>
+            <Button size="sm" variant="ghost" trailingIcon="chevronRight" onClick={() => nav('/measurements')}>{t('Details')}</Button>
+          </div>
+          <div className="row" style={{ gap: 16 }}>
+            {waistData && <div><div className="muted small">{t('Waist')}</div><div className="big" style={{ marginTop: 2 }}>{fmtNum(waistDisplay)} <span className="muted" style={{ fontSize: 'var(--fs-callout)' }}>{unit}</span></div></div>}
+            {fatData && <div><div className="muted small">{t('Body fat')}</div><div className="big" style={{ marginTop: 2 }}>{fmtNum(fatData.value)} <span className="muted" style={{ fontSize: 'var(--fs-callout)' }}>%</span></div></div>}
+          </div>
+        </div>
+      })()}
       {statsLinks}
     </section>}
 

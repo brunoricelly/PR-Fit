@@ -16,6 +16,7 @@ import LineChart from '../components/LineChart.jsx'
 import Icon from '../components/Icon.jsx'
 import { Button, NumberField, Section, Segmented, SelectRow, Switch, TextField } from '../components/ui.jsx'
 import { confirmSheet } from '../sheets.jsx'
+import { EmptyState as DSEmptyState } from '../components/design-system.jsx'
 
 // Every write leaves the list in its one-entry-per-day shape (normalizeMeasurementsState).
 const update = (fn, ...rest) => useStore.getState().update(s => { fn(s); normalizeMeasurementsState(s) }, ...rest)
@@ -29,6 +30,19 @@ const shownValue = (entry, field, profileUnit) => {
   const value = measurementValue(entry, field.key)
   if (value == null) return null
   return toMeasurementDisplay(value, profileUnit, field)
+}
+const GROUP_ORDER = ['Torso', 'Arms', 'Legs', 'Other']
+const groupLabel = g => ({ Torso: t('Torso'), Arms: t('Arms'), Legs: t('Legs'), Other: t('Other') }[g] || g)
+function groupedFields(fields) {
+  const groups = []
+  const seen = new Set()
+  for (const g of GROUP_ORDER) {
+    const items = fields.filter(f => (f.group || 'Other') === g)
+    if (items.length) { groups.push({ group: g, items }); items.forEach(f => seen.add(f.key)) }
+  }
+  const rest = fields.filter(f => !seen.has(f.key))
+  if (rest.length) groups.push({ group: 'Other', items: rest })
+  return groups
 }
 
 function MeasurementLog({ sourceDate, close }) {
@@ -95,14 +109,17 @@ function MeasurementLog({ sourceDate, close }) {
       <DateField value={date} max={todayISO()} onChange={setDate} label={t('Date')} />
     </label>
     {fields.length ? <div className="measure-form">
-      {fields.map(field => <label className="measure-field" key={field.key}>
-        <span>{t(field.label)}</span>
-        <span className="measure-input">
-          <NumberField nullable value={values[field.key]} onChange={value => setValues(v => ({ ...v, [field.key]: value }))} />
-          <i>{fieldUnit(field, S.unit)}</i>
-        </span>
-      </label>)}
-    </div> : <div className="empty small">{t('Choose at least one measurement first.')}</div>}
+      {groupedFields(fields).map(({ group, items }) => <fieldset key={group} className="measure-group">
+        <legend>{groupLabel(group)}</legend>
+        {items.map(field => <label className="measure-field" key={field.key}>
+          <span>{t(field.label)}</span>
+          <span className="measure-input">
+            <NumberField nullable value={values[field.key]} onChange={value => setValues(v => ({ ...v, [field.key]: value }))} />
+            <i>{fieldUnit(field, S.unit)}</i>
+          </span>
+        </label>)}
+      </fieldset>)}
+    </div> : <DSEmptyState icon="ruler" title={t('Choose at least one measurement first.')} />}
     <div style={{ height: 14 }} />
     <Button variant="primary" onClick={save} disabled={!fields.length}>{t('Save')}</Button>
     <div style={{ height: 8 }} />
@@ -215,9 +232,9 @@ export default function Measurements() {
 
   return <div className="narrow">
     <div className="hdr">
-      <button className="iconbtn" data-back="/stats" onClick={() => nav('/stats')} aria-label={t('Stats')}><Icon name="chevronLeft" /></button>
+      <button className="iconbtn" data-back="/stats" onClick={() => nav('/stats')} aria-label={t('Stats')} style={{ minHeight: '44px', minWidth: '44px' }}><Icon name="chevronLeft" /></button>
       <div style={{ flex: 1, marginInlineStart: 12 }}><h1>{t('Body measurements')}</h1><div className="sub">{t('Circumference & composition')}</div></div>
-      <button className="iconbtn" onClick={manageMeasurementsSheet} aria-label={t('Choose measurements')}><Icon name="gear" /></button>
+      <button className="iconbtn" onClick={manageMeasurementsSheet} aria-label={t('Choose measurements')} style={{ minHeight: '44px', minWidth: '44px' }}><Icon name="gear" /></button>
     </div>
 
     <div className="card">
@@ -239,8 +256,12 @@ export default function Measurements() {
     </div>
 
     {!available.length && <div className="card">
-      <div className="muted small">{t('Choose the measurements you want to track, then log your first check-in.')}</div>
-      <div style={{ height: 10 }} /><Button onClick={manageMeasurementsSheet}>{t('Choose measurements')}</Button>
+      <DSEmptyState
+        icon="ruler"
+        title={t('No measurements configured')}
+        text={t('Choose the measurements you want to track, then log your first check-in.')}
+        action={<Button onClick={manageMeasurementsSheet} style={{ minHeight: '44px' }}>{t('Choose measurements')}</Button>}
+      />
     </div>}
 
     <div className="row between" style={{ margin: '18px 2px 10px' }}>
@@ -254,8 +275,8 @@ export default function Measurements() {
         <div className="row between">
           <div><b>{fmtDate(entry.d, true)}</b><div className="small dim" style={{ marginTop: 2 }}>{t(count === 1 ? '{0} measurement' : '{0} measurements', count)}</div></div>
           <div className="row" style={{ gap: 4 }}>
-            <button className="iconbtn" onClick={() => measurementLogSheet(entry.d)} aria-label={t('Edit')}><Icon name="pencil" /></button>
-            <button className="iconbtn" style={{ color: 'var(--red)' }} onClick={() => remove(entry)} aria-label={t('Delete')}><Icon name="trash" /></button>
+            <button className="iconbtn" onClick={() => measurementLogSheet(entry.d)} aria-label={t('Edit')} style={{ minHeight: '44px', minWidth: '44px' }}><Icon name="pencil" /></button>
+            <button className="iconbtn" style={{ color: 'var(--red)', minHeight: '44px', minWidth: '44px' }} onClick={() => remove(entry)} aria-label={t('Delete')}><Icon name="trash" /></button>
           </div>
         </div>
         {previewFields.length > 0 && <div className="measure-preview">{previewFields.map(({ field: f, value }) => <span key={f.key}>{t(f.label)} <b>{withUnit(value, fieldUnit(f, S.unit))}</b></span>)}</div>}

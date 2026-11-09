@@ -24,7 +24,7 @@ Todas as rotas de view passam primeiro pelo shell global: sem conta ou modo loca
 | `/muscles` | Atleta, profissional, dual-role e admin | Library, Stats | — | `Muscles` | lazy | shell: conta ou modo local |
 | `/structural-balance` | Atleta, profissional, dual-role e admin | Stats | — | `StructuralBalance` | lazy | shell: conta ou modo local |
 | `/progress-photos` | Atleta, profissional, dual-role e admin | Stats | `body` | `ProgressPhotos` | lazy | shell: conta ou modo local; módulo `body` |
-| `/measurements` | Atleta, profissional, dual-role e admin | Stats | `body` | `Measurements` | lazy | shell: conta ou modo local; módulo `body` |
+| `/measurements` | Atleta, profissional, dual-role e admin | Stats, AthleteToday | `body` | `Measurements` | lazy | shell: conta ou modo local; módulo `body` |
 | `/settings` | Atleta, profissional, dual-role e admin | SyncBanner, tab bar, WorkoutSettingsSheet, tour guiado, Admin | — | `SettingsRoute` | lazy | shell: conta ou modo local |
 | `/settings/:page` | Atleta, profissional, dual-role e admin | Integrations, Configurações | — | `SettingsRoute` | lazy | shell: conta ou modo local |
 | `/professionals` | Atleta, profissional e dual-role | tab bar, hub profissional, Configurações, AthleteToday, CoachDashboard | — | `ProfessionalHub` | lazy | shell: conta ou modo local; modo/papel decidido dentro da view |
