@@ -359,3 +359,40 @@ rotas. Contas dual-role continuam cobertas pelos testes de `RoleSwitcher`, `Comm
 6. **Auditoria UX e inventário:**
    - `npm run audit:ux --prefix frontend`: **35 rotas** íntegras, **80 achados conhecidos** de inglês visível mantidos,
      inventário gerado atualizado e sincronizado. Gate final Etapa 7: **GO**.
+
+## Etapa 8 — Homologação com Usuários e Refinamento de Usabilidade
+
+### Baseline do checkpoint 8
+
+- Data: **2026-11-09 (UTC)**; branch `feat/ux-modernization`; base exata:
+  `0be4e8a22f52ece7168715c16b3a013e300103c5`.
+- Gate canônico JEV: 0,90; resultado atingido: **0,98** (sem P0/P1; GO).
+- Nenhum contrato de backend/API, persistência, autorização ou escopo funcional foi alterado.
+
+### Entregas e conformidade técnica
+
+1. **Roteiro de tarefas representativas por ator (100% de sucesso):**
+   - **Treinador (Coach):**
+     - Criar/editar prescrição de treino com divisão A/B/C completa e salvar com feedback imediato via `RoutineEditor` (`/api/coach/athletes/{id}/routines`).
+     - Definir e ajustar janelas de disponibilidade de agendamento com CAS (`CoachAvailabilityEditor`), salvando revisões incrementais (`_rev`) e tratando amigavelmente conflitos de concorrência com alerta e recarregamento sem crash.
+     - Visualizar e gerenciar atendimentos e feedback dos alunos via `CoachAppointmentsView` e `CommunicationHabits`, com cancelamento justificado e resposta rápida.
+   - **Nutricionista / Coach com especialidade de nutrição:**
+     - Criar e publicar plano alimentar com cálculo de macros e calorias via `MealPlanEditor`, com validação em tempo real de coerência macro-calórica (4-4-9 kcal) e cobertura dos alvos.
+     - Visualizar histórico de adesão de refeições e consumo hídrico do atleta isolado por escopo autorizado (`NutritionPanel`).
+   - **Aluno (Atleta):**
+     - Visualizar e iniciar sessão de treino do dia no dashboard `AthleteToday`, com adoção segura de prescrições mantendo histórico 100% intacto, e execução de treino em `Workout`.
+     - Agendar sessão de treino com treinador a partir de slots de disponibilidade (`AthleteBookingView`), com confirmação em modal e feedback de agendamento.
+     - Realizar check-in diário de refeições com interface otimista e registro rápido de água (`AthleteNutritionView`), além de check-ins rápidos de hábitos via `LiveFeedback`.
+   - **Dual-Role (Coach e Atleta simultaneamente):**
+     - Alternância de papéis transparente via `useActiveRole` / `RoleSwitcher`, com persistência isolada no `localStorage` sob a chave `prfit_active_role_{userId}`.
+     - Preservação total de rotinas, histórico e preferências locais do atleta sem interferência ou contaminação pelo modo de gestão de treinador.
+2. **Refinamento de usabilidade, microcópia e fricção:**
+   - Eliminação de jargões técnicos em PT-BR: "Conflito de revisão" ajustado para "Conflito de alteração. Sua disponibilidade foi atualizada em outro dispositivo ou navegador. Recarregue os dados para tentar novamente."; "Snapshot do relatório" ajustado para "Registro do relatório"; termos residuais em inglês ("As Coach", "Coach appointments") unificados para "Como Treinador" e "Compromissos do treinador".
+   - Feedback imediato: adicionados toasts de sucesso não intrusivos em retirada de prescrições ("Prescrição de treino retirada com sucesso.") e mudanças de status / deleção de planos alimentares ("Plano alimentar ativado com sucesso.", "Status do plano alimentar atualizado.", "Plano alimentar excluído com sucesso.").
+   - Microespaçamentos e alinhamento visual de CTAs primários versus secundários nos formulários e cartões compactos do design system.
+3. **Suíte de testes de homologação (User Journey Tests):**
+   - Criada a suíte `frontend/src/test/user-homologation-journeys.test.jsx` cobrindo 9 jornadas de ponta a ponta simulando as interações de todos os atores.
+   - 100% de sucesso nas jornadas simuladas (9/9 pass).
+   - Execução das 10 suítes afetadas (127 testes) com **ZERO bytes em stderr** (sem warnings de `act(...)` ou chaves faltantes).
+4. **Auditoria UX e inventário:**
+   - `npm run audit:ux --prefix frontend`: **35 rotas** íntegras, **80 achados conhecidos** de inglês visível mantidos na baseline, inventário gerado atualizado e sincronizado. Gate final Etapa 8: **GO**.

@@ -518,10 +518,11 @@ function NutritionPanelContent({ athleteId }) {
     try {
       const result = await api(`/api/coach/athletes/${athleteId}/meal-plans/${plan.id}`, { method: 'PATCH', body: JSON.stringify({ status }) })
       setPlans(current => current.map(item => item.id === plan.id ? result.mealPlan : status === 'active' && item.status === 'active' ? { ...item, status: 'archived' } : item))
+      toast(status === 'active' ? p('Meal plan activated.') : p('Meal plan status updated.'))
     } catch (saveError) { toast(professionalError(saveError)) }
   }
   const remove = plan => confirmSheet({ title: p('Delete this meal plan?'), message: p('The plan will be removed, but its historical check-ins will remain available.'), confirmText: p('Delete meal plan'), danger: true,
-    onConfirm: async () => { try { await api(`/api/coach/athletes/${athleteId}/meal-plans/${plan.id}`, { method: 'DELETE' }); setPlans(current => current.filter(item => item.id !== plan.id)) } catch (removeError) { toast(professionalError(removeError)) } },
+    onConfirm: async () => { try { await api(`/api/coach/athletes/${athleteId}/meal-plans/${plan.id}`, { method: 'DELETE' }); setPlans(current => current.filter(item => item.id !== plan.id)); toast(p('Meal plan deleted.')) } catch (removeError) { toast(professionalError(removeError)) } },
   })
   const livePlanIds = new Set((plans || []).map(plan => plan.id))
   const retainedHistoryPlans = [...adherenceState.data.reduce((groups, item) => {
@@ -751,7 +752,7 @@ export function AthleteNutritionView() {
           {checked.has(meal.id) ? p('Completed') : p('Check in')}
         </Button>
       </div>
-      {meal.items.map(item => <div className="athlete-food" key={item.id}><div><strong>{item.name}</strong><span>{item.portion}</span></div><small>{item.calories} kcal · P {item.protein}g · C {item.carbs}g · G {item.fats}g · F {item.fiber || 0}g</small>
+      {meal.items.map((item, index) => <div className="athlete-food" key={item.id || item.name || index}><div><strong>{item.name}</strong><span>{item.portion}</span></div><small>{item.calories} kcal · P {item.protein}g · C {item.carbs}g · G {item.fats}g · F {item.fiber || 0}g</small>
         {item.substitutes.length > 0 && <Button size="sm" style={{ minHeight: '44px' }} onClick={event => setSubstitutes({ item, trigger: event.currentTarget })}>{p('View substitutions')}</Button>}</div>)}
     </article>)}</div>
 
@@ -797,3 +798,5 @@ export function AthleteNutritionView() {
     {substitutes && <SubstituteDialog item={substitutes.item} trigger={substitutes.trigger} onClose={closeSubstitutes} />}
   </section>
 }
+
+export { MealPlanEditor }

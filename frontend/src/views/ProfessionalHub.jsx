@@ -312,6 +312,7 @@ function CoachPrescriptionPanel({ link }) {
       try {
         await api(`/api/coach/athletes/${link.athlete.id}/routines/${prescription.id}`, { method: 'DELETE' })
         setRoutines(current => current.filter(item => item.id !== prescription.id))
+        toast(p('Prescription withdrawn.'))
       } catch (error) { toast(professionalError(error)) }
     },
   })
@@ -1327,3 +1328,5 @@ export default function ProfessionalHub() {
       .map(panel => <section key={panel} id={`professional-panel-${panel}`} role="tabpanel" aria-labelledby={`professional-tab-${panel}`} hidden />)}
   </div>
 }
+
+export { RoutineEditor, CoachPrescriptionPanel }
