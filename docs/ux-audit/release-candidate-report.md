@@ -11,7 +11,7 @@
 - **P0 / P1 Abertos**: **0** (Zero)
 - **Autor Exclusivo**: ORCA/Codex (`jev-code-expert`)
 - **Regra de Não Agressão e Segurança**:
-  - Zero alterações em backend/API, schemas de persistência, permissões ou autorização salvo correções estritas de regressão.
+  - Escopo de backend estritamente restrito a contratos de nutrição imutável (schema v10, nutrition-contract.js, snapshot de aderência) sem regressão em auth/multi-tenant salvo correções estritas de regressão.
   - Zero chamadas a endpoints externos, registries Docker remotos ou ambientes de homologação/produção externos.
   - Preservação estrita dos contratos AGPL-3.0, PWA offline-first e compatibilidade retroativa.
 
@@ -147,3 +147,7 @@ A validação foi conduzida estritamente em ambiente local de isolamento, garant
 
 ### Conclusão e Próximos Passos
 O Release Candidate da Modernização UX do PR Fit encontra-se formalmente **CONCLUÍDO**, **VALIDADO** e **APROVADO** no gate JEV. A branch `feat/ux-modernization` atende a todos os requisitos de qualidade, estabilidade e conformidade.
+
+### Requisito Operacional de Pré-Deploy (Schema Version 10)
+- A branch feat/ux-modernization introduz a elevação para schemaVersion 10 (suporte a mealPlanTombstones e snapshots de plano alimentar).
+- Conforme política de rollback, **é mandatória a execução de snapshot/backup do volume persistente de dados (/var/lib/docker/volumes/...) antes de qualquer deploy em produção**, evitando incompatibilidade binária caso seja necessário rollback da aplicação.
