@@ -57,7 +57,7 @@
       if (r) last = String((r && r.message) || r);
     });
     setTimeout(function () {
-      fail(last ? 'PR Fit could not start on this browser.' : 'openGym is taking too long to start.', last);
+      fail(last ? 'PR Fit could not start on this browser.' : 'PR Fit is taking too long to start.', last);
     }, 10000);
   })();
 </script>
@@ -72,8 +72,10 @@
      proxy (Authelia, Cloudflare Access, Teleport…) that fetch is a login redirect and the Home Screen
      icon comes out generic. iOS 26 reads the icon from the manifest, so this is where it shows. -->
 <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
-<link rel="apple-touch-icon" href="icon-180.png">
-<link rel="icon" type="image/png" href="icon-180.png">
+<link rel="icon" type="image/x-icon" href="favicon.ico">
+<link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 </head>
 <body>
 <!-- The boot screen: painted with the HTML, before any script runs, so the gap between the
