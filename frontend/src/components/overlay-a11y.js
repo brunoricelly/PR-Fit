@@ -112,10 +112,14 @@ function focusElement(element) {
   try { element.focus(); return document.activeElement === element } catch { return false }
 }
 
-function focusDialog(dialog) {
+function focusDialog(dialog, initialFocus) {
   const autofocusTarget = dialog?.querySelector('[autofocus], [data-autofocus]')
   const focusable = getFocusableElements(dialog)
   const preferred = autofocusTarget && isElementVisible(autofocusTarget) ? autofocusTarget : focusable[0]
+  if (initialFocus === 'dialog') {
+    if (!focusElement(dialog)) focusElement(preferred)
+    return
+  }
   if (!focusElement(preferred)) focusElement(dialog)
 }
 
@@ -175,6 +179,8 @@ export function useOverlayA11y({
   closeOnEscape = true,
   fallbackLabel,
   lockBodyScroll = false,
+  restoreFocusTo,
+  initialFocus,
 }) {
   const onCloseRef = useRef(onClose)
   const closeOnEscapeRef = useRef(closeOnEscape)
@@ -187,13 +193,14 @@ export function useOverlayA11y({
     if (!dialog || !layer) return
 
     cancelPendingRestore()
-    const previousFocus = document.activeElement
+    const explicitTarget = restoreFocusTo && (restoreFocusTo.current || restoreFocusTo)
+    const previousFocus = (explicitTarget?.isConnected ? explicitTarget : null) || document.activeElement
     const overlay = { dialog, layer }
     overlays.push(overlay)
     ensureAccessibleName(dialog, fallbackLabel)
     if (lockBodyScroll) lockScroll()
     syncBackgroundAccessibility()
-    focusDialog(dialog)
+    focusDialog(dialog, initialFocus)
 
     const onKeyDown = event => {
       if (overlays.at(-1) !== overlay) return
@@ -214,10 +221,10 @@ export function useOverlayA11y({
       if (!dialog.contains(document.activeElement)) {
         event.preventDefault()
         focusElement(event.shiftKey ? last : first)
-      } else if (event.shiftKey && document.activeElement === first) {
+      } else if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) {
         event.preventDefault()
         focusElement(last)
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog)) {
         event.preventDefault()
         focusElement(first)
       }

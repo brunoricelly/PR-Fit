@@ -51,7 +51,7 @@ const mute = el => {
  * session in progress. The one place that says where the videos go and that they stay private.
  */
 export function filmSetSheet(at, title) {
-  openSheet(close => <FilmSetSheet at={at} title={title} close={close} />)
+  openSheet(close => <FilmSetSheet at={at} title={title} close={close} />, { label: title })
 }
 
 function FilmSetSheet({ at, title, close }) {
@@ -86,10 +86,13 @@ function FilmSetSheet({ at, title, close }) {
   }
 
   return <div className="fv-sheet">
-    <h3 style={{ marginBottom: 4 }}>{title}</h3>
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+      <h3 style={{ margin: 0 }}>{title}</h3>
+      <Button size="sm" variant="ghost" icon="xmark" aria-label={t('Close')} onClick={close} />
+    </div>
     <div className="muted small" style={{ marginBottom: 12 }}>{t('Film from the side with your whole body in the frame. Up to {0} seconds.', sec)}</div>
     <div className="fv-film">
-      <Button variant="primary" icon={busy ? undefined : 'camera'} disabled={!canAdd} onClick={() => cam.current?.click()}>
+      <Button variant="primary" icon={busy ? undefined : 'camera'} disabled={!canAdd} onClick={() => cam.current?.click()} data-autofocus>
         {busy ? t('Loading…') : t('Record a video')}
       </Button>
       <Button icon="image" disabled={!canAdd} onClick={() => lib.current?.click()}>{t('Choose from your videos')}</Button>

@@ -4,6 +4,7 @@ import { professionalError, professionalText as p } from '../lib/professional-co
 import { useUI } from '../store/useUI.js'
 import { confirmSheet } from '../sheets.jsx'
 import { Button, TextArea, TextField } from '../components/ui.jsx'
+import { useOverlayA11y } from '../components/overlay-a11y.js'
 import { Alert, Badge, EmptyState, Skeleton } from '../components/design-system.jsx'
 import {
   NUTRITION_CONTRACT_VERSION, NUTRITION_TOLERANCES, nutritionPlanIssues, nutritionTotals,
@@ -562,24 +563,19 @@ export default function NutritionPanel({ athleteId }) {
 
 function SubstituteDialog({ item, trigger, onClose }) {
   const dialogRef = useRef(null)
+  const layerRef = useRef(null)
   const titleId = useId()
-  useEffect(() => {
-    const dialog = dialogRef.current
-    dialog?.focus()
-    const keydown = event => {
-      if (event.key === 'Escape') { event.preventDefault(); onClose(); return }
-      if (event.key !== 'Tab' || !dialog) return
-      const focusable = [...dialog.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter(element => !element.disabled && element.getAttribute('aria-hidden') !== 'true')
-      if (!focusable.length) { event.preventDefault(); dialog.focus(); return }
-      const first = focusable[0]; const last = focusable.at(-1)
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog)) { event.preventDefault(); last.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
-    }
-    document.addEventListener('keydown', keydown)
-    return () => { document.removeEventListener('keydown', keydown); trigger?.focus() }
-  }, [onClose, trigger])
-  return <div className="nutrition-dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && onClose()}><section ref={dialogRef} tabIndex={-1} className="card nutrition-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+  useOverlayA11y({
+    dialogRef,
+    layerRef,
+    onClose,
+    closeOnEscape: typeof onClose === 'function',
+    fallbackLabel: item?.name ? p('Substitutions for {0}', item.name) : 'Substitutions',
+    lockBodyScroll: true,
+    restoreFocusTo: trigger,
+    initialFocus: 'dialog',
+  })
+  return <div ref={layerRef} className="nutrition-dialog-backdrop" role="presentation" onMouseDown={event => event.target === event.currentTarget && !layerRef.current?.hasAttribute('inert') && onClose()}><section ref={dialogRef} tabIndex={-1} className="card nutrition-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
     <div className="nutrition-editor-head"><h3 id={titleId}>{p('Substitutions for {0}', item.name)}</h3><Button size="sm" onClick={onClose}>{p('Close')}</Button></div>
     <p className="nutrition-notes">{p('Nutrition is verified only when calories and every macro are shown.')}</p>
     {item.substitutes.map((substitute, index) => <div className="nutrition-substitute" key={index}><strong>{substitute.name}</strong><span>{substitute.portion}</span>

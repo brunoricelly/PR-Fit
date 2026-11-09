@@ -74,3 +74,11 @@
     scroll-behavior: auto;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .nutrition-dialog-backdrop {
+    background: rgba(0, 0, 0, 0.92);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}

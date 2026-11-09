@@ -78,9 +78,12 @@ export default function CommunityHub({ embedded = false, defaultSection = 'group
   const handleSectionKeyDown = event => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
     const currentIndex = COMMUNITY_SECTIONS.indexOf(section)
+    const len = COMMUNITY_SECTIONS.length
     const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? COMMUNITY_SECTIONS.length - 1
-      : event.key === 'ArrowRight' ? (currentIndex + 1) % COMMUNITY_SECTIONS.length : (currentIndex - 1 + COMMUNITY_SECTIONS.length) % COMMUNITY_SECTIONS.length
+      : event.key === 'ArrowRight' ? (rtl ? (currentIndex - 1 + len) % len : (currentIndex + 1) % len)
+      : (rtl ? (currentIndex + 1) % len : (currentIndex - 1 + len) % len)
     const nextSection = COMMUNITY_SECTIONS[nextIndex]
     setSection(nextSection)
     event.currentTarget.parentElement?.querySelector(`[data-community-tab="${nextSection}"]`)?.focus()

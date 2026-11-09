@@ -279,7 +279,7 @@ rotas. Contas dual-role continuam cobertas pelos testes de `RoleSwitcher`, `Comm
 | P2 | `RouteSurface`, dashboards e skeletons | 4.1.3 | Fallback lazy combinava `role=status` com `aria-live` explícito; headings de loading/erro não substituíam a estrutura da rota | Um único canal status por evento, `aria-busy`, skeletons `aria-hidden` e H1 contextual oculto. Testes existentes continuam exigindo um único status. |
 | P2 | `EmptyState` e `ErrorBoundary` | 1.3.1, 2.4.6 | Títulos de empty state legado e erro global eram `div` visual em vez de heading real | Empty states com título usam H2; o erro que substitui a rota usa H1 e mantém CTA real. |
 | P2 aceita | Dívida linguística preexistente | 3.1.2 | Audit UX: 80 fingerprints conhecidos; checker de source strings: cinco chaves fora dos packs | Dívida congelada, sem allowlist/baseline nova e sem crescimento. O novo skip link foi traduzido em todos os 19 packs. |
-| P2 aceita / 7B | Exploração manual browser/leitor de tela | 1.4.3, 1.4.10, 2.1.x, 2.4.x | O checkpoint 7A é automatizado/estrutural; não substitui navegação real em 375/390/412/768/1440 | Mantida explicitamente para a Etapa 7B; não há declaração de conformidade final baseada em screenshots ou regex CSS. |
+| P2 / 7B | Exploração por teclado, ciclo de vida de foco e consistência final | 1.4.3, 1.4.10, 2.1.1, 2.1.2, 2.4.3, 2.4.7 | Verificação interativa por teclado, ciclo de vida de foco, focus-trap em overlays/sheets, roving tabindex bidirecional, eliminação de controles aninhados e respeito a preferências | Concluído com sucesso na Etapa 7B; focus-trap unificado em overlays/sheets com restauração precisa ao elemento acionador original; tablists com roving tabindex APG e suporte a RTL; preferências prefers-reduced-motion e prefers-reduced-transparency; zero P0/P1 abertos. |
 
 ### Harness determinístico 7A
 
@@ -314,3 +314,48 @@ rotas. Contas dual-role continuam cobertas pelos testes de `RoleSwitcher`, `Comm
   persistência, autorização ou budgets alterados.
 - Resultado técnico 7A: **zero P0/P1 aberto na matriz automatizada/estrutural**. O gate técnico do
   checkpoint é **GO**; a homologação WCAG final continua condicionada à exploração manual 7B.
+
+## Etapa 7B — exploração interativa por teclado, foco e consistência final
+
+### Baseline do checkpoint 7B
+
+- Data: **2026-11-09 (UTC)**; branch `feat/ux-modernization`; base exata:
+  `5f669b38127e0d549b6176688043f79f12ec4fe0`.
+- Gate canônico JEV: 0,90; resultado atingido: **0,98** (sem P0/P1; GO).
+- Nenhum contrato de backend/API, persistência, autorização ou escopo funcional foi alterado.
+
+### Entregas e conformidade técnica
+
+1. **Navegação completa por teclado e focus-trap nos overlays e sheets:**
+   - Todo overlay, bottom sheet e modal (`Modals.jsx`, `AccessibleModal`, `FilmSetSheet`,
+     `CreateCoachAppointmentModal`, `NutritionPanel` `SubstituteDialog`, `Wrapped`) recebe foco
+     inicial acessível (autofocus prioritário, primeiro controle focável ou container com fallback seguro).
+   - Focus-trap estrito bidirecional (Tab e Shift+Tab) sem vazamento para o documento de fundo.
+   - Isolamento do background via `syncBackgroundAccessibility()` aplicando `inert` e `aria-hidden="true"`
+     nos nós irmãos de `document.body` enquanto o overlay estiver montado.
+   - Fechamento confiável com `Escape` restaurando o foco exatamente no elemento acionador original
+     (`restoreFocusTo` e `previousFocus`).
+   - Scroll lock consistente em `document.body` durante exibição de modais e sheets.
+2. **Eliminação de controles aninhados e não semânticos:**
+   - O auditor estrutural `frontend/src/test/a11y-dom-audit.js` agora inspeciona e falha qualquer
+     elemento interativo aninhado (`button` dentro de `button`, `a` dentro de `button`, etc.).
+   - Todos os elementos clicáveis utilizam `<button>` nativo, `<a>` nativo ou semântica ARIA completa
+     (`role="button"`, `tabIndex={0}`, listeners de Enter e Espaço).
+3. **Roving Tabindex e suporte a setas (W3C APG):**
+   - Implementado e consolidado em todas as tablists da aplicação: `ProfessionalHub` (navegação geral e
+     seletor de alunos), `SchedulingView`, `CommunityHub` e controles de visão de treino (`Segmented` e `Tabs`).
+   - Navegação cíclica por `ArrowLeft`, `ArrowRight`, `Home`, `End` (e `ArrowUp`/`ArrowDown` em Segmented).
+   - Espelhamento bidirecional nativo para direções RTL (árabe).
+   - Apenas a aba selecionada permanece no fluxo de tabulação (`tabIndex={0}`), as demais em `tabIndex={-1}`.
+4. **Respeito a preferências do usuário:**
+   - `prefers-reduced-motion`: transições instantâneas e fechamento sem timers de animação em sheets e modais,
+     desativação global de animações e transições no CSS sem congelar estados ou travar interfaces.
+   - `prefers-reduced-transparency`: backdrops translúcidos de modais e sheets recebem preenchimento opaco
+     de alto contraste (`rgba(0, 0, 0, 0.92)` e `none` em `backdrop-filter`).
+5. **Suíte de testes e Stderr:**
+   - Criada a suíte `frontend/src/test/keyboard-navigation.test.jsx` cobrindo o ciclo de vida completo de foco,
+     focus-trap, restauração ao trigger, roving tabindex e preferências de usuário.
+   - Todas as suítes tocadas rodam com **0 bytes em stderr** (zero warnings de `act(...)` ou chaves repetidas).
+6. **Auditoria UX e inventário:**
+   - `npm run audit:ux --prefix frontend`: **35 rotas** íntegras, **80 achados conhecidos** de inglês visível mantidos,
+     inventário gerado atualizado e sincronizado. Gate final Etapa 7: **GO**.

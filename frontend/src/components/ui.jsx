@@ -123,18 +123,39 @@ export function Switch({ checked, onChange, disabled, className = '', ...accessi
 // `tour`: the app tour's anchor for this control (data-tour, lib/tour.js); likewise below.
 // `ariaLabelledby` names the choice for a screen reader by its visible label (a group of
 // pressed buttons otherwise reads as three loose words).
-export function Segmented({ options, value, onChange, className = '', tour, ariaLabelledby }) {
+export function Segmented({ options, value, onChange, className = '', tour, ariaLabelledby, ariaLabel }) {
   const i = Math.max(0, options.findIndex(o => o.value === value))
+  const handleKeyDown = event => {
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End'].includes(event.key)) return
+    event.preventDefault()
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+    const len = options.length
+    if (!len) return
+    let nextIndex = i
+    if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = len - 1
+    else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = rtl ? (i - 1 + len) % len : (i + 1) % len
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = rtl ? (i + 1) % len : (i - 1 + len) % len
+
+    if (nextIndex !== i && options[nextIndex]) {
+      onChange(options[nextIndex].value)
+      const buttons = event.currentTarget.parentElement?.querySelectorAll('button')
+      buttons?.[nextIndex]?.focus()
+    }
+  }
   return (
     <div className={'seg ' + className} style={{ '--n': options.length, '--i': i }} data-tour={tour}
-      role={ariaLabelledby ? 'group' : undefined} aria-labelledby={ariaLabelledby}>
+      role={ariaLabelledby || ariaLabel ? 'group' : undefined} aria-labelledby={ariaLabelledby} aria-label={ariaLabel}>
       <span className="seg-sel" aria-hidden="true" />
-      {options.map(o => (
+      {options.map((o, idx) => (
         <button
           key={o.value}
+          type="button"
+          tabIndex={idx === i ? 0 : -1}
           className={o.value === value ? 'on' : ''}
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
+          onKeyDown={handleKeyDown}
         >
           {o.icon && <Icon name={o.icon} />}
           {o.label && <span>{o.label}</span>}

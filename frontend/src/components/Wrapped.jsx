@@ -18,6 +18,7 @@ import { makeCanvas, toPng, currentAccent, isRtl } from '../lib/share-image.js'
 import { viewAspect, CARD_FONT } from '../lib/workout-card.js'
 import { reducedMotion } from '../lib/seasonal.js'
 import { t, useLang, dateLocale } from '../lib/i18n.js'
+import { useOverlayA11y } from './overlay-a11y.js'
 import Icon from './Icon.jsx'
 import BodyMap from './BodyMap.jsx'
 import ShareCardSheet from './ShareCard.jsx'
@@ -110,9 +111,16 @@ export default function Wrapped() {
   const rtl = isRtl()
   const root = useRef(null)
   const stage = useRef(null)
-  const back = useRef(null)
   const idx = Math.min(i, Math.max(0, cards.length - 1))
   const card = cards[idx]
+
+  useOverlayA11y({
+    dialogRef: root,
+    onClose: close,
+    closeOnEscape: true,
+    fallbackLabel: t('Your {0} in openGym', String(year)),
+    lockBodyScroll: true,
+  })
 
   // Opened once is enough for the Home card to go (lib/wrapped.js homeCardYear).
   useEffect(() => {
@@ -120,14 +128,6 @@ export default function Wrapped() {
     if (!wrappedOf(S).opened.includes(year)) update(s => { s.wrapped = withYear(s, 'opened', year) })
   }, [year, !!st]) // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { setI(0) }, [year])
-  // Focus moves in, the page under it stops scrolling, and focus goes back where it was after.
-  useEffect(() => {
-    if (!year) return
-    back.current = document.activeElement
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = prev; try { back.current?.focus?.() } catch (e) { /* gone */ } }
-  }, [year])
   useEffect(() => { stage.current?.focus?.({ preventScroll: true }) }, [idx, year])
 
   const go = d => {

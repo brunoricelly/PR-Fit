@@ -25,6 +25,8 @@ import {
 import { professionalError, professionalText as p } from '../lib/professional-copy.js'
 import { dateLocale } from '../lib/i18n.js'
 import { useActiveRole } from '../lib/roles.js'
+import AccessibleModal from './AccessibleModal.jsx'
+export { AccessibleModal }
 import Icon from '../components/Icon.jsx'
 import {
   Alert,
@@ -74,85 +76,6 @@ const REMINDER_OFFSETS = [
   { value: 1440, label: '24 hours before' },
 ]
 
-export function AccessibleModal({ id, title, onClose, children, className = '' }) {
-  const dialogRef = useRef(null)
-  const previousFocusRef = useRef(null)
-
-  useEffect(() => {
-    previousFocusRef.current = document.activeElement
-    const focusable = dialogRef.current?.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    )
-    if (focusable && focusable.length > 0) {
-      focusable[0].focus()
-    } else {
-      dialogRef.current?.focus()
-    }
-
-    const onKeyDown = event => {
-      if (event.key === 'Escape') {
-        event.preventDefault()
-        onClose()
-        return
-      }
-      if (event.key === 'Tab') {
-        const nodes = Array.from(dialogRef.current?.querySelectorAll(
-          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
-        ) || [])
-        if (!nodes.length) return
-        const first = nodes[0]
-        const last = nodes[nodes.length - 1]
-        if (event.shiftKey) {
-          if (document.activeElement === first) {
-            event.preventDefault()
-            last.focus()
-          }
-        } else {
-          if (document.activeElement === last) {
-            event.preventDefault()
-            first.focus()
-          }
-        }
-      }
-    }
-
-    document.addEventListener('keydown', onKeyDown)
-    return () => {
-      document.removeEventListener('keydown', onKeyDown)
-      if (previousFocusRef.current && typeof previousFocusRef.current.focus === 'function') {
-        previousFocusRef.current.focus()
-      }
-    }
-  }, [onClose])
-
-  return (
-    <div className="pro-modal-backdrop" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`${id}-title`}
-        tabIndex={-1}
-        className={`pro-modal-container card ${className}`}
-      >
-        <div className="pro-modal-head">
-          <h2 id={`${id}-title`}>{title}</h2>
-          <button
-            type="button"
-            className="pro-modal-close"
-            onClick={onClose}
-            aria-label={p('Close')}
-          >
-            <Icon name="xmark" />
-          </button>
-        </div>
-        <div className="pro-modal-body">
-          {children}
-        </div>
-      </div>
-    </div>
-  )
-}
 
 // ==========================================
 // Civil Time and Formatting Helpers
@@ -2307,13 +2230,14 @@ export default function SchedulingView({ embedded = false, initialTab, initialRo
   const handleTabKeyDown = (event, index) => {
     if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
     event.preventDefault()
+    const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
     const nextIndex = event.key === 'Home'
       ? 0
       : event.key === 'End'
         ? tabs.length - 1
         : event.key === 'ArrowRight'
-          ? (index + 1) % tabs.length
-          : (index - 1 + tabs.length) % tabs.length
+          ? (rtl ? (index - 1 + tabs.length) % tabs.length : (index + 1) % tabs.length)
+          : (rtl ? (index + 1) % tabs.length : (index - 1 + tabs.length) % tabs.length)
     selectTab(tabs[nextIndex].id)
     const targetButton = event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[nextIndex]
     targetButton?.focus()

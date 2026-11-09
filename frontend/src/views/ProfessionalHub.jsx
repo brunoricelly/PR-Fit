@@ -34,8 +34,10 @@ const handleRovingTabs = event => {
   const current = tabs.indexOf(event.currentTarget)
   if (current < 0 || !tabs.length) return
   event.preventDefault()
+  const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
   const next = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
-    : event.key === 'ArrowRight' ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length
+    : event.key === 'ArrowRight' ? (rtl ? (current - 1 + tabs.length) % tabs.length : (current + 1) % tabs.length)
+    : (rtl ? (current + 1) % tabs.length : (current - 1 + tabs.length) % tabs.length)
   tabs[next].focus()
   tabs[next].click()
 }

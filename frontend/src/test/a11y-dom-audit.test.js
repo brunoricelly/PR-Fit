@@ -74,4 +74,9 @@ describe('a11y DOM audit', () => {
     const empty = render('<div role="status"></div><p aria-live="polite"></p>')
     expect(auditA11y(empty)).toEqual([])
   })
+
+  it('reports nested interactive controls', () => {
+    const root = render('<button type="button">Parent <button type="button">Child</button></button>')
+    expect(auditA11y(root).some(f => f.includes('nested interactive control'))).toBe(true)
+  })
 })

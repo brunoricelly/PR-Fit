@@ -191,7 +191,10 @@ export function Tabs({ tabs, value, onChange, ariaLabel, className = '' }) {
             onKeyDown={event => {
               if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
               event.preventDefault()
-              const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1 : selectedIndex + (event.key === 'ArrowRight' ? 1 : -1)
+              const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl'
+              const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? tabs.length - 1
+                : event.key === 'ArrowRight' ? (rtl ? selectedIndex - 1 : selectedIndex + 1)
+                : (rtl ? selectedIndex + 1 : selectedIndex - 1)
               selectAt(nextIndex)
               const normalized = (nextIndex + tabs.length) % tabs.length
               event.currentTarget.parentElement?.querySelectorAll('[role="tab"]')[normalized]?.focus()

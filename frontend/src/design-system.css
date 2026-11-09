@@ -636,3 +636,14 @@ button.ds-card:active,
     transform: none !important;
   }
 }
+
+@media (prefers-reduced-transparency: reduce) {
+  .ds-modal-backdrop {
+    background: rgb(2 7 4 / 92%);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  :root[data-theme="light"] .ds-modal-backdrop {
+    background: rgb(9 18 12 / 88%);
+  }
+}

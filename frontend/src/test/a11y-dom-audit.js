@@ -134,6 +134,15 @@ export function auditA11y(root) {
   }
 
   const nativeControls = new Set(['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY'])
+  for (const interactive of visible('button, a[href], [role="button"], [role="link"]')) {
+    const nested = interactive.querySelectorAll('button, a[href], [role="button"], [role="link"]')
+    for (const child of nested) {
+      if (!isA11yHidden(child)) {
+        findings.push(`nested interactive control: ${describe(child, root)} inside ${describe(interactive, root)}`)
+      }
+    }
+  }
+
   for (const element of visible('*')) {
     const clickable = typeof element.onclick === 'function' || roleOf(element) === 'button'
     if (!clickable || nativeControls.has(element.tagName)) continue
