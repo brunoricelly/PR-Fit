@@ -863,6 +863,10 @@ export default function Stats() {
       onClick={() => nav('/measurements')} />,
     bodyOn && (workouts.length > 0 || dayPhotosOf(S).length > 0) && <Row key="p" title={t('Progress photos')} accessory="chevron" className="stats-link" onClick={() => nav('/progress-photos')} />,
     workouts.length > 0 && <Row key="b" title={t('Structural balance')} subtitle={t('See which lift is holding back the rest.')} accessory="chevron" className="stats-link" onClick={() => nav('/structural-balance')} />,
+    <Row key="ev-pdf" icon="download" title={t('Evolution report (PDF)')} subtitle={t('Complete evolution report with body metrics, perimetry and posture photos.')} accessory="chevron" className="stats-link" onClick={async () => {
+      const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+      await exportEvolutionReportPdf({ storeState: S, isCoach: false })
+    }} />,
     ...wrapped.map(y => <Row key={y} title={t('Your year')} value={y === thisYear ? t('So far') : String(y)} accessory="chevron"
       className="stats-link" onClick={() => openWrapped(y)} />),
   ].filter(Boolean)
@@ -874,6 +878,10 @@ export default function Stats() {
   return <>
     <div className="hdr"><SeasonDeco spot="stats-hdr" /><div><h1>{t('Stats')}</h1><div className="sub">{t('Progress & history')}</div></div>
       <div className="row" style={{ gap: 8 }}>
+        <button className="iconbtn" onClick={async () => {
+          const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+          await exportEvolutionReportPdf({ storeState: S, isCoach: false })
+        }} aria-label={t('Evolution report (PDF)')} title={t('Evolution report (PDF)')}><Icon name="download" /></button>
         <button className="iconbtn" onClick={reportSheet} aria-label={t('Performance report')} title={t('Performance report')}><Icon name="note" /></button>
         <button className="iconbtn" data-tour="stats-history" onClick={() => nav('/history')} aria-label={t('History')}><Icon name="history" /></button>
       </div></div>

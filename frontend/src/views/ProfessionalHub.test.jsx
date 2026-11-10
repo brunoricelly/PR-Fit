@@ -682,3 +682,28 @@ describe('ProfessionalHub', () => {
     expect(host.textContent).toContain('Atleta Com Mensagem')
     expect(host.textContent).not.toContain('Atleta Sem Mensagem')
   })
+
+  it('renders export PDF button on active athlete card', async () => {
+    const athlete = { id: 'ath_pdf', name: 'Atleta PDF' }
+    mocks.user = {
+      id: 'u_coach',
+      name: 'Coach',
+      admin: false,
+      profile: { kind: 'coach', coachSpecialties: ['training'] },
+      capabilities: ['relationships:invite'],
+    }
+    mocks.answers['/api/coach/athletes'] = {
+      links: [{ id: 'link_pdf', status: 'active', scopes: ['training'], athlete }],
+    }
+    mocks.answers['/api/messages/inbox'] = { conversations: [], page: { limit: 50, hasMore: false, nextCursor: null } }
+    mocks.answers['/api/coach/athletes/ath_pdf/habits'] = { habits: [] }
+    mocks.answers['/api/coach/athletes/ath_pdf/progress-summary'] = { summary: null }
+    mocks.answers['/api/coach/athletes/ath_pdf/progress-goals'] = { items: [] }
+    mocks.answers['/api/coach/athletes/ath_pdf/progress-reports'] = { items: [] }
+    mocks.answers['/api/coach/athletes/ath_pdf/prescriptions'] = { prescriptions: [] }
+
+    await mount('/professionals')
+
+    const exportPdfBtn = [...host.querySelectorAll('button')].find(b => b.textContent.includes('Export PDF') || b.textContent.includes('Exportar PDF'))
+    expect(exportPdfBtn).toBeTruthy()
+  })

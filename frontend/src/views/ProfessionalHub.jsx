@@ -763,7 +763,13 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
               <CommunicationPanel link={link} side="coach" actorId={user.id} conversation={inbox.byLink.get(link.id)} onConversationChange={inbox.update} />
               {link.scopes.includes('training') && <CoachHabitsPanel link={link} />}
               {link.athlete && <CoachProgressPanel link={link} athleteId={link.athlete.id} />}
-              {link.status === 'active' && link.athlete && <div className="pro-actions"><Button size="sm" onClick={() => onSchedule ? onSchedule(link.athlete.id) : navigate('/scheduling?athleteId=' + link.athlete.id)}>{p('Schedule session')}</Button></div>}
+              {link.status === 'active' && link.athlete && <div className="pro-actions">
+                <Button size="sm" onClick={() => onSchedule ? onSchedule(link.athlete.id) : navigate('/scheduling?athleteId=' + link.athlete.id)}>{p('Schedule session')}</Button>
+                <Button size="sm" icon="download" onClick={async () => {
+                  const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+                  await exportEvolutionReportPdf({ athleteId: link.athlete.id, link, isCoach: true })
+                }}>{p('Export PDF')}</Button>
+              </div>}
             </RelationshipCard>)}</div>}
     </section>
 

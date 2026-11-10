@@ -694,7 +694,10 @@ export function ReportDetailModal({
     if (exporting) return
     setExporting(format)
     try {
-      if (isCoach) {
+      if (format === 'pdf') {
+        const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+        await exportEvolutionReportPdf({ report, reportId, athleteId, linkId, isCoach })
+      } else if (isCoach) {
         await exportCoachReport(athleteId, reportId, format, { linkId, triggerDownload: true })
       } else {
         await exportAthleteReport(reportId, format, { linkId, triggerDownload: true })
@@ -805,6 +808,14 @@ export function ReportDetailModal({
               onClick={() => handleExport('csv')}
             >
               {exporting === 'csv' ? p('Exporting…') : p('Export CSV')}
+            </Button>
+            <Button
+              size="sm"
+              icon="download"
+              disabled={exporting !== null || Boolean(report.revokedAt)}
+              onClick={() => handleExport('pdf')}
+            >
+              {exporting === 'pdf' ? p('Exporting…') : p('Export PDF')}
             </Button>
             {isCoach && !report.revokedAt && (
               <Button
@@ -1151,6 +1162,14 @@ export function ProgressReportsView({
                 >
                   {exportingId === `${report.id}-csv` ? p('Exporting…') : p('Export CSV')}
                 </Button>
+                <Button
+                  size="sm"
+                  icon="download"
+                  disabled={Boolean(exportingId) || Boolean(report.revokedAt)}
+                  onClick={() => handleExport(report.id, 'pdf')}
+                >
+                  {exportingId === `${report.id}-pdf` ? p('Exporting…') : p('Export PDF')}
+                </Button>
                 {isCoach && !report.revokedAt && (
                   <Button
                     size="sm"
@@ -1341,6 +1360,11 @@ export function CoachProgressPanel({ link, athleteId }) {
   }
 
   const handleExportReport = async (reportId, format) => {
+    if (format === 'pdf') {
+      const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+      await exportEvolutionReportPdf({ reportId, athleteId, link, isCoach: true })
+      return
+    }
     await exportCoachReport(athleteId, reportId, format, { linkId: link?.id, triggerDownload: true })
   }
 
@@ -1555,6 +1579,11 @@ export function AthleteProgressDashboard({ links }) {
   useEffect(() => { loadReports() }, [loadReports])
 
   const handleExportReport = async (reportId, format) => {
+    if (format === 'pdf') {
+      const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+      await exportEvolutionReportPdf({ reportId, link: activeLink, isCoach: false })
+      return
+    }
     await exportAthleteReport(reportId, format, { linkId: activeLink?.id, triggerDownload: true })
   }
 

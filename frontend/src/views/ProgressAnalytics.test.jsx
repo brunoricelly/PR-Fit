@@ -20,6 +20,14 @@ vi.mock('../lib/api.js', () => ({
   }),
 }))
 
+
+vi.mock("../lib/evolution-report-print.js", () => ({
+  exportEvolutionReportPdf: vi.fn(async () => ({ ok: true, filename: "relatorio.pdf" })),
+  generateEvolutionReportHtml: vi.fn(() => "<html></html>"),
+  printEvolutionReport: vi.fn(async () => ({ ok: true })),
+  downloadEvolutionReport: vi.fn(() => ({ ok: true })),
+}))
+
 vi.mock('../sheets.jsx', () => ({
   confirmSheet: options => {
     mocks.confirms.push(options)
@@ -674,5 +682,68 @@ describe('AthleteProgressDashboard flows', () => {
     expect(button('Revoke')).toBeUndefined()
     expect(button('Export JSON')).toBeDefined()
     expect(button('Export CSV')).toBeDefined()
+    expect(button('Export PDF') || button('Exportar PDF')).toBeDefined()
+  })
+
+  it('triggers evolution report PDF export from athlete reports view', async () => {
+    const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+    await act(async () => {
+      root.render(<AthleteProgressDashboard links={links} />)
+    })
+    await settle()
+
+    await act(async () => { button('Reports').click() })
+    await settle()
+
+    const pdfBtn = button('Export PDF') || button('Exportar PDF')
+    expect(pdfBtn).toBeDefined()
+    await act(async () => { pdfBtn.click() })
+    await settle()
+
+    expect(exportEvolutionReportPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ reportId: 'prep_ath', isCoach: false })
+    )
+  })
+
+  it('triggers evolution report PDF export from ReportDetailModal', async () => {
+    const { exportEvolutionReportPdf } = await import('../lib/evolution-report-print.js')
+    mocks.api.mockImplementation(async url => {
+      const u = String(url)
+      if (u.includes('/progress-reports/')) {
+        return {
+          report: {
+            id: 'prep_modal_1',
+            interval: { from: '2026-10-01', to: '2026-11-01' },
+            timezone: 'UTC',
+            summary: 'Evolucao consistente',
+            snapshot: { metrics: {} },
+          },
+        }
+      }
+      return {}
+    })
+
+    await act(async () => {
+      root.render(
+        <ReportDetailModal
+          isOpen={true}
+          onClose={() => {}}
+          reportId="prep_modal_1"
+          linkId="cal_1"
+          athleteId="ath_1"
+          isCoach={true}
+        />
+      )
+    })
+    await settle()
+
+    const pdfBtn = button('Export PDF') || button('Exportar PDF')
+    expect(pdfBtn).toBeDefined()
+    await act(async () => { pdfBtn.click() })
+    await settle()
+
+    expect(exportEvolutionReportPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ reportId: 'prep_modal_1', isCoach: true })
+    )
   })
 })

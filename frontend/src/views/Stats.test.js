@@ -43,4 +43,10 @@ describe('Stats mixed-entry metric contract', () => {
     expect(cssSource).toContain('flex:0 1 auto;max-width:55%;min-width:0;')
     expect(cssSource).toContain('overflow:hidden;text-overflow:ellipsis;white-space:nowrap')
   })
+
+  it('includes the evolution report (PDF) export action', () => {
+    expect(source).toContain("aria-label={t('Evolution report (PDF)')}")
+    expect(source).toContain("title={t('Evolution report (PDF)')}")
+    expect(source).toContain("exportEvolutionReportPdf")
+  })
 })
