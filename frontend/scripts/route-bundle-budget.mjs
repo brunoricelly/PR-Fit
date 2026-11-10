@@ -19,7 +19,7 @@ export const BUDGET = Object.freeze({
   initialAssets: BASELINE.initialAssets,
   largestRaw: 1813000,
   largestGzip: 311000,
-  jsChunks: 176,
+  jsChunks: 180,
 })
 
 const gzipSize = buffer => gzipSync(buffer, { level: 9 }).length

@@ -14,6 +14,7 @@ import { fmtRest } from '../lib/duration.js'
 import Icon from '../components/Icon.jsx'
 import { glyphOf } from '../lib/glyphs.js'
 import { Button, Row, SelectRow, Switch } from '../components/ui.jsx'
+import AiWorkoutGeneratorModal from '../components/AiWorkoutGeneratorModal.jsx'
 import { shareRoutineSheet } from '../components/RoutineShare.jsx'
 import SwipeRow from '../components/SwipeRow.jsx'
 import { workoutControls } from '../lib/workout-controls.js'
@@ -369,6 +370,7 @@ export default function RoutineEdit() {
   const update = useStore(s => s.update)
   const toast = useUI(s => s.toast)
   const r = S.routines.find(x => x.id === id)
+  const [showAiModal, setShowAiModal] = useState(false)
   useEffect(() => { if (!r) nav('/plan') }, [!!r])
   // Editing here has no explicit "save" — every field change persists immediately. A single
   // auto-backup on the way out (not per keystroke) covers the whole editing session, deletion
@@ -441,6 +443,27 @@ export default function RoutineEdit() {
     }
   })
 
+  const applyAiWorkout = (generatedPlan, activeDivisionIndex) => {
+    const division = generatedPlan.divisions[activeDivisionIndex] || generatedPlan.divisions[0]
+    const chosenExercises = division?.exercises || generatedPlan.exercises
+    edit(ex => {
+      ex.splice(0, ex.length, ...chosenExercises.map(item => ({
+        id: item.id,
+        sets: Number(item.sets) || 3,
+        reps: item.reps,
+        restSeconds: Number(item.restSeconds) || 60,
+        notes: item.notes,
+      })))
+    })
+    update(s => {
+      const routine = s.routines.find(x => x.id === id)
+      if (routine && !routine.name.trim()) {
+        routine.name = division.name
+      }
+    })
+    toast(t('Exercícios sugeridos com IA aplicados à rotina!'))
+  }
+
   const units = supersetUnits(r.ex)
   const unitFirst = new Set(units.filter(u => u.length > 1).map(u => u[0]))
   // Each superset gets a letter and each member its place in the round (A1, A2, B1…), so the
@@ -503,7 +526,10 @@ export default function RoutineEdit() {
         had to be scrolled to the bottom before anything could be added. */}
     <div className="row between plan-sec-h routine-ex-h">
       <h4 className="sec">{t('Exercises')}</h4>
-      <Button size="sm" variant="tinted" icon="plus" data-tour="routine-add" onClick={addExercise}>{t('Add exercise')}</Button>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <Button size="sm" variant="tinted" icon="sparkles" onClick={() => setShowAiModal(true)}>{t('Prescribe with AI')}</Button>
+        <Button size="sm" variant="tinted" icon="plus" data-tour="routine-add" onClick={addExercise}>{t('Add exercise')}</Button>
+      </div>
     </div>
     {r.ex.length ? <div ref={reorder.listRef} onClickCapture={reorder.onClickCapture}
       className={'list routine-list' + (reorder.drag ? ' is-reordering' : '')}>{r.ex.map((e, i) => {
@@ -603,5 +629,14 @@ export default function RoutineEdit() {
       })}><Icon name="trash" className="re-act-i" /><span className="lrow-m"><span className="lrow-t">{t('Delete routine')}</span>
         <span className="lrow-s">{t('“{0}” and its exercises will be removed.', r.name)}</span></span></button>
     </div>
+
+    {showAiModal && (
+      <AiWorkoutGeneratorModal
+        isOpen={showAiModal}
+        onClose={() => setShowAiModal(false)}
+        onApply={applyAiWorkout}
+        targetMode="routine"
+      />
+    )}
   </div>
 }

@@ -12,6 +12,7 @@ import { confirmSheet } from '../sheets.jsx'
 import Icon from '../components/Icon.jsx'
 import { Alert, Badge, Button, Field, Input, Modal, EmptyState } from '../components/design-system.jsx'
 import { TextArea, TextField } from '../components/ui.jsx'
+import AiWorkoutGeneratorModal from '../components/AiWorkoutGeneratorModal.jsx'
 import AssessmentPanel from './AssessmentPanel.jsx'
 import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
 import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
@@ -120,6 +121,7 @@ function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex
 
 function RoutineEditor({ athlete, onCreated, onCancel }) {
   const toast = useUI(state => state.toast)
+  const [showAiModal, setShowAiModal] = useState(false)
   const [routine, setRoutine] = useState(() => ({
     name: '',
     startDate: '',
@@ -159,6 +161,28 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
       ...current,
       divisions: current.divisions.filter((_, index) => index !== divisionIndex),
     }))
+  }
+
+  const applyAiWorkout = generatedPlan => {
+    setRoutine(current => ({
+      ...current,
+      name: generatedPlan.name,
+      frequency: generatedPlan.frequency,
+      notes: generatedPlan.notes,
+      divisions: generatedPlan.divisions.map(division => ({
+        name: division.name,
+        exercises: division.exercises.map(exercise => ({
+          name: exercise.name,
+          sets: String(exercise.sets),
+          reps: String(exercise.reps),
+          load: exercise.load || '',
+          restSeconds: String(exercise.restSeconds),
+          notes: exercise.notes || '',
+        })),
+      })),
+    }))
+    setErrors({})
+    toast(p('AI workout prescription applied to routine.'))
   }
 
   const validate = current => {
@@ -224,8 +248,24 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
   }
 
   return <section className="card pro-routine-editor" aria-label={p('Prescribe workout for {0}', athlete.name)}>
-    <div className="pro-editor-title"><div><h3>{p('New workout prescription')}</h3><p>{p('Build the athlete’s A/B/C split with complete exercise guidance.')}</p></div>
-      <Button size="sm" onClick={onCancel}>{p('Cancel')}</Button></div>
+    <div className="pro-editor-title">
+      <div>
+        <h3>{p('New workout prescription')}</h3>
+        <p>{p('Build the athlete’s A/B/C split with complete exercise guidance.')}</p>
+      </div>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <Button
+          size="sm"
+          variant="tinted"
+          onClick={() => setShowAiModal(true)}
+          data-testid="ai-copilot-trigger"
+        >
+          <Icon name="sparkles" />
+          <span style={{ marginLeft: 6 }}>{p('Prescribe with AI')}</span>
+        </Button>
+        <Button size="sm" onClick={onCancel}>{p('Cancel')}</Button>
+      </div>
+    </div>
 
     {Object.keys(errors).length > 0 && (
       <Alert tone="warning" title={p('Please complete required fields before sending.')} style={{ margin: '10px 0' }} />
@@ -288,6 +328,16 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
       <Button size="sm" icon="plus" onClick={addDivision}>{p('Add division')}</Button>
       <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
     </div>
+
+    {showAiModal && (
+      <AiWorkoutGeneratorModal
+        isOpen={showAiModal}
+        initialAthlete={athlete}
+        onClose={() => setShowAiModal(false)}
+        onApply={applyAiWorkout}
+        targetMode="prescription"
+      />
+    )}
   </section>
 }
 

@@ -563,6 +563,8 @@ export const PROFESSIONAL_PT_BR = {
   'Sign in again to continue.': 'Entre novamente para continuar.',
   'Review the selected profile, scope, and expiration.': 'Revise o perfil, o escopo e a expiração selecionados.',
   'Workout prescriptions': 'Prescrições de treino',
+  'Prescribe with AI': 'Prescrever com IA',
+  'AI workout prescription applied to routine.': 'Prescrição com IA aplicada com sucesso à rotina.',
   'Prescribe workout': 'Prescrever treino',
   'Prescribe workout for {0}': 'Prescrever treino para {0}',
   'New workout prescription': 'Nova prescrição de treino',

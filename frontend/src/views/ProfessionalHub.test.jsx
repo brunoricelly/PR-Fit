@@ -497,6 +497,31 @@ describe('ProfessionalHub', () => {
     expect(removeDivBtn).toBeTruthy()
     expect(removeDivBtn.textContent).toContain("Remove division")
   })
+
+  it('opens AI workout copilot modal and applies suggested prescription into routine editor', async () => {
+    const athlete = { id: 'u_athlete_ai', name: 'Atleta IA' }
+    mocks.user = { id: 'u_coach', name: 'Coach', admin: false, profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [{ id: 'cal_ai', status: 'active', scopes: ['training'], athlete }] }
+    mocks.answers[`/api/coach/athletes/${athlete.id}/routines`] = { routines: [] }
+    await mount('/professionals')
+
+    await act(async () => { button('Prescribe workout').click() })
+
+    const aiTrigger = host.querySelector('[data-testid="ai-copilot-trigger"]')
+    expect(aiTrigger).toBeTruthy()
+    expect(aiTrigger.textContent).toContain('Prescribe with AI')
+
+    await act(async () => { aiTrigger.click() })
+
+    const applyBtn = document.body.querySelector('[data-testid="apply-ai-workout-btn"]')
+    expect(applyBtn).toBeTruthy()
+
+    await act(async () => { applyBtn.click() })
+
+    const nameInput = host.querySelector('input[name="routineName"]')
+    expect(nameInput.value).toContain('Hipertrofia')
+    expect(mocks.toast).toHaveBeenCalledWith('AI workout prescription applied to routine.')
+  })
 })
 
   it('renders Nutrition tab for coaches with nutrition specialty and isolates athletes by nutrition scope', async () => {
