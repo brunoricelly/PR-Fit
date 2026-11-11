@@ -92,15 +92,38 @@
 .athlete-week-progress > div { display: grid; gap: var(--ds-space-1); }
 .athlete-week-progress > .ds-button { justify-self: start; }
 
+@media (max-width: 599px) {
+  .dashboard-priority-grid { grid-template-columns: 1fr; }
+  .dashboard-priority-card { min-width: 0; }
+  .dashboard-quick-actions .ds-button,
+  .dashboard-list button { min-height: 44px; }
+}
+
 @media (max-width: 30rem) {
   .dashboard-page { padding-inline: var(--ds-space-3); }
+  .dashboard-shell { width: 100%; max-width: 100%; min-width: 0; }
   .dashboard-section-heading-row { align-items: flex-start; }
   .dashboard-secondary .dashboard-section-heading-row { flex-direction: column; }
-  .dashboard-quick-actions .ds-button { padding-inline: var(--ds-space-3); }
+  .dashboard-quick-actions > div { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--ds-space-2); }
+  .dashboard-quick-actions .ds-button { padding-inline: var(--ds-space-3); min-height: 44px; min-width: 0; }
+  .dashboard-priority-card, .athlete-summary-card, .athlete-primary-card { min-width: 0; max-width: 100%; }
   .first-steps-header { display: grid; }
   .first-steps-header > .ds-button { justify-self: start; }
   .first-steps-actions { grid-column: 1 / -1; }
   .first-steps-actions .ds-button { flex: 1 1 9rem; }
+}
+
+@media (max-width: 340px) {
+  .dashboard-quick-actions > div { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 600px) and (max-width: 999px) {
+  .dashboard-page {
+    padding: max(var(--sat, 0px), var(--ds-space-6)) var(--ds-space-5) calc(7.5rem + var(--sab, 0px));
+  }
+  .dashboard-shell {
+    gap: var(--ds-space-5);
+  }
 }
 
 @media (min-width: 48rem) {

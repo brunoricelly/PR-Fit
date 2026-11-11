@@ -676,6 +676,42 @@ h4.sec{
 }
 @keyframes ping{0%{transform:scale(1);opacity:.7}100%{transform:scale(1.45);opacity:0}}
 
+/* ------------------------------------------- mobile tabbar (≤440px / ≤360px) --- */
+@media (max-width: 440px) {
+  #tabbar,
+  .coach-tabbar {
+    padding-inline: 2px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  #tabbar::-webkit-scrollbar,
+  .coach-tabbar::-webkit-scrollbar {
+    display: none;
+  }
+  #tabbar button,
+  .coach-tabbar button {
+    min-width: 0;
+    padding: 4px 1px 2px;
+    font-size: 9px;
+    letter-spacing: -0.01em;
+  }
+  #tabbar button .icn,
+  .coach-tabbar button .icn {
+    font-size: 22px;
+  }
+}
+@media (max-width: 360px) {
+  #tabbar button,
+  .coach-tabbar button {
+    font-size: 8.5px;
+  }
+  #tabbar button .icn,
+  .coach-tabbar button .icn {
+    font-size: 20px;
+  }
+}
+
 /* NOTE on every backdrop-filter pair in this file: the -webkit- line comes first and the
    standard property last, which is the order a prefixed/standard pair wants — whichever is
    written last wins in the cascade, and that should be the standard name.
@@ -2725,6 +2761,14 @@ button.wl-summary{width:100%;padding:0 0 10px;text-align:start;border-radius:var
 @media (hover:hover){
   .today-row:hover{background:var(--surface-3);background:color-mix(in srgb,var(--surface-2),var(--surface-3) 60%)}
   :root[data-theme="light"] .today-row:hover{background:var(--surface-3);background:color-mix(in srgb,var(--surface-2),var(--surface-3) 85%)}
+}
+
+/* ---------------------------------------------------- tablet (600px–999px) --- */
+@media (min-width: 600px) and (max-width: 999px) {
+  #app {
+    max-width: 760px;
+    padding-inline: 24px;
+  }
 }
 
 /* --------------------------------------------------- desktop (≥1000px) --- */
