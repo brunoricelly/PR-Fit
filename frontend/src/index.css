@@ -680,7 +680,9 @@ h4.sec{
 @media (max-width: 440px) {
   #tabbar,
   .coach-tabbar {
-    padding-inline: 2px;
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 2px max(calc(4px + var(--sab)), 8px);
     overflow-x: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
@@ -691,24 +693,41 @@ h4.sec{
   }
   #tabbar button,
   .coach-tabbar button {
+    flex: 1 1 0;
     min-width: 0;
-    padding: 4px 1px 2px;
-    font-size: 9px;
-    letter-spacing: -0.01em;
+    max-width: 14.28%;
+    padding: 2px 0;
+    gap: 2px;
   }
-  #tabbar button .icn,
-  .coach-tabbar button .icn {
-    font-size: 22px;
-  }
-}
-@media (max-width: 360px) {
-  #tabbar button,
-  .coach-tabbar button {
+  #tabbar button span,
+  .coach-tabbar button span {
     font-size: 8.5px;
+    letter-spacing: -0.02em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    display: block;
+    text-align: center;
+  }
+  #tabbar button .tab-ic,
+  .coach-tabbar button .tab-ic {
+    display: inline-flex;
+    overflow: visible;
   }
   #tabbar button .icn,
   .coach-tabbar button .icn {
     font-size: 20px;
+  }
+}
+@media (max-width: 360px) {
+  #tabbar button span,
+  .coach-tabbar button span {
+    font-size: 7.5px;
+  }
+  #tabbar button .icn,
+  .coach-tabbar button .icn {
+    font-size: 18px;
   }
 }
 

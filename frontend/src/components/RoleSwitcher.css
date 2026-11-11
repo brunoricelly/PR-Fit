@@ -6,7 +6,8 @@
 }
 
 .ds-role-switcher {
-  display: inline-flex;
+  display: flex;
+  width: 100%;
   align-items: center;
   background: var(--surface-2, var(--ds-surface-subtle, #1a231d));
   border: 1px solid var(--sep, var(--ds-border-subtle, #2d3931));
@@ -16,12 +17,13 @@
 }
 
 .ds-role-tab {
+  flex: 1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   min-height: 44px;
-  min-width: 44px;
+  min-width: 0;
   padding: 8px 16px;
   border-radius: var(--r-full, var(--ds-radius-full, 999px));
   border: none;
@@ -47,6 +49,7 @@
 
 .ds-role-tab .icn {
   font-size: 18px;
+  flex-shrink: 0;
 }
 
 @media (max-width: 480px) {

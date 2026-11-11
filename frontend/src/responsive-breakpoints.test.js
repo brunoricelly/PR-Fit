@@ -6,6 +6,7 @@ const dir = import.meta.dirname
 const roleSwitcherCss = readFileSync(resolve(dir, 'components/RoleSwitcher.css'), 'utf8')
 const indexCss = readFileSync(resolve(dir, 'index.css'), 'utf8')
 const dashboardCss = readFileSync(resolve(dir, 'views/dashboard/DashboardHome.css'), 'utf8')
+const proHubCss = readFileSync(resolve(dir, 'views/ProfessionalHub.css'), 'utf8')
 
 describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
   describe('RoleSwitcher mobile rules (<= 480px)', () => {
@@ -41,12 +42,12 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
       expect(indexCss).toContain('overflow-x: auto;')
       expect(indexCss).toContain('scrollbar-width: none;')
       expect(indexCss).toContain('-webkit-overflow-scrolling: touch;')
-      expect(indexCss).toMatch(/font-size:\s*9px;/)
-      expect(indexCss).toMatch(/font-size:\s*22px;/)
-
-      expect(indexCss).toMatch(/@media \(max-width:\s*360px\)/)
       expect(indexCss).toMatch(/font-size:\s*8\.5px;/)
       expect(indexCss).toMatch(/font-size:\s*20px;/)
+
+      expect(indexCss).toMatch(/@media \(max-width:\s*360px\)/)
+      expect(indexCss).toMatch(/font-size:\s*7\.5px;/)
+      expect(indexCss).toMatch(/font-size:\s*18px;/)
     })
   })
 
@@ -66,4 +67,13 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
       expect(dashboardCss).toMatch(/@media \(min-width:\s*600px\) and \(max-width:\s*999px\)/)
     })
   })
-})
+  describe('ProfessionalHub mobile rules', () => {
+    it('handles mobile prescription button and athlete cards on screens <= 480px and <= 600px', () => {
+      expect(proHubCss).toMatch(/@media \(max-width:\s*480px\)/)
+      expect(proHubCss).toMatch(/\.pro-panel-head\s*\{[^}]*flex-wrap:\s*wrap/)
+      expect(proHubCss).toMatch(/@media \(max-width:\s*600px\)/)
+      expect(proHubCss).toMatch(/\.pro-actions button/)
+      expect(proHubCss).toMatch(/min-width:\s*120px/)
+    })
+  })
+});

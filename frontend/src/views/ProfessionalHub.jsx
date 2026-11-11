@@ -724,7 +724,7 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
       )}
 
       {links && links.length > 0 && (
-        <div className="pro-status-filter" role="group" aria-label={p('Filter by status')}>
+        <div className="pro-status-filter pro-choices" role="group" aria-label={p('Filter by status')}>
           <button type="button" className={'pro-choice' + (statusFilter === 'all' ? ' on' : '')} aria-pressed={statusFilter === 'all'} onClick={() => setStatusFilter('all')}>
             {p('All athletes')} ({counts.all})
           </button>
