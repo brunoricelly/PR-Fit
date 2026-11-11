@@ -470,9 +470,9 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children, 
       {link.expiresAt && link.status === 'pending' && <span>{p('Expires {0}', formatDate(link.expiresAt))}</span>}
       {link.endedAt && <span>{p('Ended {0}', formatDate(link.endedAt))}</span>}
     </div>
-    {(canSuspend || canEnd) && <div className="pro-actions">
-      {canSuspend && <Button size="sm" onClick={() => onStatus(link, 'suspended')} style={{ minHeight: '44px' }}>{p('Suspend')}</Button>}
-      {canEnd && <Button size="sm" variant="danger" onClick={() => onStatus(link, 'ended')} style={{ minHeight: '44px' }}>{link.status === 'pending' ? p('Cancel invitation') : p('End relationship')}</Button>}
+    {(canSuspend || canEnd) && <div className="pro-actions pro-card-actions">
+      {canSuspend && <Button size="sm" variant="ghost" onClick={() => onStatus(link, 'suspended')}>{p('Suspend')}</Button>}
+      {canEnd && <Button size="sm" variant="danger-outline" onClick={() => onStatus(link, 'ended')}>{link.status === 'pending' ? p('Cancel invitation') : p('End relationship')}</Button>}
     </div>}
     {children}
   </article>

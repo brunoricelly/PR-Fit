@@ -75,5 +75,16 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
       expect(proHubCss).toMatch(/\.pro-actions button/)
       expect(proHubCss).toMatch(/min-width:\s*120px/)
     })
+
+    it('keeps card action buttons and status filter chips compact on mobile', () => {
+      expect(proHubCss).toMatch(/\.pro-card-actions\s*\{/)
+      expect(proHubCss).toMatch(/\.pro-card-actions (?:\.btn|button|\.ds-button)/)
+      expect(proHubCss).toMatch(/min-height:\s*32px\s*!important/)
+      expect(proHubCss).toMatch(/height:\s*32px\s*!important/)
+      expect(proHubCss).toMatch(/font-size:\s*12px\s*!important/)
+      expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*flex:\s*0 0 auto/)
+      expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*font-size:\s*12px/)
+      expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*min-height:\s*32px/)
+    })
   })
 });

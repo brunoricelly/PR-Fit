@@ -271,6 +271,57 @@
   min-height: 44px;
 }
 
+.pro-card-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.pro-card-actions .btn,
+.pro-card-actions .ds-button,
+.pro-card-actions button {
+  flex: 0 0 auto !important;
+  width: auto !important;
+  min-width: 0 !important;
+  min-height: 32px !important;
+  height: 32px !important;
+  padding: 4px 10px !important;
+  font-size: 12px !important;
+  border-radius: var(--r-full, 999px) !important;
+  font-weight: 500 !important;
+}
+
+.pro-card-actions .btn.danger-outline,
+.pro-card-actions .ds-button.danger-outline,
+.btn.danger-outline,
+.ds-button.danger-outline {
+  background: transparent;
+  color: var(--ds-state-danger, var(--red));
+  border: 1px solid var(--ds-state-danger, var(--red));
+}
+
+.pro-card-actions .btn.danger-outline:hover,
+.pro-card-actions .ds-button.danger-outline:hover,
+.btn.danger-outline:hover,
+.ds-button.danger-outline:hover {
+  background: var(--ds-state-danger-surface, rgba(255, 69, 58, 0.1));
+}
+
+.pro-card-actions .btn.ghost,
+.pro-card-actions .ds-button.ghost {
+  background: transparent;
+  color: var(--label-2, var(--ds-text-secondary));
+  border: 1px solid var(--separator, rgba(255, 255, 255, 0.15));
+}
+
+.pro-card-actions .btn.ghost:hover,
+.pro-card-actions .ds-button.ghost:hover {
+  background: var(--surface-2, rgba(255, 255, 255, 0.08));
+  color: var(--label, var(--ds-text-primary));
+}
+
 @media (max-width: 600px) {
   .pro-actions button,
   .pro-actions .ds-button,
@@ -282,8 +333,30 @@
     padding: 8px 12px;
   }
   .pro-status-filter .pro-choice {
-    flex: 1 1 auto;
-    text-align: center;
+    flex: 0 0 auto;
+    padding: 5px 10px;
+    font-size: 12px;
+    min-height: 32px;
+  }
+  .pro-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .pro-card-actions .btn,
+  .pro-card-actions .ds-button,
+  .pro-card-actions button {
+    flex: 0 0 auto !important;
+    width: auto !important;
+    min-width: 0 !important;
+    min-height: 32px !important;
+    height: 32px !important;
+    padding: 4px 10px !important;
+    font-size: 12px !important;
+    border-radius: var(--r-full, 999px) !important;
+    font-weight: 500 !important;
   }
 }
 
