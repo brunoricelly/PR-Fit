@@ -1,4 +1,61 @@
+.card,
+.pro-link,
+.pro-prescription-panel,
+.nutrition-panel {
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  overflow-x: clip;
+}
+
 .nutrition-panel{margin-top:16px;padding-top:14px;border-top:1px solid var(--separator)}
+
+.pro-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.pro-panel-head button,
+.pro-panel-head .btn,
+.pro-panel-head .ds-button {
+  flex-shrink: 0;
+  margin-right: 0;
+}
+
+.nutrition-quota,
+.pro-empty-inline,
+.pro-dates,
+.pro-link p,
+.pro-panel-head strong {
+  white-space: normal !important;
+  word-break: normal !important;
+  overflow-wrap: break-word !important;
+  line-height: 1.45 !important;
+  max-width: 100% !important;
+}
+
+@media (max-width: 480px) {
+  .pro-panel-head {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .pro-panel-head button,
+  .pro-panel-head .btn,
+  .pro-panel-head .ds-button {
+    flex-shrink: 0;
+    margin-right: 0;
+    font-size: 13px;
+    padding: 6px 12px;
+    white-space: nowrap;
+  }
+}
 .nutrition-panel-skeleton{display:grid;gap:12px;margin-top:14px}
 .nutrition-editor{margin:14px 0;background:var(--surface-2)}
 .nutrition-editor h3,.nutrition-plan-summary h3,.athlete-nutrition h3,.nutrition-dialog h3{margin:0;font-size:var(--fs-title3)}

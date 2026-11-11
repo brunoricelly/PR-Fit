@@ -7,6 +7,7 @@ const roleSwitcherCss = readFileSync(resolve(dir, 'components/RoleSwitcher.css')
 const indexCss = readFileSync(resolve(dir, 'index.css'), 'utf8')
 const dashboardCss = readFileSync(resolve(dir, 'views/dashboard/DashboardHome.css'), 'utf8')
 const proHubCss = readFileSync(resolve(dir, 'views/ProfessionalHub.css'), 'utf8')
+const nutritionCss = readFileSync(resolve(dir, 'views/NutritionPanel.css'), 'utf8')
 
 describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
   describe('RoleSwitcher mobile rules (<= 480px)', () => {
@@ -85,6 +86,21 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
       expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*flex:\s*0 0 auto/)
       expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*font-size:\s*12px/)
       expect(proHubCss).toMatch(/\.pro-status-filter \.pro-choice\s*\{[^}]*min-height:\s*32px/)
+    })
+
+    it('prevents right-edge clipping and wraps card quota text on mobile', () => {
+      expect(proHubCss).toMatch(/\.card[^{]*\.pro-link[^{]*\{[^}]*overflow-x:\s*(?:clip|hidden)/)
+      expect(proHubCss).toMatch(/\.pro-panel-head\s*\{[^}]*justify-content:\s*space-between/)
+      expect(proHubCss).toMatch(/\.pro-panel-head\s*\{[^}]*width:\s*100%/)
+      expect(proHubCss).toMatch(/\.pro-panel-head\s*\{[^}]*box-sizing:\s*border-box/)
+      expect(proHubCss).toMatch(/\.pro-panel-head (?:button|\.btn|\.ds-button)[^{]*\{[^}]*flex-shrink:\s*0/)
+      expect(proHubCss).toMatch(/\.pro-panel-head (?:button|\.btn|\.ds-button)[^{]*\{[^}]*margin-right:\s*0/)
+      expect(proHubCss).toMatch(/\.nutrition-quota[^{]*\{[^}]*overflow-wrap:\s*break-word\s*!important/)
+      expect(proHubCss).toMatch(/\.nutrition-quota[^{]*\{[^}]*white-space:\s*normal\s*!important/)
+      expect(nutritionCss).toMatch(/\.pro-panel-head\s*\{[^}]*justify-content:\s*space-between/)
+      expect(nutritionCss).toMatch(/\.pro-panel-head (?:button|\.btn|\.ds-button)[^{]*\{[^}]*flex-shrink:\s*0/)
+      expect(nutritionCss).toMatch(/\.nutrition-quota[^{]*\{[^}]*overflow-wrap:\s*break-word\s*!important/)
+      expect(nutritionCss).toMatch(/\.card[^{]*\.nutrition-panel[^{]*\{[^}]*overflow-x:\s*(?:clip|hidden)/)
     })
   })
 });
