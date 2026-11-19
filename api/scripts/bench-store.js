@@ -251,7 +251,7 @@ function runPhase(name, extra, { timeoutMs = 900_000 } = {}) {
   });
 }
 
-const memAvailMb = () => { try { return Number(/MemAvailable:\s+(\d+)/.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]) / 1024; } catch { return Infinity; } };
+function memAvailMb() { try { return Number(/MemAvailable:\s+(\d+)/.exec(fs.readFileSync('/proc/meminfo', 'utf8'))[1]) / 1024; } catch { return Infinity; } }
 
 // perWriterMb: estimativa de memoria de cada writer (json: ~5x o texto do db, pois cada save le e
 // serializa o db inteiro). Se a memoria disponivel nao comporta os K writers pedidos, reduz K e REGISTRA.
