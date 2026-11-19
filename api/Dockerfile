@@ -57,6 +57,12 @@ RUN npm ci --omit=dev --omit=optional && npm cache clean --force
 COPY server.js b2b2c.js nutrition-contract.js challenges.js group-programs.js communication-habits.js progress-analytics.js scheduling.js reminder-dispatcher.js serial-write-queue.js db-coordinator.js anthropometrics.js prescription-adoption.js state-write-queue.js push-messages.js nudge.js nudge-copy.js wrapped.js wrapped-copy.js verify-error.js password.js rate-limit.js passkeys-store.js device-link.js watch-relay.js media.js queue.js sync-stamps.js durable.js admin-socket.js recover.js net-guard.js ./
 COPY coach ./coach
 COPY integrations ./integrations
+# The persistence boundary (store/index.js is imported by server.js even with STORE=json, so it is
+# always needed), the SQL schema it applies when STORE=postgres, and the two cutover/rollback tools
+# so that `docker exec <api> node scripts/migrate-json-to-pg.js ...` works inside the container.
+COPY store ./store
+COPY migrations ./migrations
+COPY scripts/migrate-json-to-pg.js scripts/export-pg-to-json.js ./scripts/
 ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
