@@ -27,6 +27,7 @@ import { waitingProposal } from './core/pending.js';
 import { handleFor } from './handle.js';
 import { fetchFor } from './node-fetch.js';
 import { privilegeRefusal, unprivilegedIds } from './adapters/spawn.js';
+import { activeStore } from '../store/index.js';
 import { cohortForPayload, invalidate as invalidateCohort } from './cohort.js';
 
 // The prompt assembly, the plan fingerprint and the invoke→parse→validate→repair loop all
@@ -85,6 +86,8 @@ export function clearUser(uid) {
 
 /** Every profile with a state file — the population a cohort is drawn from. */
 export function listUserIds() {
+  const store = activeStore();
+  if (store) return store.listUserIds();
   try {
     return fs.readdirSync(DATA).filter(f => /^state-[a-zA-Z0-9_-]+\.json$/.test(f)).map(f => f.slice(6, -5));
   } catch { return []; }
@@ -102,6 +105,8 @@ export function setShare(uid, share) {
 }
 
 export function readState(uid) {
+  const store = activeStore();
+  if (store) return store.readState(safe(uid));
   try { return JSON.parse(fs.readFileSync(path.join(DATA, 'state-' + safe(uid) + '.json'), 'utf8')); }
   catch { return null; }
 }

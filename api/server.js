@@ -66,7 +66,8 @@ import { createChallengeRoutes, validateChallengesState, CHALLENGE_LIMITS } from
 import { createGroupProgramRoutes, validateGroupProgramsState, GROUP_PROGRAM_LIMITS } from './group-programs.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
-import { createInterprocessLock, mergeDbCandidate } from './db-coordinator.js';
+import { mergeDbCandidate } from './db-coordinator.js';
+import { createStore } from './store/index.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -259,71 +260,21 @@ const SECRET = fs.readFileSync(secretFile, 'utf8').trim();
 // connections live in DATA_DIR/integrations/, sealed with a key derived from SECRET.
 const integrations = createIntegrations({ dataDir: DATA, secret: SECRET, version: '1' });
 
-const dbFile = path.join(DATA, 'db.json');
-const dbWriteLock = createInterprocessLock({
-  lockPath: dbFile + '.lock',
-  leaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
-  acquireTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
-  retryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+// Persistence goes through store/index.js: STORE=json (default) is the db.json + state-<uid>.json
+// code that used to live here, unchanged; STORE=postgres keeps `db` in memory, loaded from PG at
+// boot, and persists every write in a serial transaction (see store/index.js). A reply is never
+// sent before the writes it depends on are committed: json() waits for store.flush().
+const store = await createStore({
+  dataDir: DATA,
+  lockOptions: {
+    leaseMs: REMINDER_DISPATCH_CONFIG.lockLeaseMs,
+    acquireTimeoutMs: REMINDER_DISPATCH_CONFIG.lockTimeoutMs,
+    retryMs: REMINDER_DISPATCH_CONFIG.lockRetryMs,
+  },
 });
-const dbTxnFile = dbFile + '.txn';
-const dbTxnOldFile = dbFile + '.txn.old';
-const dbTxnNewFile = dbFile + '.txn.new';
-function removeDbTransactionFiles({ strict = false } = {}) {
-  for (const file of [dbTxnFile, dbTxnOldFile, dbTxnNewFile, dbFile + '.next', dbFile + '.bak.next']) {
-    try { fs.unlinkSync(file); }
-    catch (error) {
-      if (error.code === 'ENOENT') continue;
-      if (strict) throw error;
-      console.error('db transaction cleanup failed', path.basename(file), error.message);
-    }
-  }
-  syncDir(DATA);
-}
-function reconcileDbTransaction() {
-  if (!fs.existsSync(dbTxnFile)) return;
-  const transaction = JSON.parse(fs.readFileSync(dbTxnFile, 'utf8'));
-  if (!transaction || !['prepared', 'committed'].includes(transaction.phase)) throw new Error('invalid db transaction journal');
-  const source = transaction.phase === 'committed' ? dbTxnNewFile : dbTxnOldFile;
-  const snapshot = JSON.parse(fs.readFileSync(source, 'utf8'));
-  if (!snapshot || typeof snapshot.exists !== 'boolean' || typeof snapshot.text !== 'string') throw new Error('invalid db transaction snapshot');
-  if (snapshot.exists) {
-    atomicWrite(dbFile, snapshot.text, 0o600);
-    atomicWrite(dbFile + '.bak', snapshot.text, 0o600);
-  } else {
-    for (const file of [dbFile, dbFile + '.bak']) {
-      try { fs.unlinkSync(file); } catch (error) { if (error.code !== 'ENOENT') throw error; }
-    }
-    syncDir(DATA);
-  }
-  removeDbTransactionFiles({ strict: true });
-}
-// Every account, passkey and invite. Only a missing file starts empty: an unreadable one (a write
-// cut short by a power loss, a damaged restore) used to boot with no users at all, and the first
-// save then replaced it — every profile locked out, every training history orphaned, and with
-// FIRST_USER_ADMIN the first visitor made admin. Now the damaged file is kept aside and the copy
-// saveDb keeps of each version it writes (db.json.bak) is used; with neither readable the server
-// refuses to start, saying why, rather than start as a new instance.
-function loadDb() {
-  reconcileDbTransaction();
-  let raw;
-  try { raw = fs.readFileSync(dbFile, 'utf8'); }
-  catch (e) { if (e.code === 'ENOENT') return { users: [], creds: [], subs: [], invites: [] }; throw e; }
-  const parse = text => { const v = JSON.parse(text); if (!v || typeof v !== 'object' || Array.isArray(v)) throw new Error('not an object'); return v; };
-  try { return parse(raw); } catch (err) {
-    const aside = `${dbFile}.unreadable-${Date.now()}`;
-    try { fs.copyFileSync(dbFile, aside); } catch { /* the original stays where it is anyway */ }
-    console.error(`db.json cannot be read (${err.message}); kept a copy as ${path.basename(aside)}`);
-    try {
-      const bak = parse(fs.readFileSync(dbFile + '.bak', 'utf8'));
-      console.error('db.json: using db.json.bak, the copy of the last save');
-      return bak;
-    } catch {
-      console.error('db.json: no readable db.json.bak either. Refusing to start: restore db.json from a backup.');
-      process.exit(1);
-    }
-  }
-}
+const dbWriteLock = store.lock;
+const loadDb = () => store.loadDb();
+const saveDbUnlocked = (candidate, persisted) => store.saveDbUnlocked(candidate, persisted);
 let db = dbWriteLock.withLockSync(() => loadDb());
 let persistedDb = structuredClone(db);
 let b2b2cMigrated = false;
@@ -356,37 +307,7 @@ function ownerId() {
   return db.users.find(isAdmin)?.id || null;
 }
 const isOwner = user => !!user && isAdmin(user) && user.id === ownerId();
-// 0600: db.json holds passkey credential material. It used to be covered by a blanket 0700 on
-// the whole directory; now that the directory stays traversable, the file carries its own mode.
-// Once the new version is on disk, a second copy of it goes to db.json.bak, the same durable
-// way: loadDb falls back to it. A copy of the version being replaced, as it used to be, lost
-// whatever the last save wrote (a profile just created) when db.json was later found unreadable.
-// A write cut short leaves the previous db.json.bak whole (temporary file and rename).
-function saveDbUnlocked(candidate = db) {
-  const failMarker = process.env.B2B2C_DB_FAIL_FILE;
-  if (failMarker && fs.existsSync(failMarker)) {
-    fs.unlinkSync(failMarker);
-    throw new Error('injected db write failure');
-  }
-  const text = JSON.stringify(candidate, null, 2);
-  const previous = fs.existsSync(dbFile) ? fs.readFileSync(dbFile, 'utf8') : '';
-  atomicWrite(dbTxnOldFile, JSON.stringify({ exists: fs.existsSync(dbFile), text: previous }), 0o600);
-  atomicWrite(dbTxnNewFile, JSON.stringify({ exists: true, text }), 0o600);
-  atomicWrite(dbTxnFile, JSON.stringify({ phase: 'prepared' }), 0o600);
-  atomicWrite(dbFile + '.next', text, 0o600);
-  const backupFailMarker = process.env.B2B2C_DB_BACKUP_FAIL_FILE;
-  if (backupFailMarker && fs.existsSync(backupFailMarker)) {
-    fs.unlinkSync(backupFailMarker);
-    throw new Error('injected db backup write failure');
-  }
-  atomicWrite(dbFile + '.bak.next', text, 0o600);
-  fs.renameSync(dbFile + '.bak.next', dbFile + '.bak');
-  syncDir(DATA);
-  fs.renameSync(dbFile + '.next', dbFile);
-  syncDir(DATA);
-  atomicWrite(dbTxnFile, JSON.stringify({ phase: 'committed' }), 0o600);
-  removeDbTransactionFiles();
-}
+// (db.json is written 0600 and kept as a durable .bak copy by the json store, store/index.js.)
 function replaceDbArray(target, source) {
   const keyed = new Map(target.filter(item => item && typeof item === 'object' && !Array.isArray(item) && typeof item.id === 'string').map(item => [item.id, item]));
   const next = source.map((item, index) => {
@@ -428,6 +349,8 @@ function publishDb(candidate) {
   replaceDbObject(db, candidate);
   persistedDb = structuredClone(candidate);
 }
+// After a failed PostgreSQL write the store re-reads what is really stored: adopt it.
+store.setResyncHandler?.(stored => { replaceDbObject(db, stored); persistedDb = structuredClone(stored); });
 if (b2b2cMigrated) {
   dbWriteLock.withLockSync(() => {
     const latest = loadDb();
@@ -498,19 +421,12 @@ function notePull(user, now = Date.now()) {
 }
 // The later of the last push and the last pull.
 const lastSyncOf = (u, S) => Math.max(S?._ts || 0, u?.lastPull || 0) || null;
-function readState(uid) {
-  try { return JSON.parse(fs.readFileSync(stateFile(uid), 'utf8')); } catch { return null; }
-}
+function readState(uid) { return store.readState(uid); }
 // GET and PUT /api/data tell a profile with no state yet from one whose file cannot be read: the
 // second answers 503 instead of an empty profile, which a device would adopt, or a write would
 // replace, losing what a restore could still bring back.
 const UNREADABLE = Symbol('unreadable');
-function readStateStrict(uid) {
-  let raw;
-  try { raw = fs.readFileSync(stateFile(uid), 'utf8'); }
-  catch (e) { return e.code === 'ENOENT' ? null : UNREADABLE; }
-  try { return JSON.parse(raw); } catch { return UNREADABLE; }
-}
+function readStateStrict(uid) { return store.readStateStrict(uid, UNREADABLE); }
 // A stored document as a client gets it: without the server's own notes `_unstamped` and `_prior`.
 function forClient(S) {
   if (!S || typeof S !== 'object' || !('_unstamped' in S || '_prior' in S)) return S;
@@ -722,9 +638,16 @@ const STATE_CACHE_MAX = 64;
 // it, as they do REMINDER_TICK_MS.
 const STATE_CACHE_TTL_MS = Math.max(50, +(process.env.STATE_CACHE_TTL_MS || 600000) || 600000);
 const stateCache = new Map(); // uid -> { mtimeMs, size, hitAt, S }
+// File identity of a profile document for the caches below: mtime and size on disk (json); under
+// postgres the store's per-document version, which moves on every commit.
+function stateStat(uid) {
+  if (store.kind === 'json') { try { return fs.statSync(stateFile(uid)); } catch { return null; } }
+  const version = store.stateVersion(uid);
+  return version === null ? null : { mtimeMs: +version, size: 0 };
+}
 function readStateCached(uid) {
-  let st;
-  try { st = fs.statSync(stateFile(uid)); } catch { stateCache.delete(uid); return null; }
+  const st = stateStat(uid);
+  if (!st) { stateCache.delete(uid); return null; }
   const now = Date.now();
   for (const [k, v] of stateCache) if (now - v.hitAt > STATE_CACHE_TTL_MS) stateCache.delete(k);
   const hit = stateCache.get(uid);
@@ -734,13 +657,13 @@ function readStateCached(uid) {
     stateCache.set(uid, hit);
     return hit.S;
   }
-  const S = readState(uid);
+  const S = store.kind === 'json' ? readState(uid) : store.peekState(uid);
   stateCache.set(uid, { mtimeMs: st.mtimeMs, size: st.size, hitAt: now, S });
   while (stateCache.size > STATE_CACHE_MAX) stateCache.delete(stateCache.keys().next().value);
   return S;
 }
 function commitState(uid, previous, next, text) {
-  atomicWrite(stateFile(uid), text);
+  store.commitState(uid, previous, next, text);
   // mtime granularity and equal-sized revisions can otherwise leave this cache on the old copy.
   stateCache.delete(uid);
   if (MEDIA_ON) {
@@ -749,6 +672,9 @@ function commitState(uid, previous, next, text) {
   try { integrations.onStateWrite(uid, previous, next); } catch (error) { console.error('integrations onStateWrite', error); }
 }
 
+// A journal may only disappear once the writes it covers are committed: immediate under json,
+// after the queued PostgreSQL transactions under postgres.
+function afterCommitUnlink(file) { store.afterCommit(() => fs.unlinkSync(file)); }
 const ADOPTION_JOURNAL_PREFIX = 'prescription-adoption-';
 const GROUP_ADOPTION_JOURNAL_PREFIX = 'group-program-adoption-';
 const adoptionJournalFile = (uid, prescriptionId) => path.join(DATA,
@@ -847,7 +773,7 @@ function finishAdoptionJournal(file, journal, req) {
   if (!alreadyAudited && !audit(req, 'b2b2c.prescription.adopt', { user: db.users.find(user => user.id === journal.uid), target: coach, msg: prescription.id, tx: journal.tx })) {
     throw new Error(`could not audit prescription adoption ${journal.tx}`);
   }
-  fs.unlinkSync(file);
+  afterCommitUnlink(file);
   return { prescription, routineIds: [...journal.routineIds] };
 }
 function finishGroupAdoptionJournal(file, journal, req, latest) {
@@ -880,7 +806,7 @@ function finishGroupAdoptionJournal(file, journal, req, latest) {
   if (!alreadyAudited && !audit(req, 'athlete.group-program.adopt', { user: latest.users.find(user => user.id === journal.uid), msg: journal.programId, tx: journal.tx })) {
     throw new Error(`could not audit group program adoption ${journal.tx}`);
   }
-  fs.unlinkSync(file);
+  afterCommitUnlink(file);
   return { programId: journal.programId, routineIds: [...stored.routineIds], adoptedAt: stored.adoptedAt, idempotent: false };
 }
 function recoverAdoptionJournals() {
@@ -930,8 +856,8 @@ function nudgeTick(user, S, now) {
 // user's windows is open and something could still be sent.
 const stateSummaries = new Map(); // uid -> { mtimeMs, size, rem, consent, settled }
 function stateSummary(uid) {
-  let st;
-  try { st = fs.statSync(stateFile(uid)); } catch { stateSummaries.delete(uid); return null; }
+  const st = stateStat(uid);
+  if (!st) { stateSummaries.delete(uid); return null; }
   const had = stateSummaries.get(uid);
   if (had && had.mtimeMs === st.mtimeMs && had.size === st.size) return had;
   const S = readStateCached(uid);
@@ -1262,6 +1188,21 @@ function watchLinkFor(req) {
 
 /* ---------- helpers ---------- */
 function json(res, code, obj, extraHeaders) {
+  // STORE=postgres: db writes are queued while the handler runs; nothing is answered before they
+  // are committed, and a failed commit answers 500 instead of a success that did not stick.
+  if (store.hasPending() && !res.headersSent) {
+    if (res.deferredJson) return;
+    res.deferredJson = true;
+    store.flush().then(() => sendJson(res, code, obj, extraHeaders), error => {
+      console.error('store write failed; answering 500:', error.message);
+      sendJson(res, 500, { error: 'server error' });
+    });
+    return;
+  }
+  sendJson(res, code, obj, extraHeaders);
+}
+function sendJson(res, code, obj, extraHeaders) {
+  if (res.headersSent || res.writableEnded) return;
   const body = JSON.stringify(obj);
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(extraHeaders || {}) });
   res.end(body);
@@ -2094,7 +2035,7 @@ function executeAccountCleanup(job) {
     return updated;
   }
   const actions = {
-    state: () => cleanupUnlink(stateFile(userId)),
+    state: () => store.deleteState(userId),
     watch: () => cleanupUnlink(watchFile(userId)),
     coachAuth: () => coachConfig.clearProfileAuth(userId),
     media: () => MEDIA.removeUser(userId),
@@ -3093,7 +3034,7 @@ const routes = {
   // what "unhealthy" is for. The 200 keeps the shape it had, plus the flag it is now asserting.
   'GET /api/health': async (req, res) => {
     if (!dataWritable()) return json(res, 503, { ok: false, writable: false });
-    json(res, 200, { ok: true, users: db.users.length, writable: true, schedulingReminders: reminderHealth() });
+    json(res, 200, { ok: true, store: store.kind, users: db.users.length, writable: true, schedulingReminders: reminderHealth() });
   },
 
   'GET /api/admin/scheduling-reminders/status': async (req, res) => {
@@ -5394,6 +5335,7 @@ server.headersTimeout = 60000;
 // port that was actually bound: with PORT=0 the OS picks one, and a caller that did not choose it
 // (the tests spawn the server that way, and so does anyone running two instances on one box) has
 // no other way to learn it.
+await store.flush(); // boot-time migrations and journal recoveries are committed before serving
 server.listen(PORT, () => {
   console.log(`gym-api on :${server.address().port} (rpID=${RP_ID}, origin=${ORIGIN})`);
   appointmentReminderDispatcher.start();
@@ -5406,7 +5348,7 @@ async function shutdownServer() {
   shuttingDown = true;
   server.closeAllConnections?.();
   server.close();
-  try { await appointmentReminderDispatcher.stop(); }
+  try { await appointmentReminderDispatcher.stop(); await store.close(); }
   finally { process.exit(0); }
 }
 process.once('SIGTERM', shutdownServer);

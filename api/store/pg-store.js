@@ -3,7 +3,8 @@
 //   saveDiff(pool, diff)      -> applies a diffDb() result in ONE transaction under pg_advisory_xact_lock
 //   saveAll(pool, db)         -> diffs db against what is stored (inside the same lock) and applies it
 //   getUserState / putUserState -> per-user profile docs with optimistic UPDATE ... WHERE rev = $n
-import { ARRAYS_META_KEY, diffDb } from './diff.js';
+import { ARRAYS_META_KEY, canonicalize, diffDb } from './diff.js';
+import { mergeDbCandidate } from '../db-coordinator.js';
 
 // Serialises every db writer (distinct from the migration lock).
 export const STORE_LOCK_KEY = 7243002;
@@ -114,6 +115,28 @@ export function saveAll(pool, db, keyFns) {
     const diff = diffDb(await loadAll(client), db, keyFns);
     await applyDiff(client, diff);
     return diff;
+  });
+}
+
+/**
+ * The server's saveDb under the advisory lock: re-read the stored db inside the transaction (the
+ * `latest` the JSON lock path reads), three-way merge `candidate` onto it using `base` (what the
+ * caller started from), and apply only the row-level diff. Throws ConcurrentDbWriteError when
+ * another process changed the same top-level key. Returns the merged document.
+ */
+export function saveMerged(pool, base, candidate, keyFns) {
+  return inTx(pool, async client => {
+    const latest = await loadAll(client);
+    // PG returns rows in insertion order (seq), the in-memory arrays may have been re-sorted since
+    // (compactB2B2C): the same rows in another order are not another writer's change.
+    for (const key of Object.keys(latest)) {
+      const l = latest[key], b = base[key];
+      if (Array.isArray(l) && Array.isArray(b) && l.length === b.length
+          && canonicalize(l.map(canonicalize).sort()) === canonicalize(b.map(canonicalize).sort())) latest[key] = structuredClone(b);
+    }
+    const merged = mergeDbCandidate(latest, base, candidate);
+    await applyDiff(client, diffDb(latest, merged, keyFns));
+    return merged;
   });
 }
 
