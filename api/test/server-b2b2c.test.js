@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
+import { readDb, readDbText, readDbSize, readState } from './helpers/read-db.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -83,8 +84,8 @@ test('B2B2C profile, invite, relationship isolation and persistence', async t =>
   let result = await request(server, IDS.legacy, 'GET', '/api/me');
   assert.equal(result.status, 200);
   assert.deepEqual(result.body.user, { id: IDS.legacy, name: 'Legacy', admin: false });
-  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(dataDir, `state-${IDS.legacy}.json`), 'utf8')).workouts, [{ id: 'w_legacy' }]);
-  let stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  assert.deepEqual((await readState(dataDir, IDS.legacy)).workouts, [{ id: 'w_legacy' }]);
+  let stored = (await readDb(dataDir));
   assert.equal(stored.schemaVersion, 10);
   assert.ok(Array.isArray(stored.coachInvites));
   assert.ok(Array.isArray(stored.coachAthleteLinks));
@@ -110,7 +111,7 @@ test('B2B2C profile, invite, relationship isolation and persistence', async t =>
   const linkId = result.body.invite.linkId;
   assert.match(inviteToken, /^[A-Za-z0-9_-]{40,}$/);
 
-  stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  stored = (await readDb(dataDir));
   const diskInvite = stored.coachInvites.find(invite => invite.id === result.body.invite.id);
   assert.ok(diskInvite.tokenHash);
   assert.equal(JSON.stringify(stored).includes(inviteToken), false);

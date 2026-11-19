@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
+import { readDb, readDbText, readDbSize, readState } from './helpers/read-db.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -115,7 +116,7 @@ test('creation and acceptance are rate limited independently by account and addr
     B2B2C_PENDING_INVITES_PER_COACH: '10',
     B2B2C_INVITE_CREATE_ACCOUNT_MAX: '50', B2B2C_INVITE_CREATE_IP_MAX: '2',
   });
-  assert.equal((await createInvite(server, USERS.coachA.id, '203.0.113.9')).status, 201);
+  { const r = await createInvite(server, USERS.coachA.id, '203.0.113.9'); assert.equal(r.status, 201, JSON.stringify(r.body) + server.log()); }
   assert.equal((await createInvite(server, USERS.coachB.id, '203.0.113.9')).status, 201);
   const ipLimited = await createInvite(server, USERS.coachB.id, '203.0.113.9');
   assert.deepEqual([ipLimited.status, ipLimited.body.code], [429, 'rate_limited']);
@@ -157,17 +158,17 @@ test('terminal invitations and links compact to fixed bounds and stay compact af
       linkId: accepted.body.link.id, status: 'ended',
     }, `192.0.2.${index + 1}`);
     assert.equal(ended.status, 200, JSON.stringify(ended.body));
-    const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+    const stored = (await readDb(dataDir));
     assert.ok(stored.coachInvites.length <= 2);
     assert.ok(stored.coachAthleteLinks.length <= 2);
-    sizes.push(fs.statSync(path.join(dataDir, 'db.json')).size);
+    sizes.push((await readDbSize(dataDir)));
   }
   assert.ok(Math.max(...sizes.slice(3)) - Math.min(...sizes.slice(3)) < 256, sizes.join(','));
 
-  const before = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const before = (await readDbText(dataDir));
   await stop(server);
   server = await launch(dataDir, tightStorage);
-  const after = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const after = (await readDbText(dataDir));
   assert.equal(after, before);
   const compact = JSON.parse(after);
   assert.ok(compact.coachInvites.length <= 2);
@@ -204,14 +205,14 @@ test('dependent terminal links consume the hard limit and block further invites 
   const blocked = await createInvite(server, USERS.coachA.id, '198.51.100.99');
   assert.deepEqual([blocked.status, blocked.body.code], [409, 'relationship_capacity']);
   await stop(server);
-  const beforeRestartRaw = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const beforeRestartRaw = (await readDbText(dataDir));
   const beforeRestart = JSON.parse(beforeRestartRaw);
   assert.deepEqual([beforeRestart.coachAthleteLinks.length, beforeRestart.coachMessages.length], [3, 3]);
   assert.ok(beforeRestart.coachAthleteLinks.every(link => link.tombstone === true));
   const retainedIds = beforeRestart.coachAthleteLinks.map(link => link.id).sort();
 
   server = await launch(dataDir, retainedStorage);
-  const afterRestartRaw = fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8');
+  const afterRestartRaw = (await readDbText(dataDir));
   const afterRestart = JSON.parse(afterRestartRaw);
   assert.equal(afterRestartRaw, beforeRestartRaw);
   assert.deepEqual(afterRestart.coachAthleteLinks.map(link => link.id).sort(), retainedIds);
@@ -250,7 +251,7 @@ test('boot compacts an inflated legacy set of live pending invitations to global
   const dataDir = makeDataDir(t, { coachInvites: expired, coachAthleteLinks: links });
   const server = await launch(dataDir, tightStorage);
   t.after(() => stop(server));
-  const stored = JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8'));
+  const stored = (await readDb(dataDir));
   assert.equal(stored.coachInvites.length, 6);
   assert.equal(stored.coachAthleteLinks.length, 6);
   assert.deepEqual(stored.coachAthleteLinks.map(link => link.id), links.slice(-6).map(link => link.id));

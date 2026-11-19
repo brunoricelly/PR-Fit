@@ -7,6 +7,7 @@ import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
+import { readDb, readDbText, readDbSize, readState, isPostgres } from './helpers/read-db.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -37,6 +38,18 @@ async function stop(child) {
   if (child.exitCode !== null) return;
   child.kill('SIGTERM');
   await new Promise(resolve => child.once('exit', resolve));
+}
+
+// STORE=postgres enforces foreign keys, so a legacy db.json whose links point at users that are not
+// in it cannot be imported: the contract there is the same as for other invalid data, refuse boot.
+async function expectOrphanRefusedOnPostgres(sample) {
+  if (!isPostgres()) return false;
+  const server = start(sample.dataDir);
+  assert.equal(await server.exit, 1);
+  assert.match(server.log(), /orphan reference.*Refusing to start/s);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), sample.raw);
+  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json.bak'), 'utf8'), sample.backup);
+  return true;
 }
 
 function schedulingFixture(appointments) {
@@ -127,7 +140,7 @@ test('a valid legacy baseline with missing B2B2C fields migrates once', async t 
   const server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+  const stored = (await readDb(sample.dataDir));
   assert.equal(stored.schemaVersion, 10);
   assert.deepEqual(stored.coachInvites, []);
   assert.deepEqual(stored.coachAthleteLinks, []);
@@ -154,7 +167,7 @@ test('known schema versions migrate to version 10', async t => {
     const server = start(sample.dataDir);
     await boundPort(server.child, server.log);
     await stop(server.child);
-    const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+    const stored = (await readDb(sample.dataDir));
     assert.equal(stored.schemaVersion, 10);
     assert.deepEqual(stored.coachInvites, []);
     assert.deepEqual(stored.coachAthleteLinks, []);
@@ -193,7 +206,7 @@ test('version 9 nutrition adherence migrates once with a reproducible legacy sna
   let server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  const firstText = fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8');
+  const firstText = (await readDbText(sample.dataDir));
   const first = JSON.parse(firstText);
   assert.equal(first.schemaVersion, 10);
   assert.equal(first.mealPlans[0].nutritionContractVersion, 1);
@@ -203,7 +216,7 @@ test('version 9 nutrition adherence migrates once with a reproducible legacy sna
   server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), firstText);
+  assert.equal((await readDbText(sample.dataDir)), firstText);
 });
 
 test('nutrition migration save failure leaves disk untouched and the next restart migrates cleanly', async t => {
@@ -218,7 +231,7 @@ test('nutrition migration save failure leaves disk untouched and the next restar
   server = start(sample.dataDir, { B2B2C_DB_FAIL_FILE: failFile });
   await boundPort(server.child, server.log);
   await stop(server.child);
-  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+  const stored = (await readDb(sample.dataDir));
   assert.equal(stored.schemaVersion, 10);
   assert.deepEqual(stored.mealPlanTombstones, []);
 });
@@ -262,10 +275,11 @@ test('historical archived goals and revoked reports migrate once without changin
       timezone: 'UTC', metrics: ['body_weight'], summary: 'body_weight: historical.', snapshot, createdAt: timestamp, revokedAt: timestamp,
     }],
   });
+  if (await expectOrphanRefusedOnPostgres(sample)) return;
   let server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  const firstText = fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8');
+  const firstText = (await readDbText(sample.dataDir));
   const first = JSON.parse(firstText);
   assert.deepEqual({ unit: first.progressGoals[0].unit, rev: first.progressGoals[0]._rev, reason: first.progressGoals[0].archiveReason }, { unit: 'kg', rev: 1, reason: 'manual' });
   assert.equal(first.progressReports[0].revocation, null);
@@ -276,7 +290,7 @@ test('historical archived goals and revoked reports migrate once without changin
   server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  assert.equal(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'), firstText);
+  assert.equal((await readDbText(sample.dataDir)), firstText);
 });
 
 test('version 3 assessment PAR-Q answers migrate to stable question ids without granting new consent', async t => {
@@ -290,10 +304,11 @@ test('version 3 assessment PAR-Q answers migrate to stable question ids without 
       parq: { answers: [false, false, false, false, false, false, true], notes: 'legacy' },
     }],
   });
+  if (await expectOrphanRefusedOnPostgres(sample)) return;
   const server = start(sample.dataDir);
   await boundPort(server.child, server.log);
   await stop(server.child);
-  const stored = JSON.parse(fs.readFileSync(path.join(sample.dataDir, 'db.json'), 'utf8'));
+  const stored = (await readDb(sample.dataDir));
   assert.deepEqual(stored.coachAthleteLinks[0].scopes, ['training']);
   assert.equal(stored.coachAssessments[0].parq.version, '2024.1');
   assert.equal(stored.coachAssessments[0].parq.answers[6].questionId, 'other_reason');
