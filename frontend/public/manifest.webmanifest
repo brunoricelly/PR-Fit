@@ -2,7 +2,7 @@
   "id": "./",
   "name": "PR Fit",
   "short_name": "PR Fit",
-  "description": "Personal gym & body weight tracker",
+  "description": "Treino, nutrição e evolução com seu personal — PR Fit",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
@@ -10,7 +10,7 @@
   "orientation": "portrait",
   "background_color": "#0c0e12",
   "theme_color": "#0c0e12",
-  "lang": "en",
+  "lang": "pt-BR",
   "dir": "ltr",
   "categories": ["fitness", "health", "sports"],
   "prefer_related_applications": false,
@@ -22,14 +22,14 @@
   ],
   "shortcuts": [
     {
-      "name": "Workout",
-      "short_name": "Workout",
+      "name": "Treino",
+      "short_name": "Treino",
       "url": "./#/workout",
       "icons": [{ "src": "icon-180.png", "sizes": "180x180" }]
     },
     {
-      "name": "Plan",
-      "short_name": "Plan",
+      "name": "Plano",
+      "short_name": "Plano",
       "url": "./#/plan",
       "icons": [{ "src": "icon-180.png", "sizes": "180x180" }]
     }

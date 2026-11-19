@@ -661,7 +661,12 @@ export const PROFESSIONAL_PT_BR = {
   'Required skinfolds (mm)': 'Dobras obrigatórias (mm)', 'Circumferences (cm)': 'Perímetros (cm)', 'Bioimpedance': 'Bioimpedância',
   'Body fat (%)': 'Gordura corporal (%)', 'Muscle mass (kg)': 'Massa muscular (kg)', 'Water (%)': 'Água (%)', 'Visceral fat': 'Gordura visceral',
   'Anamnesis': 'Anamnese', 'Relevant health history': 'Histórico de saúde relevante', 'Injuries': 'Lesões', 'Medications': 'Medicamentos', 'Goals': 'Objetivos', 'Contraindications': 'Contraindicações',
-  'PAR-Q notes': 'Notas do PAR-Q', 'Notes': 'Notas', 'Yes': 'Sim', 'No': 'Não', 'Assessment progress photo': 'Foto de progresso da avaliação',
+  'PAR-Q notes': 'Notas do PAR-Q',
+  'Challenge status updated to {0}.': 'Status do desafio atualizado para {0}.',
+  'No date exceptions configured.': 'Nenhuma exceção de data configurada.',
+  'Screening only; does not replace a medical evaluation.': 'Triagem; não substitui avaliação médica.',
+  'One or more PAR-Q answers require evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.': 'Uma ou mais respostas do PAR-Q exigem avaliação e liberação de profissional de saúde qualificado antes da atividade física. Isto não é um diagnóstico.',
+  'Check every question you answer YES to. If you answer YES to any question, talk to a doctor before becoming more physically active.': 'Marque todas as perguntas para as quais a resposta é SIM. Se responder SIM a qualquer uma, converse com um médico antes de aumentar o seu nível de atividade física.', 'Notes': 'Notas', 'Yes': 'Sim', 'No': 'Não', 'Assessment progress photo': 'Foto de progresso da avaliação',
   'Add progress photos': 'Adicionar fotos de progresso', 'Processing photos…': 'Processando fotos…', 'Remove photo': 'Remover foto', '{0} of 6 photos': '{0} de 6 fotos',
   'Medical clearance required': 'Liberação profissional necessária',
   'A positive PAR-Q answer requires evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.': 'Uma resposta positiva no PAR-Q exige avaliação e liberação de profissional de saúde qualificado antes da atividade física. Isto não é um diagnóstico.',
@@ -1015,6 +1020,23 @@ export const PROFESSIONAL_PT_BR = {
   'For decrease, target must be less than baseline.': 'Para redução, o alvo deve ser menor que o inicial.',
   'For maintain, target must equal baseline.': 'Para manutenção, o alvo deve ser igual ao inicial.',
   'Review the goal revision before saving.': 'Revise a revisão da meta antes de salvar.',
+}
+
+// PAR-Q (Questionário de Prontidão para Atividade Física), versão 2024.1 — as 7 perguntas
+// oficiais, por id (os ids vêm da API e não mudam). A API devolve o texto em inglês; aqui
+// o texto exibido é escolhido pelo idioma.
+export const PARQ_PT_BR = {
+  heart_condition: 'Algum médico já disse que você tem um problema de coração e que só deveria praticar atividade física recomendada por um médico?',
+  chest_pain_activity: 'Você sente dor no peito quando pratica atividade física?',
+  chest_pain_rest: 'No último mês, você sentiu dor no peito quando não estava praticando atividade física?',
+  balance_consciousness: 'Você perde o equilíbrio por causa de tontura ou já perdeu a consciência alguma vez?',
+  bone_joint: 'Você tem algum problema ósseo ou articular que poderia piorar com uma mudança na sua atividade física?',
+  blood_pressure_medicine: 'Algum médico receita atualmente medicamentos para a sua pressão arterial ou para o coração?',
+  other_reason: 'Você sabe de algum outro motivo pelo qual não deveria praticar atividade física?',
+}
+
+export function parqQuestionText(id, fallback) {
+  return getLang() === 'pt-BR' && PARQ_PT_BR[id] ? PARQ_PT_BR[id] : fallback
 }
 
 export function professionalText(source, ...args) {

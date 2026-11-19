@@ -205,7 +205,7 @@ export default function CoachChallengesView({ embedded = false, headingLevel }) 
         setSelectedChallengeId(null)
       } else {
         await updateCoachChallenge(id, { status: targetStatus })
-        toast(p(`Challenge status updated to ${targetStatus}.`) || `Status atualizado para ${targetStatus}.`)
+        toast(p('Challenge status updated to {0}.', p({ draft: 'Draft', active: 'Active', completed: 'Completed', archived: 'Archived' }[targetStatus] || targetStatus).toLowerCase()))
         if (selectedChallengeId === id) {
           const updated = await getCoachChallengeLeaderboard(id, { limit: 50, feedlimit: 30 })
           setLeaderboardData(updated)

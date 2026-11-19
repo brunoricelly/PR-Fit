@@ -21,7 +21,7 @@ describe('effectiveLang', () => {
   it('gives an unpicked copy the instance default, then the browser\'s language', () => {
     expect(effectiveLang(auto, { default_lang: 'fr' }, ['it'])).toBe('fr')
     expect(effectiveLang(auto, { default_lang: '' }, ['it-IT'])).toBe('it')
-    expect(effectiveLang(auto, { default_lang: '' }, ['nl'])).toBe('en')
+    expect(effectiveLang(auto, { default_lang: '' }, ['nl'])).toBe('pt-BR')
   })
   it('before the config is in, uses the default this device saw last', () => {
     rememberDefaultLang({ default_lang: 'fr' })

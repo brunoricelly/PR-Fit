@@ -622,7 +622,7 @@ export function CoachAvailabilityEditor() {
         </div>
 
         {(availability.exceptions || []).length === 0 ? (
-          <p className="dim small">{p('No date exceptions configured.') || 'Nenhuma exceção configurada.'}</p>
+          <p className="dim small">{p('No date exceptions configured.')}</p>
         ) : (
           <div className="pro-sched-exceptions">
             {availability.exceptions.map((ex, index) => (
