@@ -662,6 +662,8 @@ export const PROFESSIONAL_PT_BR = {
   'Body fat (%)': 'Gordura corporal (%)', 'Muscle mass (kg)': 'Massa muscular (kg)', 'Water (%)': 'Água (%)', 'Visceral fat': 'Gordura visceral',
   'Anamnesis': 'Anamnese', 'Relevant health history': 'Histórico de saúde relevante', 'Injuries': 'Lesões', 'Medications': 'Medicamentos', 'Goals': 'Objetivos', 'Contraindications': 'Contraindicações',
   'PAR-Q notes': 'Notas do PAR-Q',
+  'Challenge status updated to {0}.': 'Status do desafio atualizado para {0}.',
+  'No date exceptions configured.': 'Nenhuma exceção de data configurada.',
   'Screening only; does not replace a medical evaluation.': 'Triagem; não substitui avaliação médica.',
   'One or more PAR-Q answers require evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.': 'Uma ou mais respostas do PAR-Q exigem avaliação e liberação de profissional de saúde qualificado antes da atividade física. Isto não é um diagnóstico.',
   'Check every question you answer YES to. If you answer YES to any question, talk to a doctor before becoming more physically active.': 'Marque todas as perguntas para as quais a resposta é SIM. Se responder SIM a qualquer uma, converse com um médico antes de aumentar o seu nível de atividade física.', 'Notes': 'Notas', 'Yes': 'Sim', 'No': 'Não', 'Assessment progress photo': 'Foto de progresso da avaliação',

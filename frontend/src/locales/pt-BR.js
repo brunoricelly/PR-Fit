@@ -4,6 +4,18 @@
 import pt from './pt.js'
 
 export const PT_BR_OVERRIDES = {
+  // --- voce + termos de academia BR (revisao de textos herdados de pt-PT) ---
+  'Could not ask the Coach': 'Não foi possível falar com o Coach',
+  'Build me a fresh plan from my answers.': 'Monte um plano novo para mim a partir das minhas respostas.',
+  'Coach': 'Coach',
+  'A fresh plan from your answers; your workouts stay': 'Um plano novo a partir das suas respostas; seus treinos continuam',
+  'All optional. The more the Coach knows, the less it guesses.': 'Tudo opcional. Quanto mais o Coach souber, menos ele precisa adivinhar.',
+  'Ask the Coach': 'Perguntar ao Coach',
+  'You have the latest version.': 'Você está com a versão mais recente.',
+  'The web app updates together with your server. The Android app installs its own updates from here.': 'O app web é atualizado junto com o seu servidor. O app Android instala as próprias atualizações por aqui.',
+  'You have v{0}': 'Você está na v{0}',
+  'The Coach is on': 'Coach ligado',
+  'The Coach is off': 'Coach desligado',
   'Main navigation': 'Navegação principal',
   'Skip to main content': 'Pular para o conteúdo principal',
   'The search finds it by these too. Separate them with commas.': 'A busca também encontra o exercício por estes. Separe com vírgulas.',
