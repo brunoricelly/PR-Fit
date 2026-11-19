@@ -105,6 +105,9 @@ async function applyDiff(client, diff) {
   }
 }
 
+// Collections every server db carries even when empty.
+const BASE_ARRAYS = ['users', 'creds', 'subs', 'invites'];
+
 export function saveDiff(pool, diff) {
   return inTx(pool, client => applyDiff(client, diff));
 }
@@ -127,6 +130,8 @@ export function saveAll(pool, db, keyFns) {
 export function saveMerged(pool, base, candidate, keyFns) {
   return inTx(pool, async client => {
     const latest = await loadAll(client);
+    // The server's db always has these arrays (a fresh json dir starts with them); an empty database stores none.
+    for (const k of BASE_ARRAYS) if (Array.isArray(base[k])) latest[k] ??= [];
     // PG returns rows in insertion order (seq), the in-memory arrays may have been re-sorted since
     // (compactB2B2C): the same rows in another order are not another writer's change.
     for (const key of Object.keys(latest)) {
