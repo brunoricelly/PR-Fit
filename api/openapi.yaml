@@ -217,11 +217,15 @@ paths:
                 type: object
                 properties:
                   ok: { type: boolean, const: true }
+                  store:
+                    type: string
+                    enum: [json, postgres]
+                    description: Persistence backend in use (STORE).
                   users:
                     type: integer
                     description: Number of registered user accounts.
                   writable: { type: boolean, const: true }
-              example: { ok: true, users: 7, writable: true }
+              example: { ok: true, store: json, users: 7, writable: true }
         '503':
           description: >-
             The data directory could not be written — a full disk, or a mount that
