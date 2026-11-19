@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { api, apiUpload } from '../lib/api.js'
 import { useStore } from '../store/useStore.js'
 import { useUI } from '../store/useUI.js'
-import { professionalError, professionalText as p } from '../lib/professional-copy.js'
+import { professionalError, professionalText as p, parqQuestionText } from '../lib/professional-copy.js'
 import { confirmSheet } from '../sheets.jsx'
 import { TextArea, TextField } from '../components/ui.jsx'
 import {
@@ -66,7 +66,7 @@ function AssessmentDetail({ item, onDelete, onEdit, athlete, previous }) {
       </div>
       {item.requiresMedicalClearance && (
         <Alert tone="warning" className="assessment-medical-alert">
-          {item.medicalClearanceNotice || p('A positive PAR-Q answer requires evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.')}
+          {p(item.medicalClearanceNotice) || p('A positive PAR-Q answer requires evaluation and clearance by a qualified health professional before physical activity. This is not a diagnosis.')}
         </Alert>
       )}
       <div className="assessment-metrics">
@@ -87,7 +87,7 @@ function AssessmentDetail({ item, onDelete, onEdit, athlete, previous }) {
           <strong>PAR-Q {item.parq.version}</strong>
           <ul className="assessment-parq-list">
             {item.parq.answers.map(answer => (
-              <li key={answer.questionId}><span>{answer.text}</span><strong>{p(answer.answer ? 'Yes' : 'No')}</strong></li>
+              <li key={answer.questionId}><span>{parqQuestionText(answer.questionId, answer.text)}</span><strong>{p(answer.answer ? 'Yes' : 'No')}</strong></li>
             ))}
           </ul>
           {item.parq.notes && <p><strong>{p('PAR-Q notes')}</strong><br />{item.parq.notes}</p>}
@@ -332,12 +332,13 @@ function AssessmentForm({ athleteId, config, initial, onCancel, onSaved }) {
       {questions.length > 0 && (
         <fieldset>
           <legend>PAR-Q ({parqVersion})</legend>
+          <p className="pro-meta">{p('Check every question you answer YES to. If you answer YES to any question, talk to a doctor before becoming more physically active.')} <strong>{p('Screening only; does not replace a medical evaluation.')}</strong></p>
           {questions.map((question, index) => (
             <div className="assessment-question" key={question.id}>
               <input type="checkbox" id={`parq-${question.id}`} checked={!!form.parq[index]} onChange={event => {
                 const next = [...form.parq]; next[index] = event.target.checked; set('parq', next)
               }} />
-              <label htmlFor={`parq-${question.id}`}>{question.text}</label>
+              <label htmlFor={`parq-${question.id}`}>{parqQuestionText(question.id, question.text)}</label>
             </div>
           ))}
           <Field label={p('PAR-Q notes')}>
