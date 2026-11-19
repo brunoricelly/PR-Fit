@@ -176,7 +176,9 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
     }
     console.log('postgres: imported db.json and state files into an empty database');
   }
-  let cache = await loadAll(pool);
+  // A database nobody has written to yet loads as {}: give it the shape the json store starts from.
+  const loadStored = async () => { const doc = await loadAll(pool); for (const k of ['users', 'creds', 'subs', 'invites']) doc[k] ??= []; return doc; };
+  let cache = await loadStored();
   let committed = clone(cache); // the last state this process knows PG to hold
   const safe = uid => String(uid).replace(/[^a-zA-Z0-9_-]/g, '');
   const states = new Map((await listUserStates(pool)).map(row => [row.uid, { doc: row.doc, rev: row.rev, version: 1 }]));
@@ -203,7 +205,7 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
   };
   const resyncDb = async () => {
     generation++;
-    cache = await loadAll(pool);
+    cache = await loadStored();
     committed = clone(cache);
     onResync?.(clone(cache));
   };
