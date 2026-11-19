@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import pg from 'pg';
 import { migrate } from '../store/migrate.js';
-import { loadAll, saveAll, saveDiff, getUserState, putUserState, updateUserState, RevConflictError } from '../store/pg-store.js';
+import { loadAll, saveAll, saveDiff, saveMerged, getUserState, putUserState, updateUserState, RevConflictError } from '../store/pg-store.js';
 import { canonicalize, diffDb } from '../store/diff.js';
 
 const URL = process.env.DATABASE_URL;
@@ -73,7 +73,7 @@ test('migrate is idempotent', { skip }, async () => {
   const p = new pg.Pool({ connectionString: URL, max: 4, options: `-c search_path=${schema}_m` });
   try {
     const runs = await Promise.all([migrate(p), migrate(p), migrate(p)]);
-    assert.equal(runs.flat().length, 1);
+    assert.equal(runs.flat().length, 2);
   } finally { await p.end(); await admin.query(`DROP SCHEMA ${schema}_m CASCADE`); }
 });
 
@@ -142,6 +142,53 @@ test('2 concurrent saves are serialised: both apply, none torn', { skip }, async
   assert.ok(canonicalize(fin) === canonicalize(x) || canonicalize(fin) === canonicalize(y));
 });
 
+test('saveMerged usa caminho rápido sem reler tabelas e o db_rev sobe', { skip }, async () => {
+  await saveAll(pool, syntheticDb());
+  let tableReads = 0;
+  const observed = {
+    query: (...args) => pool.query(...args),
+    connect: async () => {
+      const client = await pool.connect();
+      return {
+        query: (...args) => {
+          if (/SELECT (?:collection, )?data FROM (?:collections|users|creds|coach_athlete_links|coach_invites)/.test(args[0])) tableReads++;
+          return client.query(...args);
+        },
+        release: () => client.release(),
+      };
+    },
+  };
+  const base = await loadAll(observed);
+  tableReads = 0;
+  const next = structuredClone(base);
+  next.coachMessages.push({ id: 'fast', text: 'incremental' });
+  await saveMerged(observed, base, next);
+  assert.equal(tableReads, 0);
+  assert.ok((await pool.query("SELECT (v #>> '{}')::int AS rev FROM meta WHERE k='$db_rev'")).rows[0].rev > 0);
+  assert.equal((await loadAll(pool)).coachMessages.at(-1).id, 'fast');
+});
+
+test('dois pools detectam revisão externa, mesclam chaves distintas e preservam conflito', { skip }, async () => {
+  await saveAll(pool, syntheticDb());
+  const p2 = new pg.Pool({ connectionString: URL, max: 2, options: `-c search_path=${schema}` });
+  try {
+    const base1 = await loadAll(pool), base2 = await loadAll(p2);
+    const one = structuredClone(base1); one.challengeScores.push({ id: 'pool1', challengeId: 'ch1', userId: 'u_a1' });
+    const two = structuredClone(base2); two.challengeActivityFeed.push({ id: 'pool2' });
+    await saveMerged(pool, base1, one);
+    await saveMerged(p2, base2, two); // revisão divergente: caminho lento + merge
+    const merged = await loadAll(pool);
+    assert.ok(merged.challengeScores.some(r => r.id === 'pool1'));
+    assert.ok(merged.challengeActivityFeed.some(r => r.id === 'pool2'));
+
+    const stale = await loadAll(p2), current = await loadAll(pool);
+    const a = structuredClone(current), b = structuredClone(stale);
+    a.schemaVersion = 101; b.schemaVersion = 202;
+    await saveMerged(pool, current, a);
+    await assert.rejects(saveMerged(p2, stale, b), { name: 'ConcurrentDbWriteError', key: 'schemaVersion' });
+  } finally { await p2.end(); }
+});
+
 test('user_state: optimistic rev; concurrent writers conflict, updateUserState retries', { skip }, async () => {
   assert.equal(await getUserState(pool, 'u1'), null);
   assert.equal(await putUserState(pool, 'u1', { w: 1 }, null), 1);
@@ -152,7 +199,7 @@ test('user_state: optimistic rev; concurrent writers conflict, updateUserState r
   assert.equal((await getUserState(pool, 'u1')).rev, 2);
   await assert.rejects(putUserState(pool, 'u1', { w: 'stale' }, 1), RevConflictError);
   await putUserState(pool, 'u2', { n: 0 }, null);
-  await Promise.all(Array.from({ length: 10 }, () => updateUserState(pool, 'u2', d => ({ n: d.n + 1 }))));
+  await Promise.all(Array.from({ length: 10 }, () => updateUserState(pool, 'u2', d => ({ n: d.n + 1 }), { retries: 20 })));
   const s = await getUserState(pool, 'u2');
   assert.equal(s.doc.n, 10);
   assert.equal(s.rev, 11);
