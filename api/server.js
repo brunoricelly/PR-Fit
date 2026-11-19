@@ -128,6 +128,9 @@ const B2B2C_LIMITS = {
   pendingPerCoach: envInt('B2B2C_PENDING_INVITES_PER_COACH', 10, { min: 1, max: 1000 }),
   maxInvites: envInt('B2B2C_MAX_INVITES', 5000, { min: 10, max: 1000000 }),
   maxLinks: envInt('B2B2C_MAX_LINKS', 5000, { min: 1, max: 1000000 }),
+  // Live (not ended) relationships one professional may hold, pending invitations included;
+  // B2B2C_MAX_LINKS stays the ceiling for the whole instance.
+  maxLinksPerCoach: envInt('B2B2C_MAX_LINKS_PER_COACH', 200, { min: 1, max: 1000000 }),
   maxPrescriptions: envInt('B2B2C_MAX_PRESCRIPTIONS', 5000, { min: 10, max: 1000000 }),
   prescriptionsPerAthlete: envInt('B2B2C_PRESCRIPTIONS_PER_ATHLETE', 100, { min: 1, max: 10000 }),
   maxAssessmentsPerAthlete: envInt('B2B2C_ASSESSMENTS_PER_ATHLETE', B2B2C_DEFAULT_LIMITS.maxAssessmentsPerAthlete, { min: 1, max: 10000 }),
@@ -2810,6 +2813,8 @@ const mediaRoutes = {
     // that was never uploaded.
     const f = MEDIA.file(user.id, req.mediaHash);
     if (!f) throw new MediaError(404, 'media-missing');
+    // The stream bypasses json(): nothing here writes the db, but never answer ahead of queued writes.
+    await store.flush();
     await sendMediaFile(res, f, req.mediaHash);
   },
   // Which of these the server does not have, so a device uploads only those. Answered from the
@@ -3175,6 +3180,10 @@ const routes = {
       auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'pending_invite_limit');
       return b2bError(res, 409, 'pending_invite_limit', 'too many pending invitations');
     }
+    if (db.coachAthleteLinks.filter(link => link.coachId === coach.id && link.status !== 'ended').length >= B2B2C_LIMITS.maxLinksPerCoach) {
+      auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'coach_link_limit');
+      return b2bError(res, 409, 'coach_link_limit', 'this professional reached the maximum number of relationships');
+    }
     const pendingInvites = db.coachInvites.filter(invite => db.coachAthleteLinks.some(link => link.id === invite.linkId && link.status === 'pending')).length;
     if (db.coachAthleteLinks.length >= B2B2C_LIMITS.maxLinks || pendingInvites >= B2B2C_LIMITS.maxInvites) {
       auditB2B2CDenied(req, 'b2b2c.invite.create.denied', coach, 'relationship_capacity');
@@ -3251,6 +3260,11 @@ const routes = {
     if (db.coachAthleteLinks.some(item => item.id !== link.id && item.coachId === link.coachId && item.athleteId === athlete.id && item.status !== 'ended')) {
       auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'relationship_exists');
       return b2bError(res, 409, 'relationship_exists', 'a relationship already exists');
+    }
+    // Pending invitations were counted when created; this only bites if the limit was lowered since.
+    if (db.coachAthleteLinks.filter(item => item.coachId === link.coachId && item.id !== link.id && item.status !== 'ended' && item.status !== 'pending').length >= B2B2C_LIMITS.maxLinksPerCoach) {
+      auditB2B2CDenied(req, 'b2b2c.invite.accept.denied', athlete, 'coach_link_limit');
+      return b2bError(res, 409, 'coach_link_limit', 'this professional reached the maximum number of relationships');
     }
     const candidate = structuredClone(db);
     const candidateLink = candidate.coachAthleteLinks.find(item => item.id === link.id);

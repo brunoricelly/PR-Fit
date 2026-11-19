@@ -437,6 +437,7 @@ consentimento sem abandonar a jornada profissional.
 - excesso legado de pendências é encerrado deterministicamente do mais antigo para o mais novo;
 - vínculos vivos têm prioridade; se ativos/suspensos antigos excederem o teto, o boot falha fechado;
 - configuração: `B2B2C_PENDING_INVITES_PER_COACH`, `B2B2C_MAX_INVITES`, `B2B2C_MAX_LINKS`,
+  `B2B2C_MAX_LINKS_PER_COACH` (padrão 200; vínculos vivos, inclusive convites pendentes, por profissional — `B2B2C_MAX_LINKS` segue como teto global; excedido: 409 `coach_link_limit`),
   `B2B2C_TERMINAL_INVITES_KEEP`, `B2B2C_TERMINAL_LINKS_KEEP` e `B2B2C_TERMINAL_RETENTION_DAYS`.
 - janelas de criação/aceite também podem ser ajustadas por `B2B2C_RATE_WINDOW_MS`,
   `B2B2C_INVITE_CREATE_ACCOUNT_MAX`, `B2B2C_INVITE_CREATE_IP_MAX`,
