@@ -18,6 +18,7 @@ import { atomicWrite, syncDir } from '../durable.js';
 import { SerialWriteQueue } from '../serial-write-queue.js';
 import { createInterprocessLock } from '../db-coordinator.js';
 import { migrate } from './migrate.js';
+import { B2B2CDataError, migrateB2B2C } from '../b2b2c.js';
 import { loadAll, saveAll, importUserState, listUserStates, getUserState, putUserState, saveMerged } from './pg-store.js';
 
 export const STORE_KIND = process.env.STORE || 'json';
@@ -113,15 +114,47 @@ function jsonStore({ dataDir, lockOptions }) {
   };
 }
 
+// The JSON store refuses to boot on a db.json whose B2B2C data is invalid; the import into PG must
+// behave the same instead of dying in the middle of the upserts. Validates the same way server.js
+// does at boot (migrateB2B2C), then checks the foreign keys PG enforces (a coach_athlete_links row
+// whose coach is not in users, an invite whose link is missing...) which a db.json may carry
+// without complaint. Returns the document as read (unmigrated); throws B2B2CDataError otherwise.
+function validateLegacyForImport(file) {
+  let doc;
+  try { doc = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (error) { throw new B2B2CDataError(`db.json is not valid JSON: ${error.message}`); }
+  if (!doc || typeof doc !== 'object' || Array.isArray(doc)) throw new B2B2CDataError('db.json must be an object');
+  for (const key of ['users', 'creds', 'subs', 'invites', 'deviceLinks']) {
+    if (doc[key] === undefined) doc[key] = [];
+    else if (!Array.isArray(doc[key])) throw new B2B2CDataError(`${key} must be an array`);
+  }
+  const raw = structuredClone(doc); // imported as found: the boot migration then runs (and persists) like it does on JSON
+  migrateB2B2C(doc);
+  const ids = list => new Set(list.map(r => r?.id));
+  const users = ids(doc.users), links = ids(doc.coachAthleteLinks);
+  const need = (what, ok) => { if (!ok) throw new B2B2CDataError(`${what} (orphan reference: PostgreSQL enforces foreign keys; fix or remove it in db.json)`); };
+  for (const c of doc.creds) need(`cred ${c?.id} points to unknown user ${c?.userId}`, users.has(c?.userId));
+  for (const l of doc.coachAthleteLinks) {
+    need(`coach link ${l?.id} has unknown coach ${l?.coachId}`, users.has(l?.coachId));
+    need(`coach link ${l?.id} has unknown athlete ${l?.athleteId}`, l?.athleteId == null || users.has(l.athleteId));
+  }
+  for (const i of doc.coachInvites) {
+    need(`coach invite ${i?.id} points to unknown link ${i?.linkId}`, links.has(i?.linkId));
+    need(`coach invite ${i?.id} has unknown coach ${i?.coachId}`, users.has(i?.coachId));
+  }
+  return raw;
+}
+
 // Optional, off by default (both are test/bootstrap aids):
 //   PG_SCHEMA_FROM_DATA_DIR=1  one schema per DATA_DIR, so parallel test servers do not share rows.
 //   STORE_IMPORT_JSON=1        a freshly migrated, empty database is seeded from DATA_DIR/db.json and
 //                              state-<uid>.json (same as scripts/migrate-json-to-pg.js).
+export const schemaForDataDir = dataDir => 's_' + crypto.createHash('sha1').update(path.resolve(dataDir)).digest('hex').slice(0, 16);
+
 async function postgresStore({ databaseUrl, poolMax, dataDir }) {
   if (!databaseUrl) throw new Error('DATABASE_URL is required when STORE=postgres');
   const poolOptions = { connectionString: databaseUrl, max: poolMax };
   if (/^(1|true)$/i.test(process.env.PG_SCHEMA_FROM_DATA_DIR || '')) {
-    const schema = 's_' + crypto.createHash('sha1').update(path.resolve(dataDir)).digest('hex').slice(0, 16);
+    const schema = schemaForDataDir(dataDir);
     const admin = new pg.Client({ connectionString: databaseUrl });
     await admin.connect();
     try { await admin.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`); } finally { await admin.end(); }
@@ -130,7 +163,14 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
   const pool = new pg.Pool(poolOptions);
   const applied = await migrate(pool, { log: name => console.log(`postgres migration: ${name}`) });
   if (applied.length && /^(1|true)$/i.test(process.env.STORE_IMPORT_JSON || '') && fs.existsSync(path.join(dataDir, 'db.json'))) {
-    await saveAll(pool, JSON.parse(fs.readFileSync(path.join(dataDir, 'db.json'), 'utf8')));
+    let legacy;
+    try { legacy = validateLegacyForImport(path.join(dataDir, 'db.json')); } catch (error) {
+      if (!(error instanceof B2B2CDataError)) throw error;
+      console.error(`db.json B2B2C data is invalid (${error.message}). Refusing to start; db.json and db.json.bak were not changed.`);
+      await pool.end().catch(() => {});
+      process.exit(1);
+    }
+    await saveAll(pool, legacy);
     for (const name of fs.readdirSync(dataDir).filter(f => /^state-[a-zA-Z0-9_-]+\.json$/.test(f))) {
       await importUserState(pool, name.slice(6, -5), JSON.parse(fs.readFileSync(path.join(dataDir, name), 'utf8')));
     }

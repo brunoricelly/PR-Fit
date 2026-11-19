@@ -68,6 +68,7 @@ import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder
 import { SerialWriteQueue } from './serial-write-queue.js';
 import { mergeDbCandidate } from './db-coordinator.js';
 import { createStore } from './store/index.js';
+import { canonicalize } from './store/diff.js';
 
 const PORT = +(process.env.PORT || 3000);
 const DATA = process.env.DATA_DIR || '/data';
@@ -329,11 +330,23 @@ function replaceDbObject(target, source) {
     else target[key] = structuredClone(value);
   }
 }
+function keepPersistedOrder(latest, persisted) {
+  for (const key of Object.keys(latest)) {
+    const l = latest[key], p = persisted[key];
+    if (!Array.isArray(l) || !Array.isArray(p) || l.length !== p.length) continue;
+    const text = x => canonicalize(x);
+    const ls = l.map(text).sort(), ps = p.map(text).sort();
+    if (ls.every((v, i) => v === ps[i])) latest[key] = structuredClone(p);
+  }
+}
 function saveDb(candidate = db) {
   return dbWriteLock.withLockSync(() => {
     const latest = loadDb();
     migrateB2B2C(latest);
     compactB2B2C(latest, B2B2C_LIMITS);
+    // PG hands rows back in insertion order and compaction sorts them: the same rows in another
+    // order are not another writer's change, so keep the order this process last persisted.
+    if (store.kind === 'postgres') keepPersistedOrder(latest, persistedDb);
     const merged = mergeDbCandidate(latest, persistedDb, candidate);
     validateChallengesState(merged, B2B2C_LIMITS);
     validateGroupProgramsState(merged, B2B2C_LIMITS);
