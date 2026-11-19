@@ -7,7 +7,8 @@
   "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/*.test.js"
+    "test": "node --test test/*.test.js",
+    "test:b2b2c": "bash scripts/run-e2e-b2b2c.sh"
   },
   "dependencies": {
     "@simplewebauthn/server": "^13.3.3",
