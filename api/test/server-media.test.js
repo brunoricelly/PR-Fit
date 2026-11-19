@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import * as M from './media-samples.mjs';
+import { readState } from './helpers/read-db.js';
 
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
@@ -44,7 +45,9 @@ async function start(t, env = {}) {
   }));
   const child = spawn(process.execPath, ['server.js'], {
     cwd: API, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', MEDIA_MIN_FREE_MB: '1', ...env }
+    env: { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN, RP_ID: 'localhost', MEDIA_MIN_FREE_MB: '1',
+      STORE_IMPORT_JSON: '1',   // STORE=postgres: seed the empty database from the db.json written above (no-op for json)
+      ...env }
   });
   const h = { log: '', dataDir, uploads: path.join(dataDir, 'uploads') };
   child.stdout.on('data', d => h.log += d);
@@ -397,7 +400,8 @@ test('PUT /api/data still answers 200 when the media bookkeeping fails', async t
   // busy machine the reply can be read first.
   for (let i = 0; i < 100 && !/media noteState/.test(h.log); i++) await new Promise(res => setTimeout(res, 20));
   assert.match(h.log, /media noteState/);
-  const saved = JSON.parse(fs.readFileSync(path.join(h.dataDir, `state-${U1}.json`), 'utf8'));
+  const saved = await readState(h.dataDir, U1);   // state-<uid>.json for json, the user_state row for postgres
+  assert.ok(saved, 'the state was stored');
   assert.equal(saved._rev, 1, 'the state itself was saved');
 });
 
