@@ -6,6 +6,11 @@
 import { ARRAYS_META_KEY, canonicalize, diffDb } from './diff.js';
 import { mergeDbCandidate } from '../db-coordinator.js';
 
+const DB_REV_KEY = '$db_rev';
+// Last revision observed/committed through each Pool. Clients used inside transactions are tracked
+// too, but only the Pool entry is consulted by saveMerged.
+const knownRevisions = new WeakMap();
+
 // Serialises every db writer (distinct from the migration lock).
 export const STORE_LOCK_KEY = 7243002;
 const CHUNK = 500;
@@ -31,7 +36,11 @@ async function inTx(pool, fn) {
     await client.query('BEGIN');
     await client.query('SELECT pg_advisory_xact_lock($1)', [STORE_LOCK_KEY]);
     const result = await fn(client);
+    const rev = Number((await client.query(
+      `UPDATE meta SET v = to_jsonb((v #>> '{}')::bigint + 1) WHERE k = $1 RETURNING v`, [DB_REV_KEY])).rows[0]?.v);
+    if (!Number.isFinite(rev)) throw new Error('meta db_rev ausente; execute as migrations');
     await client.query('COMMIT');
+    knownRevisions.set(pool, rev);
     return result;
   } catch (e) {
     await client.query('ROLLBACK').catch(() => {});
@@ -44,6 +53,7 @@ export async function loadAll(db) {
   const arrays = new Set();
   const meta = (await db.query('SELECT k, v FROM meta')).rows;
   for (const { k, v } of meta) {
+    if (k === DB_REV_KEY) { knownRevisions.set(db, Number(v)); continue; }
     if (k === ARRAYS_META_KEY) for (const n of v) arrays.add(n);
     else out[k] = v;
   }
@@ -129,11 +139,20 @@ export function saveAll(pool, db, keyFns) {
  */
 export function saveMerged(pool, base, candidate, keyFns) {
   return inTx(pool, async client => {
+    const revision = Number((await client.query('SELECT v FROM meta WHERE k = $1', [DB_REV_KEY])).rows[0]?.v);
+    if (!Number.isFinite(revision)) throw new Error('meta db_rev ausente; execute as migrations');
+    const known = knownRevisions.get(pool);
+    if (known === revision) {
+      // Normal single-replica path: base is exactly the revision under the lock. No DB-wide read,
+      // merge, sort or canonicalization is needed; only changed rows are sent to PostgreSQL.
+      await applyDiff(client, diffDb(base, candidate, keyFns));
+      return candidate;
+    }
+
+    // Another pool/process committed since this pool's last observation. Preserve the original
+    // three-way merge/conflict behavior, then remember the revision committed by inTx.
     const latest = await loadAll(client);
-    // The server's db always has these arrays (a fresh json dir starts with them); an empty database stores none.
     for (const k of BASE_ARRAYS) if (Array.isArray(base[k])) latest[k] ??= [];
-    // PG returns rows in insertion order (seq), the in-memory arrays may have been re-sorted since
-    // (compactB2B2C): the same rows in another order are not another writer's change.
     for (const key of Object.keys(latest)) {
       const l = latest[key], b = base[key];
       if (Array.isArray(l) && Array.isArray(b) && l.length === b.length

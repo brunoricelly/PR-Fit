@@ -63,6 +63,11 @@ export function diffDb(persisted, candidate, keyFns = {}) {
     const pv = p[key], cv = c[key];
     const pArr = Array.isArray(pv), cArr = Array.isArray(cv);
     if (pArr || cArr) {
+      // structuredClone/json round-trips remove reference equality. Avoid rebuilding maps and
+      // canonical JSON for every unchanged collection on every save: length + native deep equality
+      // is substantially cheaper, and preserves canonical JSON semantics (the canonical fallback
+      // below still handles the few JSON-equivalent values Node considers different).
+      if (pArr && cArr && (pv === cv || (pv.length === cv.length && isDeepStrictEqual(pv, cv)))) continue;
       const before = pArr ? indexRows(key, pv, fns) : new Map();
       const after = cArr ? indexRows(key, cv, fns) : new Map();
       for (const [id, row] of after) {
