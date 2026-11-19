@@ -109,7 +109,7 @@ function jsonStore({ dataDir, lockOptions }) {
     listUserIds() { try { return fs.readdirSync(dataDir).filter(f => /^state-[a-zA-Z0-9_-]+\.json$/.test(f)).map(f => f.slice(6, -5)); } catch { return []; } },
     peekState(uid) { return this.readState(uid); },
     stateVersion(uid) { try { const st = fs.statSync(stateFile(uid)); return `${st.mtimeMs}:${st.size}`; } catch { return null; } },
-    hasPending: () => false, afterCommit: fn => fn(), 
+    hasPending: () => false, afterCommit: fn => fn(),
     flush: async () => {}, close: async () => {},
   };
 }

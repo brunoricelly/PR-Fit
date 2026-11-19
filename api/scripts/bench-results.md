@@ -17,7 +17,7 @@ DATABASE_URL=postgres://... node scripts/bench-store.js \
 | 100.000 | 9 | 16.259,38 ms | 19.354,63 ms | 82¹ | 596,91 ms | 660,84 ms | 96,3% (27,2x) |
 | 200.000 | —² | — | — | 26¹ | 1.433,63 ms | 1.884,03 ms | — |
 
-¹ O orçamento de 150 s da fase foi atingido; os percentis usam todos os saves concluídos.  
+¹ O orçamento de 150 s da fase foi atingido; os percentis usam todos os saves concluídos.
 ² A execução anterior de 200 mil não produziu resultado PostgreSQL por falha de autenticação do container.
 
 O caminho normal não lê mais todas as tabelas dentro da transação. Sob o advisory lock, ele lê somente `db_rev`, calcula/aplica o diff entre o estado conhecido pelo processo e o candidato e incrementa a revisão. Se outra instância mudou a revisão, usa o caminho de reconciliação completo e mantém a detecção de conflito.
@@ -31,7 +31,7 @@ O caminho normal não lê mais todas as tabelas dentro da transação. Sob o adv
 | 100.000 | 0³ | — | 82¹ | 596,91 ms |
 | 200.000 | —⁴ | — | 26¹ | 1.433,63 ms |
 
-³ O guard de disco recusou o save JSON de 100 mil antes da medição.  
+³ O guard de disco recusou o save JSON de 100 mil antes da medição.
 ⁴ JSON em 200 mil não foi repetido: inviável no disco disponível, conforme planejado.
 
 ## Quatro writers
