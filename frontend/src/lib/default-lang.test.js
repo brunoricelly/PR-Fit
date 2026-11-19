@@ -35,10 +35,10 @@ describe('autoLang', () => {
     expect(autoLang({ lang: 'en' }, { default_lang: 'pt-BR' }, ['de-DE'])).toBe(null)
     expect(autoLang({ lang: 'en', langAuto: false }, { default_lang: 'pt-BR' }, ['de-DE'])).toBe(null)
   })
-  it('puts DEFAULT_LANG before the browser, the browser before English', () => {
+  it('puts DEFAULT_LANG before the browser, the browser before pt-BR', () => {
     expect(autoLang(fresh, { default_lang: 'pt-BR' }, ['de-DE'])).toBe('pt-BR')
     expect(autoLang(fresh, {}, ['nl-NL', 'de-DE'])).toBe('de')
-    expect(autoLang(fresh, {}, ['nl-NL'])).toBe('en')
+    expect(autoLang(fresh, {}, ['nl-NL'])).toBe('pt-BR')
     expect(autoLang(fresh, { default_lang: 'xx' }, ['fr-FR'])).toBe('fr')
   })
 })

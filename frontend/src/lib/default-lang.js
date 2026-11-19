@@ -7,7 +7,7 @@
 // they are — including every existing profile whose `lang` is the old default.
 //
 // For a marked copy, the instance's DEFAULT_LANG (GET /api/config `default_lang`) comes first,
-// then the first of the browser's languages this app speaks, then English.
+// then the first of the browser's languages this app speaks, then pt-BR (this build is Brazilian-Portuguese first).
 //
 // That answer is worked out where the language is used (effectiveLang) and never written back
 // into the state. It depends on the device — two phones of one profile can have browsers in two
@@ -37,7 +37,7 @@ export function autoLang(S, config, navLangs = []) {
   if (!S || S.langAuto !== true) return null
   return matchLocale(config?.default_lang)
     || (navLangs || []).map(matchLocale).find(Boolean)
-    || 'en'
+    || 'pt-BR'
 }
 
 // The instance's DEFAULT_LANG as last seen on this device, so a boot does not show the browser's
