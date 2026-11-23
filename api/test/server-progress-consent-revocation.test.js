@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -80,7 +82,7 @@ async function request(server, uid, method, route, body) {
   return { status: response.status, text, body: text && contentType.includes('application/json') ? JSON.parse(text) : null };
 }
 
-test('assessment consent revocation archives dependent goals, revokes reports, rolls back durably and boots', async t => {
+test('assessment consent revocation archives dependent goals, revokes reports, rolls back durably and boots', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-progress-consent-'));
   seed(dataDir);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

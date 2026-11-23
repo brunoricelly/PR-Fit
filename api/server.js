@@ -5398,6 +5398,12 @@ startAdminSocket({
     const u = found[0];
     if (u.disabled) return { error: 'that profile is disabled: enable it in the admin dashboard first' };
     const { code, link } = issueRecovery(CLI_REQ, u, null);
+    // STORE=postgres: the code is only real once its row is committed (json() holds HTTP answers the same way).
+    // A failed commit must not hand out a code that was never stored.
+    try { await store.flush(); } catch (error) {
+      console.error('recovery code not stored; withheld:', error.message);
+      return { error: 'could not store the recovery code: try again' };
+    }
     return { ...row(u), code, expires: link.exp };
   }
 });

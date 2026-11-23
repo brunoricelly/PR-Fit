@@ -11,6 +11,8 @@ import { migrateB2B2C, B2B2C_SCHEMA_VERSION } from '../b2b2c.js';
 import { validateChallengesState } from '../challenges.js';
 import { validateGroupProgramsState } from '../group-programs.js';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -117,7 +119,7 @@ test('anti-IDOR, exact active training scope, pending consent, privacy and invit
   response = await request(server, IDS.extra, 'POST', '/api/athlete/groups/join', { inviteCode: response.body.inviteCode || (await activeInvite(server, group.id)) }); assert.equal(response.status, 410);
 });
 
-test('two concurrent joins cannot exceed the last slot', async t => {
+test('two concurrent joins cannot exceed the last slot', { skip: JSON_ONLY }, async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-capacity-')); seed(dir); t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
   const a = await launch(dir), b = await launch(dir); t.after(() => Promise.all([stop(a), stop(b)])); const group = await createGroup(a, 1), code = await activeInvite(a, group.id);
   const results = await Promise.all([request(a, IDS.training, 'POST', '/api/athlete/groups/join', { inviteCode: code }), request(b, IDS.extra, 'POST', '/api/athlete/groups/join', { inviteCode: code })]);
@@ -125,7 +127,7 @@ test('two concurrent joins cannot exceed the last slot', async t => {
   const disk = JSON.parse(fs.readFileSync(path.join(dir, 'db.json'))); assert.equal(disk.coachGroups[0].memberCount, 1); assert.equal(disk.groupMembers.filter(row => row.status === 'active').length, 1);
 });
 
-test('legacy saveDb on a server started earlier preserves group and challenge writes from another process', async t => {
+test('legacy saveDb on a server started earlier preserves group and challenge writes from another process', { skip: JSON_ONLY }, async t => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'phase8-lost-update-')), servers = []; seed(dir);
   t.after(async () => { await Promise.all(servers.map(stop)); fs.rmSync(dir, { recursive: true, force: true }); });
   const a = await launch(dir), b = await launch(dir); servers.push(a, b); const group = await createGroup(a); await addAndAccept(a, group.id, IDS.training);

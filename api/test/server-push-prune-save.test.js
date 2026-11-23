@@ -17,6 +17,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
 
@@ -66,7 +68,7 @@ const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 const skip = asRoot ? 'running as root: a 0500 directory is still writable' : false;
 const writable = h => fs.chmodSync(h.dataDir, 0o700);
 
-test('an unwritable ./data cannot take the process down through the rest timer nobody awaits', { skip }, async t => {
+test('an unwritable ./data cannot take the process down through the rest timer nobody awaits', { skip: JSON_ONLY }, { skip }, async t => {
   const h = await startServer(t);
   unwritable(h);
   const r = await fetch(`${h.api}/api/push/rest-timer`, {
@@ -82,7 +84,7 @@ test('an unwritable ./data cannot take the process down through the rest timer n
   assert.match(h.log, /push: could not save db.json/, 'and it said so, once, without a stack');
 });
 
-test('a push that was delivered is a 200 even when only the prune save failed', { skip }, async t => {
+test('a push that was delivered is a 200 even when only the prune save failed', { skip: JSON_ONLY }, { skip }, async t => {
   const h = await startServer(t);
   unwritable(h);
   const r = await fetch(`${h.api}/api/push/test`, {

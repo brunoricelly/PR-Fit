@@ -107,7 +107,7 @@ function jsonStore({ dataDir, lockOptions }) {
     commitState(uid, previous, doc, text) { atomicWrite(stateFile(uid), text); },
     deleteState(uid) { try { fs.unlinkSync(stateFile(uid)); } catch (error) { if (error.code !== 'ENOENT') throw error; } },
     listUserIds() { try { return fs.readdirSync(dataDir).filter(f => /^state-[a-zA-Z0-9_-]+\.json$/.test(f)).map(f => f.slice(6, -5)); } catch { return []; } },
-    peekState(uid) { return this.readState(uid); },
+    peekState(uid) { syncIn(uid); return this.readState(uid); },
     stateVersion(uid) { try { const st = fs.statSync(stateFile(uid)); return `${st.mtimeMs}:${st.size}`; } catch { return null; } },
     hasPending: () => false, afterCommit: fn => fn(),
     flush: async () => {}, close: async () => {},
@@ -213,6 +213,32 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
   const safe = uid => String(uid).replace(/[^a-zA-Z0-9_-]/g, '');
   const states = new Map((await listUserStates(pool)).map(row => [row.uid, { doc: row.doc, rev: row.rev, version: 1 }]));
   const writes = new SerialWriteQueue();
+  // Test-only: PG_TEST_MIRROR=1 mirrors what PG has COMMITTED into dataDir (db.json, state-<uid>.json) so the
+  // file-oriented test suite can assert on durable state. Never set in production.
+  const mirror = /^(1|true)$/i.test(process.env.PG_TEST_MIRROR || '');
+  const mirrorWrite = (name, value) => {
+    const file = path.join(dataDir, name), tmp = file + '.mirror';
+    const text = typeof value === 'string' ? value : JSON.stringify(value);
+    fs.writeFileSync(tmp, text); fs.renameSync(tmp, file);
+    const m = /^state-(.+)\.json$/.exec(name); if (m) mirrored.set(m[1], text);
+  };
+  // Inbound half of the mirror: a state file a test planted (or removed) behind the server's back becomes the
+  // state PG holds, the way a json-store server would simply read it from disk on the next request.
+  const mirrored = new Map();
+  const syncIn = rawUid => {
+    if (!mirror) return;
+    const uid = String(rawUid).replace(/[^a-zA-Z0-9_-]/g, '');
+    const file = path.join(dataDir, `state-${uid}.json`);
+    let text = null;
+    try { text = fs.readFileSync(file, 'utf8'); } catch { /* absent */ }
+    if (text === (mirrored.get(uid) ?? null)) return;
+    mirrored.set(uid, text);
+    const cur = states.get(uid);
+    if (text === null) { states.delete(uid); enqueue(() => pool.query('DELETE FROM user_state WHERE uid = $1', [uid])); return; }
+    let doc; try { doc = JSON.parse(text); } catch { return; }
+    states.set(uid, { doc, rev: cur?.rev ?? 1, version: (cur?.version ?? 0) + 1 });
+    enqueue(() => importUserState(pool, uid, doc));
+  };
   let last = Promise.resolve();
   let generation = 0;
   let failures = 0;
@@ -269,21 +295,22 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
         // base = what this process last knew PG to hold; earlier queued writes have committed by now.
         const merged = jsonClone(await saveMerged(pool, committed, snapshot));
         committed = merged;
+        if (mirror) mirrorWrite('db.json', merged);
         if (generation === mine) cache = clone(merged);
         return merged;
       }, resyncDb);
     },
     // peekState hands out the cached document itself: callers must not mutate it.
     peekState(uid) { return states.get(safe(uid))?.doc ?? null; },
-    readState(uid) { const row = states.get(safe(uid)); return row ? clone(row.doc) : null; },
-    readStateStrict(uid) { const row = states.get(safe(uid)); return row ? clone(row.doc) : null; },
+    readState(uid) { syncIn(uid); const row = states.get(safe(uid)); return row ? clone(row.doc) : null; },
+    readStateStrict(uid) { syncIn(uid); const row = states.get(safe(uid)); return row ? clone(row.doc) : null; },
     commitState(rawUid, previous, doc) {
       const uid = safe(rawUid);
       const current = states.get(uid);
       const expected = current?.rev ?? null;
       states.set(uid, { doc: clone(doc), rev: (expected ?? 0) + 1, version: (current?.version ?? 0) + 1 });
       const snapshot = clone(doc);
-      enqueue(() => putUserState(pool, uid, snapshot, expected), async () => {
+      enqueue(async () => { const r = await putUserState(pool, uid, snapshot, expected); if (mirror) mirrorWrite(`state-${uid}.json`, snapshot); return r; }, async () => {
         const row = await getUserState(pool, uid);
         if (row) states.set(uid, { doc: row.doc, rev: row.rev, version: (states.get(uid)?.version ?? 0) + 1 });
         else states.delete(uid);
@@ -292,10 +319,10 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
     deleteState(rawUid) {
       const uid = safe(rawUid);
       states.delete(uid);
-      enqueue(() => pool.query('DELETE FROM user_state WHERE uid = $1', [uid]));
+      enqueue(async () => { await pool.query('DELETE FROM user_state WHERE uid = $1', [uid]); if (mirror) { fs.rmSync(path.join(dataDir, `state-${uid}.json`), { force: true }); mirrored.set(uid, null); } });
     },
     listUserIds: () => [...states.keys()],
-    stateVersion(uid) { const row = states.get(safe(uid)); return row ? String(row.version) : null; },
+    stateVersion(uid) { syncIn(uid); const row = states.get(safe(uid)); return row ? String(row.version) : null; },
     hasPending: () => writes.pending > 0,
     // Runs fn once everything enqueued before it is committed; skipped if any of it failed.
     afterCommit(fn) {

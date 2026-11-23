@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 import { buildProgressSummary, calculateGoalProgress } from '../progress-analytics.js';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -251,7 +253,7 @@ test('goal detail reapplies current coach specialty on historical links without 
   assert.deepEqual([response.status, response.body.code], [404, 'goal_not_found']);
 });
 
-test('progress mutations enforce quotas, rate limits and durable rollback', async t => {
+test('progress mutations enforce quotas, rate limits and durable rollback', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-progress-resilience-'));
   seed(dataDir);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

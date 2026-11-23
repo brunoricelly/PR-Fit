@@ -28,6 +28,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
 
@@ -127,7 +129,7 @@ test('a poll right after a sync reports the revision that sync returned, not the
   assert.equal((await c.rev()).rev, JSON.parse(fs.readFileSync(file, 'utf8'))._rev);
 });
 
-test('the poll really is reading through the stat cache', async t => {
+test('the poll really is reading through the stat cache', { skip: JSON_ONLY }, async t => {
   const h = await startServer(t);
   const file = path.join(h.dataDir, 'state-u_cost_1.json');
   const rev = async () => (await fetch(`${h.api}/api/data/rev`, { headers }).then(r => r.json())).rev;

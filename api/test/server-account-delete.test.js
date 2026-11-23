@@ -44,6 +44,7 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
     nopw: { id: 'u_nopw', name: 'Keyonly', created: new Date().toISOString() },
   };
   const chosen = which.map(k => all[k]);
+  const present = new Set(chosen.map(u => u.id)); // a credential for a user this scenario does not create is an orphan
   const coachId = chosen.find(user => user.id === ADMIN)?.id;
   const athleteId = chosen.find(user => user.id === USER)?.id;
   const mealPlans = coachId && athleteId ? [{
@@ -90,16 +91,16 @@ async function startServer(t, { users: which = ['admin', 'user'], env = {} } = {
   }] : [];
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({
     users: which.map(k => all[k]),
-    creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }],
-    subs: [{ endpoint: 'https://push/user', userId: USER }, { endpoint: 'https://push/admin', userId: ADMIN }],
-    deviceLinks: [{ userId: USER, h: 'device-user', exp: Date.now() + 86400000 }, { userId: ADMIN, h: 'device-admin', exp: Date.now() + 86400000 }],
-    watchLinks: [{ id: 'watch-user', userId: USER, h: 'watch-user', created: Date.now() }, { id: 'watch-admin', userId: ADMIN, h: 'watch-admin', created: Date.now() }],
+    creds: [{ id: 'c-user', userId: USER, publicKey: 'x' }, { id: 'c-admin', userId: ADMIN, publicKey: 'y' }].filter(c => present.has(c.userId)),
+    subs: [{ endpoint: 'https://push/user', userId: USER }, { endpoint: 'https://push/admin', userId: ADMIN }].filter(c => present.has(c.userId)),
+    deviceLinks: [{ userId: USER, h: 'device-user', exp: Date.now() + 86400000 }, { userId: ADMIN, h: 'device-admin', exp: Date.now() + 86400000 }].filter(c => present.has(c.userId)),
+    watchLinks: [{ id: 'watch-user', userId: USER, h: 'watch-user', created: Date.now() }, { id: 'watch-admin', userId: ADMIN, h: 'watch-admin', created: Date.now() }].filter(c => present.has(c.userId)),
     invites: [{ code: 'CODE1', usedBy: USER, usedAt: new Date().toISOString() }],
     coachInvites: [], coachAthleteLinks: coachId && athleteId ? [{ id: 'cal_delete_fixture', coachId, athleteId, scopes: ['training', 'nutrition'], status: 'active', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z' }] : [],
     coachPrescriptions: [], coachAssessments: [], mealPlans, mealAdherence, coachMessages, coachHabits, habitCheckins,
     progressGoals, progressReports, coachAvailability, coachAppointments,
   }));
-  for (const uid of [USER, ADMIN]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
+  for (const uid of [USER, ADMIN].filter(u => present.has(u))) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({ unit: 'kg', workouts: [], _rev: 3 }));
   const processEnv = { ...process.env, PORT: '0', DATA_DIR: dataDir, ORIGIN: 'http://localhost:8080', RP_ID: 'localhost', PASSWORD_LOGIN: '1', AUDIT_LOG: '1', ...env };
   const spawnServer = () => spawn(process.execPath, ['server.js'], { cwd: API, stdio: ['ignore', 'pipe', 'pipe'], env: processEnv });
   const h = { api: '', log: '', dataDir, child: spawnServer() };

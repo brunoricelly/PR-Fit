@@ -8,6 +8,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -206,7 +208,7 @@ test('prescriptions persist, require active training scope, and can be adopted a
   assert.match(audit, /relationship_not_found/);
 });
 
-test('adoption refuses an unreadable state without replacing it', async t => {
+test('adoption refuses an unreadable state without replacing it', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-corrupt-'));
   seed(dataDir);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
@@ -400,7 +402,7 @@ test('an adoption journal recovers a failure between state and db writes on rest
   assert.equal(audit.filter(item => item.ev === 'b2b2c.prescription.adopt' && item.msg === created.body.routine.id).length, 1);
 });
 
-test('adoption fails closed when the training relationship is no longer active', async t => {
+test('adoption fails closed when the training relationship is no longer active', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-prescriptions-inactive-'));
   seed(dataDir);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

@@ -16,6 +16,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
 
@@ -79,7 +81,7 @@ test('PUT /api/data refuses a state whose workouts or routines is not an array',
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8'))._ts, 4);
 });
 
-test('a non-array workouts on disk is logged and skipped by the reminder tick; the next user still fires', async t => {
+test('a non-array workouts on disk is logged and skipped by the reminder tick; the next user still fires', { skip: JSON_ONLY }, async t => {
   const keys = { p256dh: 'p', auth: 'a' };
   // localhost resolves to a loopback address, which PUSH_AGENT refuses — the send that follows the
   // reminder fails locally and quietly, with no socket leaving this machine
@@ -207,7 +209,7 @@ test('a day that owed nothing is asked again once the state file changes', async
   assert.equal(firings(h.log), 1, h.log);
 });
 
-test('a disabled profile gets no reminder', async t => {
+test('a disabled profile gets no reminder', { skip: JSON_ONLY }, async t => {
   const late = hhmmMinusMinutes(2);
   if (!late.sameDay) return t.skip('just after midnight UTC — a same-day window cannot be set up');
   const h = await startServer(t, [sub]);

@@ -10,6 +10,8 @@ import { boundPort } from './helpers.mjs';
 import { dateInTimeZone, habitSummary, validateCommunicationHabitsLimits } from '../communication-habits.js';
 import { compactB2B2C } from '../b2b2c.js';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const ORIGIN = 'http://localhost:8080';
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -567,7 +569,7 @@ test('habit mutations are separately rate-limited while no-op updates avoid writ
   assert.deepEqual([limited.status, limited.body.code, Number(limited.headers.get('retry-after')) > 0], [429, 'rate_limited', true]);
 });
 
-test('relationship transition and backup failures are fail-closed across GET and restart', async t => {
+test('relationship transition and backup failures are fail-closed across GET and restart', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-durable-transition-'));
   seed(dataDir);
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));

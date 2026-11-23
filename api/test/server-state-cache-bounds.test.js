@@ -18,6 +18,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
 const PROBE = 'u_cache_probe';
@@ -58,7 +60,7 @@ const writePinned = (dir, uid, rev) => {
   fs.utimesSync(file, PINNED, PINNED);
 };
 
-test('the cache holds at most 64 users, and the least recently polled is the one dropped', async t => {
+test('the cache holds at most 64 users, and the least recently polled is the one dropped', { skip: JSON_ONLY }, async t => {
   const h = await startServer(t);
   const rev = async uid => (await fetch(`${h.api}/api/data/rev`, { headers: headers(uid) }).then(r => r.json())).rev;
 
@@ -74,7 +76,7 @@ test('the cache holds at most 64 users, and the least recently polled is the one
   assert.equal(await rev(PROBE), 8, 'the probe was evicted, so its file was read again');
 });
 
-test('an entry nobody has polled for longer than the TTL is dropped', async t => {
+test('an entry nobody has polled for longer than the TTL is dropped', { skip: JSON_ONLY }, async t => {
   const h = await startServer(t, { STATE_CACHE_TTL_MS: '150' });
   const rev = async uid => (await fetch(`${h.api}/api/data/rev`, { headers: headers(uid) }).then(r => r.json())).rev;
 

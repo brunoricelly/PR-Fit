@@ -12,6 +12,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 // ---- the real server -------------------------------------------------------------------------
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
@@ -19,7 +21,7 @@ function mintSession(uid) {
   const payload = `${uid}:${Date.now() + 86400000}:0`;
   return payload + '.' + crypto.createHmac('sha256', SECRET).update(payload).digest('base64url');
 }
-test('PUT /api/data: write ids, their ancestry, and a stale write id refused at a reused revision', async t => {
+test('PUT /api/data: write ids, their ancestry, and a stale write id refused at a reused revision', { skip: JSON_ONLY }, async t => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-wid-'));
   fs.writeFileSync(path.join(dataDir, 'secret'), SECRET, { mode: 0o600 });
   fs.writeFileSync(path.join(dataDir, 'db.json'), JSON.stringify({ users: [{ id: 'u1', name: 'One', created: new Date().toISOString() }], creds: [], subs: [], invites: [] }));

@@ -12,6 +12,8 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { boundPort } from './helpers.mjs';
 
+const JSON_ONLY = process.env.STORE === 'postgres' ? 'json-store fixture: edits, corrupts or locks db.json/state files out of band (not a Postgres behaviour); durable-store equivalents live in store-pg, store-writer-lock and store-write-failure' : false;
+
 const API = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SECRET = crypto.randomBytes(32).toString('hex');
 const cookie = uid => { const p = `${uid}:${Date.now() + 86400000}:0`; return `gymsid=${p}.${crypto.createHmac('sha256', SECRET).update(p).digest('base64url')}`; };
@@ -34,7 +36,7 @@ function start(t, d, env = {}) {
   return h;
 }
 
-test('db.json cut short with no previous version: the server refuses to start and keeps the file', async t => {
+test('db.json cut short with no previous version: the server refuses to start and keeps the file', { skip: JSON_ONLY }, async t => {
   const d = dataDir(t);
   const full = fs.readFileSync(path.join(d, 'db.json'), 'utf8');
   fs.writeFileSync(path.join(d, 'db.json'), full.slice(0, full.length >> 1));
@@ -45,7 +47,7 @@ test('db.json cut short with no previous version: the server refuses to start an
   assert.ok(fs.readdirSync(d).some(f => f.startsWith('db.json.unreadable-')));
 });
 
-test('db.json cut short after a save: the copy kept with it is used, and every account is still there', async t => {
+test('db.json cut short after a save: the copy kept with it is used, and every account is still there', { skip: JSON_ONLY }, async t => {
   const d = dataDir(t);
   let h = start(t, d);
   const base = `http://127.0.0.1:${await boundPort(h.child, () => h.log)}`;
@@ -62,7 +64,7 @@ test('db.json cut short after a save: the copy kept with it is used, and every a
 
 // QA retest 2026-10-06: db.json.bak was the version before the last save, so falling back to it
 // lost whatever that save wrote, such as the profile just created.
-test('db.json unreadable after a sign-up: the copy kept is the last save, so the new profile is still there', async t => {
+test('db.json unreadable after a sign-up: the copy kept is the last save, so the new profile is still there', { skip: JSON_ONLY }, async t => {
   const d = dataDir(t);
   let h = start(t, d, { PASSWORD_LOGIN: '1' });
   const base = `http://127.0.0.1:${await boundPort(h.child, () => h.log)}`;
@@ -83,7 +85,7 @@ test('db.json unreadable after a sign-up: the copy kept is the last save, so the
   }
 });
 
-test('an unreadable state file is a 503 on GET and PUT, and is not replaced', async t => {
+test('an unreadable state file is a 503 on GET and PUT, and is not replaced', { skip: JSON_ONLY }, async t => {
   const d = dataDir(t);
   fs.writeFileSync(path.join(d, 'state-u_a.json'), '{"_rev":7,"workouts":[{"id":"w1"');
   const h = start(t, d);
