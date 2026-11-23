@@ -6,6 +6,7 @@
 #   4. qualquer falha -> exit != 0 e aviso no Telegram (se PRFIT_TG_* estiver definido)
 # Nunca imprime senha/URL. Uso: prfit-pg-backup.sh   (cron/systemd timer)
 set -Eeuo pipefail
+umask 077
 PG_CT="${PRFIT_PG_CONTAINER:-l8sda3wmdu9t65iphxhbwx0n}"
 DEST="${PRFIT_BACKUP_DIR:-/opt/pr-fit-backups/pg-daily}"
 KEEP_DAYS="${PRFIT_KEEP_DAYS:-14}"
@@ -13,7 +14,8 @@ KEEP_MIN="${PRFIT_KEEP_MIN:-7}"
 ENV_FILE="${PRFIT_ENV_FILE:-/etc/prfit-monitor.env}"
 [ -f "$ENV_FILE" ] && . "$ENV_FILE"
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-OUT="$DEST/$TS"
+FINAL="$DEST/$TS"
+OUT="$DEST/.incomplete-$TS"
 TMPDB="restore_check_$TS"
 
 notify() {
@@ -31,8 +33,7 @@ docker exec "$PG_CT" sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' >
 
 # prova de restore: banco temporario, mesmas contagens
 docker exec "$PG_CT" sh -c "psql -U \"\$POSTGRES_USER\" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE DATABASE \"$TMPDB\"'" >/dev/null
-docker exec -i "$PG_CT" sh -c "pg_restore -U \"\$POSTGRES_USER\" -d \"$TMPDB\" --no-owner" < "$OUT/prfit.dump" >/dev/null 2>"$OUT/restore.err" || true
-COUNT_SQL="select string_agg(format('%s=%s', relname, n_live_tup), ',' order by relname) from pg_stat_user_tables"
+docker exec -i "$PG_CT" sh -c "pg_restore -U \"\$POSTGRES_USER\" -d \"$TMPDB\" --no-owner --exit-on-error" < "$OUT/prfit.dump" >/dev/null 2>"$OUT/restore.err"
 rows_exact() { # contagem exata por tabela (n_live_tup e estimativa)
   docker exec "$PG_CT" sh -c "psql -U \"\$POSTGRES_USER\" -d \"$1\" -Atc \"select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE' order by 1\"" |
   while read -r t; do printf '%s=%s\n' "$t" "$(docker exec "$PG_CT" sh -c "psql -U \"\$POSTGRES_USER\" -d \"$1\" -Atc 'select count(*) from public.\"$t\"'")"; done
@@ -52,6 +53,9 @@ if ! diff -q "$OUT/rows.src" "$OUT/rows.restored" >/dev/null; then
 fi
 rm -f "$OUT/restore.err"
 ( cd "$OUT" && sha256sum prfit.dump rows.src rows.restored > SHA256SUMS && sha256sum -c SHA256SUMS >/dev/null )
+
+mv -T -- "$OUT" "$FINAL"
+OUT="$FINAL"
 
 # retencao: apaga > KEEP_DAYS mas sempre mantem as KEEP_MIN mais novas
 mapfile -t ALL < <(ls -1d "$DEST"/2* 2>/dev/null | sort -r)

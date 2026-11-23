@@ -369,7 +369,7 @@ export const NUDGE_COPY = {
       ]
     },
     "drill": {
-      "title": "Sentido, recruta!",
+      "title": "Atenção, recruta!",
       "lines": [
         "Seus ganhos estão fazendo as malas. {0} amanhã, sem desculpas!",
         "{0} não se faz sozinho, recruta. Mexa-se!",

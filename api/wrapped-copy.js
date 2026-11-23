@@ -46,11 +46,11 @@ export const WRAPPED_COPY = {
     "body": "Treningi, rekordy i jeden bardzo szczery test osobowości. Stuknij, żeby zobaczyć swój rok."
   },
   "pt": {
-    "title": "O teu {0} no openGym está pronto 🎉",
+    "title": "O teu {0} no PR Fit está pronto 🎉",
     "body": "Treinos, recordes e um teste de personalidade muito sincero. Toca para veres o teu ano."
   },
   "pt-BR": {
-    "title": "Seu {0} no openGym está pronto 🎉",
+    "title": "Seu {0} no PR Fit está pronto 🎉",
     "body": "Treinos, recordes e um teste de personalidade bem sincero. Toque para ver seu ano."
   },
   "ru": {

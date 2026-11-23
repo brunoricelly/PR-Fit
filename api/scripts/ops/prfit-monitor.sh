@@ -33,7 +33,9 @@ pct="$(df --output=pcent / | tail -1 | tr -dc 0-9)"
 [ "${pct:-0}" -ge "$DISK_MAX" ] && add "disco / em ${pct}%"
 errs="$(docker logs --since 5m "api-$SVC" 2>&1 | grep -ciE 'write failed|answering 500|writer lock|unhandled|ECONNREFUSED' || true)"
 [ "${errs:-0}" -ge "$ERR_MAX" ] && add "$errs erros na API nos ultimos 5 min"
-last="$(ls -1d "$BK_DIR"/2* 2>/dev/null | sort | tail -1 || true)"
+last="$(for d in "$BK_DIR"/2*; do
+  [ -s "$d/SHA256SUMS" ] && [ -s "$d/prfit.dump" ] && printf '%s\n' "$d"
+done | sort | tail -1 || true)"
 if [ -z "$last" ]; then add "nenhum backup do PG encontrado"; else
   age_h=$(( ( $(date +%s) - $(stat -c %Y "$last") ) / 3600 ))
   [ "$age_h" -ge "$BK_MAX_H" ] && add "ultimo backup tem ${age_h}h"
