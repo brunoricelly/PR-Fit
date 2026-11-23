@@ -731,6 +731,35 @@ h4.sec{
   }
 }
 
+/* Coach tabbar: 7 tabs do not fit in 320-440px at a readable size ("Configurações" was clipped
+   to "Configura…" at 7.5-8.5px). Keep every label whole and legible: each tab gets a natural
+   minimum width and the bar scrolls horizontally with snap; the cut-off neighbour is the cue. */
+@media (max-width: 440px) {
+  #tabbar.coach-tabbar {
+    justify-content: flex-start;
+    scroll-snap-type: x proximity;
+    overscroll-behavior-x: contain;
+  }
+  #tabbar.coach-tabbar button {
+    flex: 1 0 auto;
+    min-width: 56px;
+    max-width: none;
+    padding: 2px 6px;
+    scroll-snap-align: center;
+  }
+  #tabbar.coach-tabbar button span {
+    font-size: 10px;
+    letter-spacing: 0;
+    overflow: visible;
+    text-overflow: clip;
+    max-width: none;
+  }
+}
+@media (max-width: 360px) {
+  #tabbar.coach-tabbar button { min-width: 52px; padding: 2px 5px; }
+  #tabbar.coach-tabbar button span { font-size: 9.5px; }
+}
+
 /* NOTE on every backdrop-filter pair in this file: the -webkit- line comes first and the
    standard property last, which is the order a prefixed/standard pair wants — whichever is
    written last wins in the cascade, and that should be the standard name.
