@@ -150,6 +150,35 @@ function validateLegacyForImport(file) {
 //                              state-<uid>.json (same as scripts/migrate-json-to-pg.js).
 export const schemaForDataDir = dataDir => 's_' + crypto.createHash('sha1').update(path.resolve(dataDir)).digest('hex').slice(0, 16);
 
+// One API process may write a given database: the in-memory cache and the $db_rev fast path assume it.
+// A session-level advisory lock on a dedicated connection makes that a rule instead of a note. A second
+// process waits (a rolling restart briefly overlaps the old one) and then refuses to start. If the lock
+// connection dies the lock is gone, so the process exits and the supervisor restarts it.
+// STORE_SINGLE_WRITER_LOCK=0 turns it off (only for a deliberate multi-writer experiment).
+async function acquireWriterLock(poolOptions) {
+  if (/^(0|false)$/i.test(process.env.STORE_SINGLE_WRITER_LOCK || '')) return { release: async () => {} };
+  const waitMs = Math.max(0, Number(process.env.STORE_WRITER_LOCK_WAIT_MS ?? 30000));
+  const client = new pg.Client({ connectionString: poolOptions.connectionString, options: poolOptions.options });
+  await client.connect();
+  const sql = "SELECT pg_try_advisory_lock(hashtext('prfit-api-writer:' || current_schema())) AS ok";
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    if ((await client.query(sql)).rows[0].ok) break;
+    if (Date.now() >= deadline) {
+      await client.end().catch(() => {});
+      throw new Error('another API process already holds the PostgreSQL writer lock; run exactly one api replica (STORE_SINGLE_WRITER_LOCK=0 disables this check)');
+    }
+    await new Promise(resolve => setTimeout(resolve, 500));
+  }
+  let released = false;
+  client.on('error', error => {
+    if (released) return;
+    console.error('postgres writer lock connection lost:', error.message);
+    process.exit(1);
+  });
+  return { release: async () => { released = true; await client.end().catch(() => {}); } };
+}
+
 async function postgresStore({ databaseUrl, poolMax, dataDir }) {
   if (!databaseUrl) throw new Error('DATABASE_URL is required when STORE=postgres');
   const poolOptions = { connectionString: databaseUrl, max: poolMax };
@@ -161,6 +190,7 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
     poolOptions.options = `-c search_path=${schema}`;
   }
   const pool = new pg.Pool(poolOptions);
+  const writerLock = await acquireWriterLock(poolOptions);
   const applied = await migrate(pool, { log: name => console.log(`postgres migration: ${name}`) });
   if (applied.length && /^(1|true)$/i.test(process.env.STORE_IMPORT_JSON || '') && fs.existsSync(path.join(dataDir, 'db.json'))) {
     let legacy;
@@ -233,6 +263,9 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
       const snapshot = jsonClone(candidate); // what a JSON round trip (and jsonb) would keep
       cache = clone(snapshot);
       enqueue(async () => {
+        // Test hook: a commit that fails INSIDE the queue (the memory copy above is already ahead of PG).
+        const asyncFail = process.env.B2B2C_PG_ASYNC_FAIL_FILE;
+        if (asyncFail && fs.existsSync(asyncFail)) { fs.unlinkSync(asyncFail); throw new Error('injected async postgres commit failure'); }
         // base = what this process last knew PG to hold; earlier queued writes have committed by now.
         const merged = jsonClone(await saveMerged(pool, committed, snapshot));
         committed = merged;
@@ -271,7 +304,7 @@ async function postgresStore({ databaseUrl, poolMax, dataDir }) {
     },
     // Resolves once every write enqueued so far is committed; rejects if the latest one failed.
     flush: () => last,
-    async close() { await last.catch(() => {}); await pool.end(); },
+    async close() { await last.catch(() => {}); await writerLock.release(); await pool.end(); },
   };
 }
 
