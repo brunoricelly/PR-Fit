@@ -35,6 +35,7 @@ describe('professionalText', () => {
   it('keeps every shipped professional UI string complete in PT-BR', () => {
     const sources = [
       'views/ProfessionalHub.jsx',
+      'views/WorkoutTemplateLibrary.jsx',
       'views/NutritionPanel.jsx',
       'views/Settings.jsx',
       'views/coach/CoachGroupsView.jsx',
