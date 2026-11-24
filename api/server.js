@@ -65,6 +65,7 @@ import {
 } from './scheduling.js';
 import { createChallengeRoutes, validateChallengesState, CHALLENGE_LIMITS } from './challenges.js';
 import { createGroupProgramRoutes, validateGroupProgramsState, GROUP_PROGRAM_LIMITS } from './group-programs.js';
+import { createWorkoutTemplateRoutes, validateWorkoutTemplatesState } from './workout-templates.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
 import { mergeDbCandidate } from './db-coordinator.js';
@@ -198,6 +199,10 @@ const B2B2C_RATE = {
   mealAdherenceIp: envInt('B2B2C_MEAL_ADHERENCE_MUTATION_IP_MAX', 3000, { min: 1, max: 100000 }),
   messageAccount: envInt('B2B2C_MESSAGE_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
   messageIp: envInt('B2B2C_MESSAGE_MUTATION_IP_MAX', 600, { min: 1, max: 100000 }),
+  workoutTemplateMutationAccount: envInt('B2B2C_WORKOUT_TEMPLATE_MUTATION_ACCOUNT_MAX', 60, { min: 1, max: 10000 }),
+  workoutTemplateMutationIp: envInt('B2B2C_WORKOUT_TEMPLATE_MUTATION_IP_MAX', 300, { min: 1, max: 100000 }),
+  workoutTemplateAssignAccount: envInt('B2B2C_WORKOUT_TEMPLATE_ASSIGN_ACCOUNT_MAX', 30, { min: 1, max: 10000 }),
+  workoutTemplateAssignIp: envInt('B2B2C_WORKOUT_TEMPLATE_ASSIGN_IP_MAX', 150, { min: 1, max: 100000 }),
   checkinAccount: envInt('B2B2C_HABIT_CHECKIN_ACCOUNT_MAX', 600, { min: 1, max: 10000 }),
   checkinIp: envInt('B2B2C_HABIT_CHECKIN_IP_MAX', 3000, { min: 1, max: 100000 }),
   habitAccount: envInt('B2B2C_HABIT_MUTATION_ACCOUNT_MAX', 120, { min: 1, max: 10000 }),
@@ -3002,7 +3007,7 @@ setImmediate(() => retryAccountCleanupJobs({ force: true }));
 
 const challengeDbWrites = new SerialWriteQueue();
 const challengeCollections = [
-  'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions',
+  'coachGroups', 'groupMembers', 'groupInvites', 'challenges', 'challengeScores', 'challengeActivityFeed', 'groupPrograms', 'groupProgramAdoptions', 'workoutTemplates',
 ];
 const latestChallengeDb = () => {
   const latest = loadDb();
@@ -3024,6 +3029,7 @@ const withChallengeDbTransaction = transform => challengeDbWrites.run(() => dbWr
   if (result?.changed) {
     validateChallengesState(latest, B2B2C_LIMITS);
     validateGroupProgramsState(latest, B2B2C_LIMITS);
+    validateWorkoutTemplatesState(latest, B2B2C_LIMITS, template => validatePrescriptionRoutine(template));
     compactB2B2C(latest, B2B2C_LIMITS);
     saveDbUnlocked(latest);
     publishDb(latest);
@@ -3073,9 +3079,16 @@ const groupProgramRoutes = createGroupProgramRoutes({
   profileOf, readBody, readSession, rate: B2B2C_RATE, transaction: withChallengeDbTransaction, validatePrescriptionRoutine, cursorSecret: SECRET,
 });
 
+const workoutTemplateRoutes = createWorkoutTemplateRoutes({
+  audit, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS, profileOf, readBody, readSession,
+  transaction: withChallengeDbTransaction, validatePrescriptionRoutine, capabilitiesFor, authorizeAthleteAccess, makeEntityId,
+  rate: B2B2C_RATE, prescriptionLimits: B2B2C_LIMITS,
+});
+
 const routes = {
   ...challengeRoutes,
   ...groupProgramRoutes,
+  ...workoutTemplateRoutes,
   ...communicationHabitsRoutes,
   ...progressRoutes,
   ...schedulingRoutes,
@@ -5326,6 +5339,13 @@ const server = http.createServer(async (req, res) => {
   } else {
     const coachGroupProgram = /^\/api\/coach\/group-programs\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
     if (coachGroupProgram) { key = req.method + ' /api/coach/group-programs/{programId}'; req.programId = coachGroupProgram[1]; }
+  }
+  if (url.pathname === '/api/coach/workout-templates') key = req.method + ' /api/coach/workout-templates';
+  const workoutTemplateAssign = /^\/api\/coach\/workout-templates\/([A-Za-z0-9_-]+)\/assign$/.exec(url.pathname);
+  if (workoutTemplateAssign) { key = req.method + ' /api/coach/workout-templates/{templateId}/assign'; req.templateId = workoutTemplateAssign[1]; }
+  else {
+    const workoutTemplateItem = /^\/api\/coach\/workout-templates\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
+    if (workoutTemplateItem) { key = req.method + ' /api/coach/workout-templates/{templateId}'; req.templateId = workoutTemplateItem[1]; }
   }
   if (url.pathname === '/api/athlete/group-programs') key = req.method + ' /api/athlete/group-programs';
   const athleteGroupProgramAdopt = /^\/api\/athlete\/group-programs\/([A-Za-z0-9_-]+)\/adopt$/.exec(url.pathname);

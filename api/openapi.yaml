@@ -3144,6 +3144,92 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/Busy' }
 
+  /api/coach/workout-templates:
+    get:
+      tags: [professionals]
+      operationId: listCoachWorkoutTemplates
+      summary: List the coach's reusable workout templates
+      responses:
+        '200':
+          description: Templates, most recently edited first.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [templates]
+                properties:
+                  templates: { type: array, maxItems: 100, items: { $ref: '#/components/schemas/WorkoutTemplate' } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+    post:
+      tags: [professionals]
+      operationId: createCoachWorkoutTemplate
+      summary: Save a routine as a reusable template
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateRequest' } } }
+      responses:
+        '201': { description: Template created., content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateResponse' } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '409': { $ref: '#/components/responses/ChallengeConflict' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/workout-templates/{templateId}:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    put:
+      tags: [professionals]
+      operationId: updateCoachWorkoutTemplate
+      summary: Replace a template's routine (earlier assignments keep their own copy)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateRequest' } } }
+      responses:
+        '200': { description: Template updated., content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateResponse' } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+    delete:
+      tags: [professionals]
+      operationId: deleteCoachWorkoutTemplate
+      summary: Delete a template (earlier assignments are not touched)
+      responses:
+        '200': { description: Template deleted., content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateResponse' } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
+  /api/coach/workout-templates/{templateId}/assign:
+    parameters:
+      - $ref: '#/components/parameters/TemplateId'
+    post:
+      tags: [professionals]
+      operationId: assignCoachWorkoutTemplate
+      summary: Assign a template to up to 50 athletes in one request
+      description: Each eligible athlete receives an independent prescription. Ineligible athletes are skipped with a code and never abort the others.
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateAssignRequest' } } }
+      responses:
+        '200': { description: Per-athlete outcome., content: { application/json: { schema: { $ref: '#/components/schemas/WorkoutTemplateAssignResponse' } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+        '503': { $ref: '#/components/responses/Busy' }
+
   /api/athlete/group-programs:
     get:
       tags: [professionals]
@@ -6802,6 +6888,11 @@ components:
       name: programId
       required: true
       schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
+    TemplateId:
+      in: path
+      name: templateId
+      required: true
+      schema: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' }
     AthleteId:
       in: path
       name: athleteId
@@ -7567,6 +7658,55 @@ components:
             timestamp: { type: string, format: date-time }
         score: { type: number }
         idempotent: { type: boolean }
+
+    WorkoutTemplate:
+      type: object
+      additionalProperties: false
+      required: [id, routine, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    WorkoutTemplateRequest:
+      type: object
+      additionalProperties: false
+      required: [routine]
+      properties:
+        routine: { $ref: '#/components/schemas/PrescribedRoutine' }
+
+    WorkoutTemplateResponse:
+      type: object
+      additionalProperties: false
+      required: [template]
+      properties:
+        template: { $ref: '#/components/schemas/WorkoutTemplate' }
+
+    WorkoutTemplateAssignRequest:
+      type: object
+      additionalProperties: false
+      required: [athleteIds]
+      properties:
+        athleteIds: { type: array, minItems: 1, maxItems: 50, items: { type: string, pattern: '^[A-Za-z0-9_-]{1,120}$' } }
+
+    WorkoutTemplateAssignResponse:
+      type: object
+      additionalProperties: false
+      required: [results]
+      properties:
+        results:
+          type: array
+          maxItems: 50
+          items:
+            type: object
+            additionalProperties: false
+            required: [athleteId, status]
+            properties:
+              athleteId: { type: string }
+              status: { type: string, enum: [assigned, skipped] }
+              code: { type: string, enum: [relationship_not_found, relationship_inactive, scope_forbidden, already_assigned, prescription_capacity] }
+              prescriptionId: { type: string }
 
     GroupProgram:
       type: object
