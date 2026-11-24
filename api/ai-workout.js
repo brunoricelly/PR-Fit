@@ -124,6 +124,9 @@ const JOINT_WORDS = Object.freeze({
 });
 const FILLER_WORDS = new Set(['a', 'o', 'as', 'os', 'e', 'ou', 'de', 'do', 'da', 'dos', 'das', 'no', 'na', 'nos', 'nas', 'em', 'com', 'dor', 'dores', 'direito', 'direita', 'esquerdo', 'esquerda', 'ambos', 'ambas', 'leve', 'leves', 'lesao', 'lesoes', 'problema', 'problemas', 'tenho', 'minha', 'meu', 'sem', 'nenhum', 'nenhuma', 'nada', 'nao', 'tambem', 'the', 'my', 'pain', 'in', 'and', 'left', 'right', 'of']);
 
+// Descriptors that only make sense next to a joint ("tendinite no ombro"); alone they stay unrecognised.
+const DESCRIPTOR_WORDS = new Set(['tendinite', 'tendinites', 'tendinopatia', 'bursite', 'artrose', 'artrite', 'condromalacia', 'inflamacao', 'luxacao', 'entorse', 'cirurgia', 'tendinitis', 'bursitis', 'arthritis', 'sprain', 'injury']);
+
 /** { restrictions, unrecognised }. Fail closed: any word that is neither a known joint nor filler
  *  (a condition, a drug, a surgery...) makes the limitation unrecognised and requires manual review. */
 export function parseLimitations(value) {
@@ -131,11 +134,14 @@ export function parseLimitations(value) {
   if (typeof value !== 'string') return { restrictions: [], unrecognised: true };
   const restrictions = new Set();
   let unrecognised = value.length > 300;
+  let descriptor = false;
   for (const word of plain(value).split(/[^a-z0-9]+/).filter(Boolean)) {
     const joint = Object.keys(JOINT_WORDS).find(name => JOINT_WORDS[name].test(word));
     if (joint) restrictions.add(joint);
+    else if (DESCRIPTOR_WORDS.has(word)) descriptor = true;
     else if (!FILLER_WORDS.has(word)) unrecognised = true;
   }
+  if (descriptor && !restrictions.size) unrecognised = true;
   return { restrictions: RESTRICTIONS.filter(r => restrictions.has(r)), unrecognised };
 }
 

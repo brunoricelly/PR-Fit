@@ -178,6 +178,8 @@ test('ai-workout unit: limitations are parsed locally and fail closed on anythin
   assert.equal(parseLimitations('joelho e pressão alta').unrecognised, true, 'a known joint does not excuse an unknown condition');
   assert.equal(parseLimitations('cirurgia no tornozelo').unrecognised, true);
   assert.equal(parseLimitations({ a: 1 }).unrecognised, true);
+  assert.deepEqual(parseLimitations('tendinite no ombro'), { restrictions: ['ombro'], unrecognised: false });
+  assert.equal(parseLimitations('tendinite').unrecognised, true, 'a descriptor without a joint is not enough');
   const { facts } = resolvedOf({ limitations: 'gestante' });
   const flags = reviewFlags(normaliseRequest({}), facts);
   assert.deepEqual([flags.manualReview, flags.rulesBlocked, flags.manualReviewReasons.includes('limitation_unrecognised')], [true, true, true]);
