@@ -1768,6 +1768,8 @@ export default {
   'openGym can no longer write to “{0}”, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'O PR Fit já não consegue escrever em «{0}», por isso as cópias voltam a ir para Documents/PR Fit. Escolhe a pasta de novo para voltar a ela.',
   'openGym can no longer write to the chosen folder, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'O PR Fit já não consegue escrever na pasta escolhida, por isso as cópias voltam a ir para Documents/PR Fit. Escolhe a pasta de novo para voltar a ela.',
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
+  'Reminder after a long break': 'Lembrete após uma pausa longa',
+  'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'Se você passar muitos dias sem treinar, o plano do seu treinador envia um lembrete gentil.',
   'Nudge me when I skip a planned workout': 'Avisa-me quando eu falhar um treino planeado',
   'Nudge tone': 'Tom do aviso',
   'Friendly': 'Amigável',

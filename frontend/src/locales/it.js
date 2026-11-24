@@ -1768,6 +1768,8 @@ export default {
   'openGym can no longer write to “{0}”, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'openGym non può più scrivere in «{0}», quindi le copie tornano in Documents/openGym. Scegli di nuovo la cartella per tornarci.',
   'openGym can no longer write to the chosen folder, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'openGym non può più scrivere nella cartella scelta, quindi le copie tornano in Documents/openGym. Scegli di nuovo la cartella per tornarci.',
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
+  'Reminder after a long break': 'Promemoria dopo una lunga pausa',
+  'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'Se passi molti giorni senza allenarti, il piano del tuo coach ti invia un promemoria gentile.',
   'Nudge me when I skip a planned workout': 'Avvisami quando salto un allenamento pianificato',
   'Nudge tone': 'Tono dell’avviso',
   'Friendly': 'Amichevole',

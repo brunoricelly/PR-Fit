@@ -16,7 +16,7 @@ import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
-import { appointmentReminderPush, dayReminderPush, nudgePush, restTimerPush, testPush } from './push-messages.js';
+import { appointmentReminderPush, dayReminderPush, nudgePush, restTimerPush, stalledPush, testPush } from './push-messages.js';
 import { verifyError, isMisconfigured, originHint } from './verify-error.js';
 import {
   hashPassword, verifyPassword, needsRehash, passwordProblem, passwordLength, nameKey, BusyError,
@@ -44,6 +44,7 @@ import { ipv6Groups, guardedLookup, pushEndpointError, MAX_PUSH_ENDPOINT } from 
 import { createIntegrations } from './integrations/index.js';
 import { integrationRoutes } from './integrations/routes.js';
 import { excusedOn, nudgeFor, nudgeWindowOpen, toneOf } from './nudge.js';
+import { stalledStatus, stalledDaysFrom, stalledPushOwed, stalledPushMark, stalledPushWindowOpen } from './stalled.js';
 import { wrappedPushYear, wrappedSummary, wrappedPushOwed, wrappedPush } from './wrapped.js';
 import {
   B2B2CDataError, B2B2C_LIMITS as B2B2C_DEFAULT_LIMITS, migrateB2B2C, compactB2B2C, profileOf, validateProfile, validateScopes,
@@ -864,6 +865,26 @@ function nudgeTick(user, S, now) {
   saveDb();
   sendPush(user.id, nudgePush(S.lang, toneOf(S.reminder), routine, now.date));
 }
+// Stalled-athlete push (stalled.js). Only for an athlete with an active relationship that includes
+// training and a coach who may read it, in a short window each evening on the athlete's own clock,
+// at most three times per stall and never twice on one date. The athlete can turn it off with
+// S.stalledPush === false. Nothing is sent to an athlete noted as sick or away that day.
+function stalledTick(user, sum) {
+  const link = db.coachAthleteLinks.find(l => l.athleteId === user.id && l.status === 'active' && l.scopes.includes('training'));
+  if (!link) return;
+  const now = userNow(sum?.rem?.tz || 'UTC');
+  if (!now || !stalledPushWindowOpen(now.hhmm)) return;   // cheap exit: no state read outside the window
+  if (user.stalledSent?.date === now.date) return;
+  const S = readStateCached(user.id);
+  if (!S || S.stalledPush === false) return;
+  if (livePresence(user.id)) return;
+  const status = stalledStatus(S, now.date, { since: link.acceptedAt || link.createdAt });
+  if (!stalledPushOwed(user.stalledSent, status, now.date)) return;
+  console.log('stalled push firing', user.id);
+  user.stalledSent = stalledPushMark(user.stalledSent, status, now.date);
+  saveDb();
+  sendPush(user.id, stalledPush(S.lang, status.daysSince));
+}
 // What the tick needs to know before it reads a whole state: the reminder settings and whether
 // the Coach was agreed to, kept per user against the state file's mtime and size. The state cache
 // above holds at most STATE_CACHE_MAX documents, and the tick walks every subscribed user in the
@@ -911,6 +932,7 @@ setInterval(() => {
     try {
       const sum = stateSummary(user.id);
       if (wrappedYear && sum && user.wrappedPush !== wrappedYear) wrappedTick(user, sum, wrappedYear);
+      if (sum) stalledTick(user, sum);
       if (!sum?.rem.on) continue;
       const now = userNow(sum.rem.tz || 'UTC');
       if (!now) continue;
@@ -3294,12 +3316,22 @@ const routes = {
     if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
     if (profileOf(coach).kind !== 'coach') return b2bError(res, 403, 'role_forbidden', 'professional profile required');
     compactRelationships();
+    const thresholdDays = stalledDaysFrom(new URL(req.url, 'http://x').searchParams.get('stalledDays'));
+    const mayReadTraining = capabilitiesFor(coach).includes('athlete:training:read');
     const links = db.coachAthleteLinks.filter(link => link.coachId === coach.id).map(link => {
       const out = serializeLink(db, link, coach);
       const invite = db.coachInvites.find(item => item.linkId === link.id);
-      return invite ? { ...out, expiresAt: invite.expiresAt } : out;
+      const base = invite ? { ...out, expiresAt: invite.expiresAt } : out;
+      // Activity is shown only for an active relationship that includes training, to a coach who
+      // may read training: the same gate as the athlete's routines, nothing broader.
+      if (!mayReadTraining || link.status !== 'active' || !link.scopes.includes('training')) return base;
+      try {
+        const S = readStateCached(link.athleteId) || {};
+        const today = userNow(S.reminder?.tz || 'UTC')?.date || userNow('UTC').date;
+        return { ...base, activity: stalledStatus(S, today, { thresholdDays, since: link.acceptedAt || link.createdAt }) };
+      } catch { return base; } // one unreadable state must not hide the whole list
     });
-    json(res, 200, { links });
+    json(res, 200, { links, stalledDays: thresholdDays });
   },
 
   'GET /api/athlete/coaches': async (req, res) => {

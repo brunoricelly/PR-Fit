@@ -1136,6 +1136,8 @@ export const PT_BR_OVERRIDES = {
   'openGym can no longer write to “{0}”, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'O PR Fit não consegue mais gravar em “{0}”, então as cópias voltam para Documents/PR Fit. Escolha a pasta de novo para voltar a ela.',
   'openGym can no longer write to the chosen folder, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'O PR Fit não consegue mais gravar na pasta escolhida, então as cópias voltam para Documents/PR Fit. Escolha a pasta de novo para voltar a ela.',
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
+  'Reminder after a long break': 'Lembrete após uma pausa longa',
+  'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'Se você passar muitos dias sem treinar, o plano do seu treinador envia um lembrete gentil.',
   'Nudge me when I skip a planned workout': 'Me avise quando eu pular um treino planejado',
   'One nudge in the evening of a planned day with nothing logged, between 20:00 and 21:30. After 3 missed days in a row it goes quiet until your next workout.': 'Um aviso à noite em um dia planejado sem nada registrado, entre 20:00 e 21:30. Depois de 3 dias perdidos seguidos ele fica quieto até o seu próximo treino.',
   '{0} is still waiting. What’s up?': '{0} ainda está esperando você. E aí?',

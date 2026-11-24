@@ -1779,6 +1779,8 @@ export default {
   'openGym can no longer write to “{0}”, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'openGym เขียนลงใน “{0}” ไม่ได้แล้ว สำเนาจึงกลับไปเก็บที่ Documents/openGym เลือกโฟลเดอร์อีกครั้งเพื่อกลับไปใช้',
   'openGym can no longer write to the chosen folder, so copies go to Documents/openGym again. Choose the folder again to switch back.': 'openGym เขียนลงในโฟลเดอร์ที่เลือกไม่ได้แล้ว สำเนาจึงกลับไปเก็บที่ Documents/openGym เลือกโฟลเดอร์อีกครั้งเพื่อกลับไปใช้',
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
+  'Reminder after a long break': 'การแจ้งเตือนหลังหยุดพักนาน',
+  'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'หากคุณไม่ออกกำลังกายหลายวัน แผนของโค้ชจะส่งการแจ้งเตือนอย่างอ่อนโยนให้คุณหนึ่งครั้ง',
   'Nudge me when I skip a planned workout': 'สะกิดฉันเมื่อข้ามการออกกำลังกายที่วางแผนไว้',
   'Nudge tone': 'น้ำเสียงการสะกิด',
   'Friendly': 'เป็นมิตร',

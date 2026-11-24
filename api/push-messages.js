@@ -9,6 +9,9 @@ const COPY = {
     dayFallbackTitle: 'Workout planned today',
     dayRoutineSuffix: 'today',
     dayBody: "It's on your plan. Let's go 💪",
+    stalledTitle: 'Your coach is thinking of you',
+    stalledBody: "It's been {0} days since your last workout. Even a short session gets you back on track 💪",
+    stalledNeverBody: 'Your plan is ready whenever you are. Start with a short session 💪',
   },
   'pt-BR': {
     restTitle: 'Descanso terminado 💪',
@@ -17,6 +20,9 @@ const COPY = {
     dayFallbackTitle: 'Treino planejado para hoje',
     dayRoutineSuffix: 'hoje',
     dayBody: 'Está no seu plano. Bora treinar 💪',
+    stalledTitle: 'Seu treinador pensou em você',
+    stalledBody: 'Faz {0} dias desde o seu último treino. Até uma sessão curta coloca você de volta no ritmo 💪',
+    stalledNeverBody: 'Seu plano está pronto quando você quiser. Comece com um treino curto 💪',
   },
 };
 
@@ -78,6 +84,17 @@ export function nudgePush(lang, tone, routine, iso) {
   const line = copy.lines[lineIndex(iso, copy.lines.length)];
   const name = routine?.name || 'openGym';
   return { title: copy.title, body: line.replace('{0}', () => name), tag: 'nudge' };
+}
+
+// The stalled-athlete push (stalled.js). `days` is how long since the last workout; null for an
+// athlete who has not logged one yet. Other languages fall back to English, like the strings above.
+export function stalledPush(lang, days) {
+  const copy = copyFor(lang);
+  return {
+    title: copy.stalledTitle,
+    body: days == null ? copy.stalledNeverBody : copy.stalledBody.replace('{0}', String(days)),
+    tag: 'stalled',
+  };
 }
 
 export function appointmentReminderPush(idempotencyKey) {

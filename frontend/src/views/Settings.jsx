@@ -1498,6 +1498,7 @@ function MobileReminderCard({ S, update, toast }) {
         </Row>
       )}
       {S.reminder?.on && <NudgeRows S={S} setReminder={setReminder} />}
+      <StalledNotifyRow S={S} update={update} />
       <WrappedNotifyRow S={S} update={update} />
     </Section>
   )
@@ -1505,6 +1506,15 @@ function MobileReminderCard({ S, update, toast }) {
 
 // Your year in openGym (lib/wrapped.js): one notification on Dec 1, on unless switched off here.
 // The phone plans it itself; a server sends it as a web push. Off takes back a planned one.
+// The stalled-athlete push (api/stalled.js): sent by the server only when a coach is linked with
+// training shared. S.stalledPush === false switches it off, the same convention as wrappedNotify.
+function StalledNotifyRow({ S, update }) {
+  const on = S.stalledPush !== false
+  return <Row icon="bell" iconTint="var(--orange)" title={t('Reminder after a long break')} subtitle={t('If you go many days without training, your coach\'s plan sends you one gentle reminder.')}>
+    <Switch checked={on} onChange={() => update(s => { s.stalledPush = !on })} aria-label={t('Reminder after a long break')} />
+  </Row>
+}
+
 function WrappedNotifyRow({ S, update }) {
   // Part of the Motivation module (Settings → Modules): with it off there is nothing to notify.
   if (!isOn(S, 'motivation')) return null
@@ -1601,6 +1611,7 @@ function PushCard({ S, update, toast }) {
       {on && S.reminder?.on && (
         <NudgeRows S={S} setReminder={patch => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), ...patch, tz: localTZ() } })} />
       )}
+      {on && <StalledNotifyRow S={S} update={update} />}
       {on && <WrappedNotifyRow S={S} update={update} />}
     </Section>
     {on && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell" onClick={test}>{t('Send test notification')}</Button></div>}

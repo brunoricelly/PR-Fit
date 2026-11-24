@@ -437,6 +437,13 @@ function ProfileSetup({ user }) {
   </section>
 }
 
+const isStalled = link => ['stalled', 'never'].includes(link.activity?.status)
+// "Parado há 12 dias" / "Sem treino ainda": what the coach needs to know before reaching out.
+function stalledLabel(activity) {
+  if (activity.status === 'never') return p('No workout yet')
+  return p('Stalled for {0} days', activity.daysSince)
+}
+
 function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children, unreadCount = 0, lastMessage = null, actorId = '' }) {
   const person = side === 'coach' ? link.athlete : link.coach
   const title = person?.name || (link.status === 'pending' ? p('Invitation pending') : p('Unavailable account'))
@@ -448,6 +455,7 @@ function RelationshipCard({ link, side, onStatus, canSuspend, canEnd, children, 
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
           <h2>{title}</h2>
+          {side === 'coach' && ['stalled', 'never'].includes(link.activity?.status) && <Badge tone="warning" className="pro-card-stalled-badge">{stalledLabel(link.activity)}</Badge>}
           {unreadCount > 0 && <Badge tone="warning" className="pro-card-unread-badge">{p('{0} unread', unreadCount)}</Badge>}
           {isIncoming && <span className="pro-incoming-msg dim small" style={{ display: 'inline-flex', alignItems: 'center', gap: 4, color: 'var(--acc)' }}><Icon name="chat" /> {p('Incoming message')}</span>}
         </div>
@@ -611,17 +619,19 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
     if (!links) return null
     if (statusFilter === 'all') return links
     if (statusFilter === 'unread') return links.filter(item => (inbox?.byLink?.get(item.id)?.unreadCount || 0) > 0)
+    if (statusFilter === 'stalled') return links.filter(isStalled)
     return links.filter(item => item.status === statusFilter)
   }, [inbox?.byLink, links, statusFilter])
 
   const counts = useMemo(() => {
-    if (!links) return { all: 0, active: 0, pending: 0, suspended: 0, unread: 0 }
+    if (!links) return { all: 0, active: 0, pending: 0, suspended: 0, unread: 0, stalled: 0 }
     return {
       all: links.length,
       active: links.filter(l => l.status === 'active').length,
       pending: links.filter(l => l.status === 'pending').length,
       suspended: links.filter(l => l.status === 'suspended').length,
       unread: links.filter(l => (inbox?.byLink?.get(l.id)?.unreadCount || 0) > 0).length,
+      stalled: links.filter(isStalled).length,
     }
   }, [inbox?.byLink, links])
 
@@ -737,6 +747,11 @@ function CoachPortfolio({ user, inbox, onSchedule }) {
           {counts.suspended > 0 && (
             <button type="button" className={'pro-choice' + (statusFilter === 'suspended' ? ' on' : '')} aria-pressed={statusFilter === 'suspended'} onClick={() => setStatusFilter('suspended')}>
               {p('Suspended')} ({counts.suspended})
+            </button>
+          )}
+          {counts.stalled > 0 && (
+            <button type="button" className={'pro-choice' + (statusFilter === 'stalled' ? ' on' : '')} aria-pressed={statusFilter === 'stalled'} onClick={() => setStatusFilter('stalled')}>
+              {p('Stalled')} ({counts.stalled})
             </button>
           )}
           {counts.unread > 0 && (

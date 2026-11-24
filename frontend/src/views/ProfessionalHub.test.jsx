@@ -683,6 +683,43 @@ describe('ProfessionalHub', () => {
     expect(host.textContent).not.toContain('Atleta Sem Mensagem')
   })
 
+  it('marks stalled athletes on the coach list and filters them', async () => {
+    const mk = (id, name) => ({ id, name })
+    mocks.user = { id: 'u_coach_stalled', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { stalledDays: 7, links: [
+      { id: 'l_stalled', status: 'active', scopes: ['training'], athlete: mk('a1', 'Aluno Parado'), activity: { status: 'stalled', daysSince: 12, lastWorkoutDate: '2026-11-12', thresholdDays: 7 } },
+      { id: 'l_never', status: 'active', scopes: ['training'], athlete: mk('a2', 'Aluno Novo'), activity: { status: 'never', daysSince: 9, lastWorkoutDate: null, thresholdDays: 7 } },
+      { id: 'l_ok', status: 'active', scopes: ['training'], athlete: mk('a3', 'Aluno Ativo'), activity: { status: 'active', daysSince: 1, lastWorkoutDate: '2026-11-23', thresholdDays: 7 } },
+      { id: 'l_away', status: 'active', scopes: ['training'], athlete: mk('a4', 'Aluno Viajando'), activity: { status: 'excused', daysSince: 30, lastWorkoutDate: '2026-10-25', thresholdDays: 7 } },
+      { id: 'l_nutri', status: 'active', scopes: ['nutrition'], athlete: mk('a5', 'Aluno Nutri') },
+    ] }
+    mocks.answers['/api/messages/inbox'] = { conversations: [], page: { limit: 50, hasMore: false, nextCursor: null } }
+
+    await mount('/professionals')
+
+    const badges = [...host.querySelectorAll('.pro-card-stalled-badge')].map(b => b.textContent)
+    expect(badges).toEqual(['Stalled for 12 days', 'No workout yet'])
+    const filter = [...host.querySelectorAll('.pro-status-filter button')].find(b => b.textContent.startsWith('Stalled'))
+    expect(filter.textContent).toContain('(2)')
+
+    await act(async () => { filter.click() })
+    await settle()
+    expect(host.textContent).toContain('Aluno Parado')
+    expect(host.textContent).toContain('Aluno Novo')
+    for (const other of ['Aluno Ativo', 'Aluno Viajando', 'Aluno Nutri']) expect(host.textContent).not.toContain(other)
+  })
+
+  it('shows no stalled filter when nobody is stalled', async () => {
+    mocks.user = { id: 'u_coach_calm', name: 'Coach', profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [
+      { id: 'l_ok', status: 'active', scopes: ['training'], athlete: { id: 'a3', name: 'Aluno Ativo' }, activity: { status: 'active', daysSince: 1 } },
+    ] }
+    mocks.answers['/api/messages/inbox'] = { conversations: [], page: { limit: 50, hasMore: false, nextCursor: null } }
+    await mount('/professionals')
+    expect([...host.querySelectorAll('.pro-status-filter button')].some(b => b.textContent.startsWith('Stalled'))).toBe(false)
+    expect(host.querySelector('.pro-card-stalled-badge')).toBeNull()
+  })
+
   it('renders export PDF button on active athlete card', async () => {
     const athlete = { id: 'ath_pdf', name: 'Atleta PDF' }
     mocks.user = {
