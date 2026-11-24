@@ -2058,6 +2058,10 @@ body.no-tabbar #timer.countin{box-shadow:inset 0 var(--hair) 0 var(--acc),0 -10p
 /* ---------------------------------------------------------------- modal -- */
 #modal-root{position:fixed;inset:0;z-index:100;display:none}
 #modal-root.open{display:block}
+/* The design-system Modal/Drawer portals its own fixed backdrop into #modal-root. Without this the
+   root stays display:none (only the legacy sheet host adds .open), so the dialog was invisible while
+   it locked page scroll: the screen looked frozen (AI workout builder, consent, etc.). */
+#modal-root:has(>.ds-modal-backdrop){display:block}
 .mback{
   position:absolute;inset:0;background:rgba(0,0,0,.4);
   -webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);
