@@ -281,3 +281,8 @@
     width: 100%;
   }
 }
+
+.ai-copilot-status { margin: 4px 0; padding: 10px 12px; border-radius: var(--r-md, 12px); background: var(--fill, rgba(120,120,128,.12)); color: var(--label-2); font-size: var(--fs-footnote); line-height: 1.4; overflow-wrap: anywhere; }
+.ai-copilot-status.warn { background: rgba(255,159,10,.14); color: var(--label); }
+.ai-copilot-status.ok { background: rgba(52,199,89,.12); color: var(--label); }
+.ai-copilot-sources { margin-top: 6px; color: var(--label-2); }

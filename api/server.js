@@ -66,6 +66,7 @@ import {
 import { createChallengeRoutes, validateChallengesState, CHALLENGE_LIMITS } from './challenges.js';
 import { createGroupProgramRoutes, validateGroupProgramsState, GROUP_PROGRAM_LIMITS } from './group-programs.js';
 import { createWorkoutTemplateRoutes, validateWorkoutTemplatesState } from './workout-templates.js';
+import { createAiWorkoutRoutes } from './ai-workout.js';
 import { createReminderDispatcher, REMINDER_DISPATCH_DEFAULTS } from './reminder-dispatcher.js';
 import { SerialWriteQueue } from './serial-write-queue.js';
 import { mergeDbCandidate } from './db-coordinator.js';
@@ -3085,8 +3086,22 @@ const workoutTemplateRoutes = createWorkoutTemplateRoutes({
   rate: B2B2C_RATE, prescriptionLimits: B2B2C_LIMITS,
 });
 
+const aiWorkoutRoutes = createAiWorkoutRoutes({
+  audit, b2bError, db, json, limitAddress, profileOf, readBody, readSession, authorizeAthleteAccess,
+  readAthleteState: uid => readStateCached(uid), userNow,
+  listAssessments: (coachId, athleteId) => db.coachAssessments
+    .filter(item => item.coachId === coachId && item.athleteId === athleteId)
+    .sort((left, right) => Date.parse(right.assessedAt) - Date.parse(left.assessedAt))
+    .map(serializeAssessment),
+  env: {
+    AI_WORKOUT_BASE_URL: process.env.AI_WORKOUT_BASE_URL, AI_WORKOUT_API_KEY: process.env.AI_WORKOUT_API_KEY,
+    AI_WORKOUT_MODEL: process.env.AI_WORKOUT_MODEL, AI_WORKOUT_TIMEOUT_MS: process.env.AI_WORKOUT_TIMEOUT_MS,
+  },
+});
+
 const routes = {
   ...challengeRoutes,
+  ...aiWorkoutRoutes,
   ...groupProgramRoutes,
   ...workoutTemplateRoutes,
   ...communicationHabitsRoutes,
@@ -5053,6 +5068,11 @@ const server = http.createServer(async (req, res) => {
   if (coachRoutine) {
     key = req.method + ' /api/coach/athletes/{athleteId}/routines';
     req.athleteId = coachRoutine[1];
+  }
+  const coachAiWorkout = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/ai-workout$/.exec(url.pathname);
+  if (coachAiWorkout) {
+    key = req.method + ' /api/coach/athletes/{athleteId}/ai-workout';
+    req.athleteId = coachAiWorkout[1];
   }
   const coachRoutineItem = /^\/api\/coach\/athletes\/([A-Za-z0-9_-]+)\/routines\/([A-Za-z0-9_-]+)$/.exec(url.pathname);
   if (coachRoutineItem) {

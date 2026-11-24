@@ -3230,6 +3230,38 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/Busy' }
 
+  /api/coach/athletes/{athleteId}/ai-workout:
+    parameters:
+      - name: athleteId
+        in: path
+        required: true
+        schema: { type: string, pattern: '^[A-Za-z0-9_-]+$' }
+    post:
+      tags: [professionals]
+      operationId: buildCoachAiWorkout
+      summary: Build a workout proposal for a linked athlete from the athlete's real data
+      description: Requires an active link with the training scope. Returns source `ai` with a validated routine (catalogue exercises only, joint restrictions enforced server-side) or source `rules` with a fallbackReason, in which case the client uses its rule-based generator. Never takes longer than the configured timeout.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                objective: { type: string, enum: [hipertrofia, emagrecimento, forca, condicionamento] }
+                level: { type: string, enum: [iniciante, intermediario, avancado] }
+                split: { type: string, enum: [ppl, upper_lower, full_body, auto] }
+                daysPerWeek: { type: integer, minimum: 1, maximum: 7 }
+                restrictions: { type: array, items: { type: string, enum: [joelho, ombro, lombar] } }
+                note: { type: string, maxLength: 400 }
+      responses:
+        '200': { description: Proposal or rules fallback., content: { application/json: { schema: { type: object } } } }
+        '400': { $ref: '#/components/responses/ChallengeBadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/ChallengeForbidden' }
+        '404': { $ref: '#/components/responses/ChallengeNotFound' }
+        '429': { $ref: '#/components/responses/TooManyRequests' }
+
   /api/athlete/group-programs:
     get:
       tags: [professionals]
