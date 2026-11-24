@@ -89,7 +89,11 @@ function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex
     </div>
     <Field label={p('Exercise')} required error={errors[`exercise-${errKey}`]}>
       <TextField name={`exercise-${prefix}`} value={exercise.name} maxLength={120}
-        placeholder={p('Exercise')} onChange={event => field('name', event.target.value)} />
+        placeholder={p('Exercise')} onChange={event => {
+          // The catalogue link only holds while the name is the catalogue's; a renamed exercise is a custom one.
+          const name = event.target.value
+          if (exercise.catalogueId && name !== exercise.catalogueName) { const { catalogueId, catalogueName, ...rest } = exercise; onChange({ ...rest, name }) } else field('name', name)
+        }} />
     </Field>
     <div className="pro-grid-fields">
       <Field label={p('Sets')} required error={errors[`sets-${errKey}`]}>
@@ -125,6 +129,7 @@ const editorStateFrom = routine => ({
   divisions: routine.divisions.map(division => ({
     name: division.name,
     exercises: division.exercises.map(exercise => ({
+      ...(exercise.catalogueId ? { catalogueId: String(exercise.catalogueId), catalogueName: exercise.name } : {}),
       name: exercise.name, sets: String(exercise.sets), reps: String(exercise.reps), load: exercise.load || '',
       restSeconds: String(exercise.restSeconds ?? 60), notes: exercise.notes || '',
     })),
@@ -184,6 +189,7 @@ function RoutineEditor({ athlete, onCreated, onCancel, onSave = null, initial = 
       divisions: generatedPlan.divisions.map(division => ({
         name: division.name,
         exercises: division.exercises.map(exercise => ({
+          ...(exercise.catalogueId ? { catalogueId: String(exercise.catalogueId), catalogueName: exercise.name } : {}),
           name: exercise.name,
           sets: String(exercise.sets),
           reps: String(exercise.reps),
@@ -241,6 +247,7 @@ function RoutineEditor({ athlete, onCreated, onCancel, onSave = null, initial = 
                 exercise.notes.trim(),
               ].filter(Boolean).join(' ').slice(0, 500)
               return {
+                ...(exercise.catalogueId && exercise.name === exercise.catalogueName ? { catalogueId: exercise.catalogueId } : {}),
                 name: exercise.name.trim(),
                 sets: Number(exercise.sets),
                 reps: exercise.reps.trim(),

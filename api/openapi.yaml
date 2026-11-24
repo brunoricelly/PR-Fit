@@ -3240,7 +3240,20 @@ paths:
       tags: [professionals]
       operationId: buildCoachAiWorkout
       summary: Build a workout proposal for a linked athlete from the athlete's real data
-      description: Requires an active link with the training scope. Returns source `ai` with a validated routine (catalogue exercises only, joint restrictions enforced server-side) or source `rules` with a fallbackReason, in which case the client uses its rule-based generator. Never takes longer than the configured timeout.
+      description: >-
+        Requires an active link with the training scope. Only canonical, bounded values (objective, level, split,
+        days/session length, owned catalogue equipment, aggregate history counts, allowed catalogue ids) are sent to the
+        gateway; names, ids, free text (including `note`, goal, experience, limitations), body weight, assessments and
+        restriction labels never leave the server. Injury signals only filter the catalogue locally. Returns source `ai`
+        with a strictly validated routine (exact split division count, allowed catalogue ids only, level/objective-safe
+        sets/reps/rest; any violation rejects the whole answer, nothing is clamped; routine name, rationale and division
+        names are generated locally, exercise notes are empty) or source `rules` with a `fallbackReason`. Every response
+        carries `allowedExerciseIds`, the authoritative catalogue ids that are safe for this athlete, on success and on
+        fallback; the client must restrict its rule-based preview to them. `manualReview` is true when a constraint
+        could not be applied automatically (unrecognised limitation text, a coach `note` that is not sent, no athlete
+        intake); `rulesBlocked` is true when the rule path must not generate either (unrecognised limitation, or too few
+        safe exercises to fill the split): then `allowedExerciseIds` is empty and `fallbackReason` is
+        `manual_review_required`. Never takes longer than the configured timeout.
       requestBody:
         content:
           application/json:
@@ -3253,9 +3266,27 @@ paths:
                 split: { type: string, enum: [ppl, upper_lower, full_body, auto] }
                 daysPerWeek: { type: integer, minimum: 1, maximum: 7 }
                 restrictions: { type: array, items: { type: string, enum: [joelho, ombro, lombar] } }
-                note: { type: string, maxLength: 400 }
+                note: { type: string, maxLength: 400, description: Coach free text. Never sent to the AI gateway; its presence only sets manualReview. }
       responses:
-        '200': { description: Proposal or rules fallback., content: { application/json: { schema: { type: object } } } }
+        '200':
+          description: Proposal or rules fallback.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [source, resolved, facts, allowedExerciseIds, manualReview, manualReviewReasons, rulesBlocked]
+                properties:
+                  source: { type: string, enum: [ai, rules] }
+                  fallbackReason: { type: string, description: 'Present when source is rules, e.g. ai_not_configured, manual_review_required, gateway_error, timeout, not_json, wrong_division_count, too_few_divisions, invalid_exercise, duplicate_exercise, invalid_prescription, too_many_sets.' }
+                  model: { type: string }
+                  droppedExercises: { type: integer, description: Always 0; unsafe answers are rejected whole. }
+                  allowedExerciseIds: { type: array, maxItems: 200, items: { type: string }, description: Authoritative catalogue ids safe for this athlete (joint restrictions and known equipment applied). Empty when rulesBlocked. }
+                  manualReview: { type: boolean }
+                  manualReviewReasons: { type: array, items: { type: string, enum: [limitation_unrecognised, coach_note_not_sent, no_athlete_intake, insufficient_safe_exercises] } }
+                  rulesBlocked: { type: boolean }
+                  resolved: { type: object }
+                  facts: { type: object }
+                  routine: { type: object, description: Present only when source is ai. }
         '400': { $ref: '#/components/responses/ChallengeBadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/ChallengeForbidden' }

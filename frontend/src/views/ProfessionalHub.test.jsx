@@ -522,6 +522,33 @@ describe('ProfessionalHub', () => {
     expect(nameInput.value).toContain('Hipertrofia')
     expect(mocks.toast).toHaveBeenCalledWith('AI workout prescription applied to routine.')
   })
+
+  it('keeps catalogueId from the AI plan through the editor to the saved prescription, and drops it when the exercise is renamed', async () => {
+    const athlete = { id: 'u_athlete_ai', name: 'Atleta IA' }
+    const ex = (id, name) => ({ catalogueId: id, id, name, sets: 3, reps: '8-12', load: '', restSeconds: 60, notes: '', targetMuscle: 'Peitoral', equipment: 'Halteres' })
+    mocks.user = { id: 'u_coach', name: 'Coach', admin: false, profile: { kind: 'coach', coachSpecialties: ['training'] } }
+    mocks.answers['/api/coach/athletes'] = { links: [{ id: 'cal_ai', status: 'active', scopes: ['training'], athlete }] }
+    mocks.answers[`/api/coach/athletes/${athlete.id}/routines`] = body => body ? { routine: { id: 'cpr_1', state: 'available', createdAt: '2026-11-06T00:00:00.000Z', coach: { id: 'u_coach', name: 'Coach' }, athlete, routine: body.routine } } : { routines: [] }
+    mocks.answers[`/api/coach/athletes/${athlete.id}/ai-workout`] = {
+      source: 'ai', allowedExerciseIds: ['0289', '0334'], facts: { hasIntake: true },
+      resolved: { objective: 'hipertrofia', level: 'intermediario', split: 'upper_lower', daysPerWeek: 3, restrictions: [], sources: {} },
+      routine: { name: 'Ficha IA', notes: '', rationale: 'ok', divisions: [{ name: 'A', exercises: [ex('0289', 'Supino reto com halteres'), ex('0334', 'Elevação lateral')] }] },
+    }
+    await mount('/professionals')
+    await act(async () => { button('Prescribe workout').click() })
+    await act(async () => { host.querySelector('[data-testid="ai-copilot-trigger"]').click() })
+    await act(async () => { document.body.querySelector('[data-testid="ai-build-with-athlete"]').click() })
+    await settle()
+    await act(async () => { document.body.querySelector('[data-testid="apply-ai-workout-btn"]').click() })
+    await type(host.querySelector('input[name="exercise-1-2"]'), 'Elevação lateral (minha variação)')
+    await act(async () => { button('Send prescription').click() })
+    await settle()
+    const save = mocks.calls.find(call => call.path === `/api/coach/athletes/${athlete.id}/routines` && call.method === 'POST')
+    const exercises = save.body.routine.divisions[0].exercises
+    expect(exercises[0]).toMatchObject({ catalogueId: '0289', name: 'Supino reto com halteres' })
+    expect(exercises[1].catalogueId).toBeUndefined()
+    expect(exercises[1].name).toBe('Elevação lateral (minha variação)')
+  })
 })
 
   it('renders Nutrition tab for coaches with nutrition specialty and isolates athletes by nutrition scope', async () => {

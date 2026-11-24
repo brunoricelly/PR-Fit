@@ -217,6 +217,12 @@ const EXERCISE_KNOWLEDGE = {
   '5265': { targetMuscle: 'Abdômen', equipment: 'Peso corporal', compound: false, highShoulderStress: false, highLumbarStress: false, highKneeStress: false },
 }
 
+/** Joint-stress flags of a catalogue exercise, or null when the exercise is not in the local knowledge base. */
+export function exerciseJointFlags(id) {
+  const meta = EXERCISE_KNOWLEDGE[String(id)]
+  return meta ? { joelho: !!meta.highKneeStress, ombro: !!meta.highShoulderStress, lombar: !!meta.highLumbarStress } : null
+}
+
 function calculateParameters(objective, level, compound = false) {
   let sets = '3'
   let reps = '8-12'
@@ -248,8 +254,12 @@ function calculateParameters(objective, level, compound = false) {
   return { sets, reps, restSeconds, cadenceNote }
 }
 
+// Set only while generateAiWorkout runs (synchronous): the authoritative ids the plan may use, or null.
+let activeAllowedIds = null
+
 function chooseExercise(candidates, restrictions, fallback, seedOffset = 0, usedSet = new Set()) {
   const filtered = candidates.filter(id => {
+    if (activeAllowedIds && !activeAllowedIds.has(String(id))) return false
     const meta = EXERCISE_KNOWLEDGE[id]
     if (!meta) return true
     if (restrictions.includes('joelho') && meta.highKneeStress) return false
@@ -308,7 +318,18 @@ function buildExerciseItem(id, objective, level, restrictions, customCue = '') {
   }
 }
 
+/**
+ * Rules generator. `allowedIds` (optional array) restricts picks to those catalogue ids. When a slot has no
+ * allowed/safe candidate the legacy fallback id is still returned, so callers that need a guarantee must run
+ * verifyWorkoutPlan on the result instead of trusting the plan's own flags.
+ */
 export function generateAiWorkout(options = {}) {
+  const allowed = Array.isArray(options.allowedIds) ? new Set(options.allowedIds.map(String)) : null
+  activeAllowedIds = allowed
+  try { return generateAiWorkoutUnguarded(options) } finally { activeAllowedIds = null }
+}
+
+function generateAiWorkoutUnguarded(options = {}) {
   const {
     objective = 'hipertrofia',
     split = 'ppl',
@@ -539,4 +560,52 @@ export function generateAiWorkout(options = {}) {
       notes: ex.notes,
     }))),
   }
+}
+
+// Conservative per-level caps for the rules generator (its own output never exceeds them). Only used to
+// reject a rules plan that came out of range; an API-provided `levelBounds` can override them.
+export const RULES_LEVEL_BOUNDS = Object.freeze({
+  iniciante: { maxSets: 3, maxExercisesPerDivision: 6 },
+  intermediario: { maxSets: 4, maxExercisesPerDivision: 6 },
+  avancado: { maxSets: 5, maxExercisesPerDivision: 8 },
+})
+
+/**
+ * Independent safety check of a plan before it can be previewed/applied. It never trusts flags the generator
+ * set on the plan (safetyAlert, fallback picks…): every exercise is re-checked against
+ *  - `allowedIds` (authoritative list from the server; null = not available, skip),
+ *  - the joint restrictions (unknown exercises cannot be proven safe unless `trustUnknownFlags`),
+ *  - duplicates inside a division,
+ *  - sets/rest/reps sanity and, when `bounds` is given, the level caps.
+ */
+export function verifyWorkoutPlan(plan, { allowedIds = null, restrictions = [], bounds = null, trustUnknownFlags = false } = {}) {
+  const problems = []
+  const divisions = Array.isArray(plan?.divisions) ? plan.divisions : []
+  if (!divisions.length) problems.push('empty')
+  const allowed = Array.isArray(allowedIds) ? new Set(allowedIds.map(String)) : null
+  const active = (Array.isArray(restrictions) ? restrictions : []).filter(r => ['joelho', 'ombro', 'lombar'].includes(r))
+  divisions.forEach((division, di) => {
+    const list = Array.isArray(division?.exercises) ? division.exercises : []
+    if (!list.length) problems.push(`division_${di}_empty`)
+    if (bounds?.maxExercisesPerDivision && list.length > bounds.maxExercisesPerDivision) problems.push(`division_${di}_too_many`)
+    const seen = new Set()
+    list.forEach(exercise => {
+      const id = String(exercise?.catalogueId ?? exercise?.id ?? '')
+      if (!id) { problems.push('missing_id'); return }
+      if (allowed && !allowed.has(id)) problems.push(`not_allowed:${id}`)
+      if (seen.has(id)) problems.push(`duplicate:${id}`)
+      seen.add(id)
+      if (active.length) {
+        const flags = exerciseJointFlags(id)
+        if (!flags) { if (!trustUnknownFlags) problems.push(`unverifiable:${id}`) }
+        else if (active.some(r => flags[r])) problems.push(`restricted:${id}`)
+      }
+      const sets = Number(exercise?.sets)
+      if (!Number.isInteger(sets) || sets < 1 || (bounds?.maxSets && sets > bounds.maxSets)) problems.push(`sets:${id}`)
+      const rest = Number(exercise?.restSeconds)
+      if (!Number.isFinite(rest) || rest < 0) problems.push(`rest:${id}`)
+      if (!String(exercise?.reps ?? '').trim()) problems.push(`reps:${id}`)
+    })
+  })
+  return { ok: problems.length === 0, problems }
 }
