@@ -214,6 +214,12 @@
 .pro-summary-metrics-grid{display:grid;gap:12px;margin-top:14px}
 .pro-metric-card{margin:0}
 .pro-metric-large-val{font-size:var(--fs-title2);color:var(--label)}
+/* The value carries its unit ("3 Treinos por semana"). Beside the title it left the title 82px for a
+   86px word at 320px; on a narrow phone the value drops under the title instead. */
+@media (max-width: 340px) {
+  .pro-metric-card .pro-link-head{flex-wrap:wrap}
+  .pro-metric-card .pro-link-head > div:first-child{flex:1 1 100%}
+}
 .pro-metric-val{font-size:var(--fs-subhead);font-weight:700}
 .pro-disclaimer{margin:14px 0 0;color:var(--label-2);font-size:var(--fs-caption1);line-height:1.4}
 .pro-goal-list{display:grid;gap:10px;margin-top:12px}
@@ -419,6 +425,21 @@
   align-items: center;
   justify-content: center;
   flex: none;
+}
+/* .btn is width:100%; as a flex:none item next to the badge it kept 100% and pushed "Remover exercício"
+   past a 320px screen (measured 159..336). Natural width, capped to what is left, text may wrap. */
+.pro-division-head .btn,
+.pro-editor-head .btn {
+  width: auto;
+  max-width: 100%;
+  min-width: 0;
+  white-space: normal;
+  text-align: center;
+}
+/* The editor card is narrow on a 320px phone (badge + a 177px button do not fit side by side):
+   let the head wrap so the button drops under the badge instead of overflowing. */
+.pro-editor-head {
+  flex-wrap: wrap;
 }
 
 .pro-division-editor > .btn {
