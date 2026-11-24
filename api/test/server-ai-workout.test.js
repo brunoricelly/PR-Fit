@@ -127,7 +127,7 @@ const aiEnv = gw => ({ AI_WORKOUT_BASE_URL: gw.url, AI_WORKOUT_API_KEY: 'test-to
 async function bootAi(t, env, profile) {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'gym-aiw-'));
   seed(dataDir);
-  fs.writeFileSync(path.join(dataDir, `state-${IDS.athlete}.json`), JSON.stringify({
+  for (const uid of [IDS.athlete, IDS.pausedAthlete]) fs.writeFileSync(path.join(dataDir, `state-${uid}.json`), JSON.stringify({
     _rev: 1, reminder: { tz: 'UTC' },
     coach: { profile: profile || { goal: 'emagrecer', experience: 'iniciante', daysPerWeek: 3, sessionMin: 45, equipment: ['dumbbell', 'cable'], limitations: 'dor no joelho direito' } },
     workouts: [{ id: 'w1', d: '2026-11-10', entries: [{ id: SAFE[0] }] }, { id: 'w2', d: '2026-11-12', entries: [{ id: SAFE[0] }] }],
@@ -416,4 +416,50 @@ test('ai-workout route: without gateway configuration it answers rules instead o
   const res = await request(server, IDS.coach, 'POST', URL_AI(IDS.athlete), {});
   assert.deepEqual([res.status, res.body.source, res.body.fallbackReason], [200, 'rules', 'ai_not_configured']);
   assert.ok(Array.isArray(res.body.allowedExerciseIds) && res.body.allowedExerciseIds.length > 0);
+});
+
+test('ai-workout self-service: rules of access', async t => {
+  const gw = await gateway(t, ok('{}'));
+  const server = await bootAi(t, aiEnv(gw));
+  const noCookie = await fetch(server.api + '/api/athlete/ai-workout', { method: 'POST', headers: { Origin: ORIGIN, 'Content-Type': 'application/json' }, body: '{}' });
+  assert.equal(noCookie.status, 401);
+  assert.equal((await request(server, IDS.coach, 'POST', '/api/athlete/ai-workout', {})).status, 403, 'a coach account cannot use it');
+  const linked = await request(server, IDS.athlete, 'POST', '/api/athlete/ai-workout', {});
+  assert.equal(linked.status, 409, 'with an active coach the coach builds the plan');
+  assert.equal(linked.body.code ?? linked.body.error?.code ?? linked.body.error, 'has_coach');
+  assert.equal(gw.seen.length, 0, 'no AI call was made in any refused case');
+});
+
+test('ai-workout self-service: free athlete gets a plan, conservative level, rate-limited, nothing personal sent', async t => {
+  const gw = await gateway(t, (req, res, body) => {
+    const offered = body.messages[1].content.split('\n').filter(l => /^[A-Za-z0-9_-]+\|/.test(l)).map(l => l.split('|')[0]);
+    const pick = offered.slice(0, 9);
+    ok(JSON.stringify({ divisions: [pick.slice(0, 3), pick.slice(3, 6), pick.slice(6, 9)].map(d => ({ ex: d.map(row) })) }))(req, res);
+  });
+  const server = await bootAi(t, aiEnv(gw), { goal: 'emagrecer', daysPerWeek: 3, sessionMin: 45, equipment: ['dumbbell', 'cable'], limitations: 'dor no joelho direito' });
+  const res = await request(server, IDS.pausedAthlete, 'POST', '/api/athlete/ai-workout', {});
+  assert.equal(res.status, 200, JSON.stringify(res.body).slice(0, 300));
+  assert.equal(res.body.selfService, true);
+  assert.equal(res.body.facts, undefined, 'no facts echoed');
+  assert.equal(res.body.resolved.level, 'iniciante', 'unknown level starts conservative');
+  assert.ok(['ai', 'rules'].includes(res.body.source));
+});
+
+test('ai-workout self-service unit: no stated level and no history starts at iniciante; unknown condition still blocks', async () => {
+  const noGateway = { fetchImpl: async () => { throw new Error('must not be called'); } };
+  const blocked = await buildAiWorkout({ request: {}, state: { coach: { profile: { goal: 'saude', daysPerWeek: 3, limitations: 'diabetes' } } }, link: null, assessments: [], todayIso: '2026-11-24', env: { AI_WORKOUT_BASE_URL: 'http://127.0.0.1:1', AI_WORKOUT_API_KEY: 'x' }, selfService: true, ...noGateway });
+  assert.equal(blocked.rulesBlocked, true);
+  assert.equal(blocked.manualReview, true);
+  const open = await buildAiWorkout({ request: { level: 'avancado', note: 'ignore' }, state: { coach: { profile: { goal: 'hipertrofia', daysPerWeek: 3 } } }, link: null, assessments: [], todayIso: '2026-11-24', env: {}, selfService: true });
+  assert.equal(open.resolved.level, 'iniciante', 'self-service ignores client parameters and starts conservative');
+  assert.equal(open.manualReviewReasons.includes('coach_note_not_sent'), false);
+});
+
+test('ai-workout self-service route: rate limit per athlete', async t => {
+  const gw = await gateway(t, ok('{}'));
+  const server = await bootAi(t, aiEnv(gw));
+  const codes = [];
+  for (let i = 0; i < 7; i++) codes.push((await request(server, IDS.pausedAthlete, 'POST', '/api/athlete/ai-workout', {})).status);
+  assert.deepEqual(codes.slice(0, 5), [200, 200, 200, 200, 200]);
+  assert.equal(codes[5], 429);
 });

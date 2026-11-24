@@ -86,7 +86,7 @@ function findSafeRulesPlan({ objective, split, level, restrictions, focus = 'equ
 }
 
 // Turns the server answer into what the modal shows. Never produces a plan that failed verification.
-function interpretResult(result) {
+export function interpretResult(result) {
   const r = result?.resolved || {}
   const allowed = Array.isArray(result?.allowedExerciseIds) ? result.allowedExerciseIds.map(String) : null
   const bounds = boundsFor(result, r.level)

@@ -33,6 +33,7 @@ import {
 import { AdaptProposal, adaptTitle } from '../components/WorkoutCoachSheet.jsx'
 import { insightsFor, sessionInsights } from '../lib/coach-insights.js'
 import { useCoachStatus, requestReview, requestDebrief, requestPlan, refinePlan, askCoach, resolvePending, cohortStats, setCohortShare, jobErrorText, awaitedJob, settleAwaited, JOB_ERRORS, ensureAiConsent, isDeclined } from '../lib/coach-api.js'
+import SelfAiWorkoutSheet from '../components/SelfAiWorkoutSheet.jsx'
 import { AiConsentSection } from '../components/CoachConsentSheet.jsx'
 import { useCoachGate } from '../lib/use-coach-gate.js'
 import { confirmSheet } from '../sheets.jsx'
@@ -177,6 +178,7 @@ export default function CoachChat() {
     <div style={{ height: 10 }} />
   </div>)
 
+  const buildMine = () => openSheet(close => <SelfAiWorkoutSheet S={S} update={update} toast={toast} close={close} />)
   const showHistory = () => openSheet(close => <HistorySheet S={S} close={close} openSheet={openSheet} />)
   const showCohort = () => openSheet(() => <CohortSheet S={S} update={update} toast={toast} />)
 
@@ -248,6 +250,7 @@ export default function CoachChat() {
       {idle && !busy && <div className="chips-row">
         <button className="qchip" onClick={askReview}><Icon name="sparkles" />{t('Review my training')}</button>
         {!!lastWorkout && <button className="qchip" onClick={askDebrief}><Icon name="checkCircle" />{t('Last workout')}</button>}
+        {!DEMO && <button className="qchip" onClick={buildMine} data-testid="build-my-workout"><Icon name="dumbbell" />Montar meu treino</button>}
         {!!(S.routines || []).length && <button className="qchip" onClick={pickRoutine}><Icon name="wrench" />{t('Improve a routine')}</button>}
         {community && <button className="qchip" onClick={showCohort}><Icon name="person" />{t('Compare')}</button>}
       </div>}

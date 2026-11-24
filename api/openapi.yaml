@@ -3230,6 +3230,28 @@ paths:
         '429': { $ref: '#/components/responses/TooManyRequests' }
         '503': { $ref: '#/components/responses/Busy' }
 
+  /api/athlete/ai-workout:
+    post:
+      tags: [professionals]
+      operationId: buildAthleteAiWorkout
+      summary: Build a starter workout plan for yourself (athlete without a coach)
+      description: >-
+        Self-service. No parameters are accepted: the plan comes from the athlete's own intake, conservative
+        (iniciante) when the level is unknown. Same data minimisation, allow-list and fail-closed rules as the
+        coach route. An unrecognised limitation returns manualReview/rulesBlocked with no plan. Rate limited
+        per athlete.
+      responses:
+        '200':
+          description: A validated plan (source ai) or the reason it fell back (source rules) with allowedExerciseIds.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401': {description: Not signed in}
+        '403': {description: Coach accounts cannot use it}
+        '409': {description: The athlete has an active coach with training scope, who builds the plan}
+        '429': {description: Too many requests}
   /api/coach/athletes/{athleteId}/ai-workout:
     parameters:
       - name: athleteId

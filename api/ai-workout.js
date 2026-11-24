@@ -401,9 +401,11 @@ export async function callGateway({ cfg, messages, fetchImpl = fetch }) {
 }
 
 /** Core, injectable for tests. */
-export async function buildAiWorkout({ request, state, link, assessments, todayIso, env = process.env, fetchImpl = fetch }) {
+export async function buildAiWorkout({ request, state, link, assessments, todayIso, env = process.env, fetchImpl = fetch, selfService = false }) {
   const facts = collectAthleteFacts({ state, link, assessments, todayIso });
-  const normalised = normaliseRequest(request);
+  const normalised = normaliseRequest(selfService ? {} : request);
+  // Nobody reviews a self-service plan: with no stated or inferred level it starts conservative.
+  if (selfService && !inferredHints(facts).level) normalised.level = 'iniciante';
   const resolved = resolveRequest(normalised, facts);
   const review = reviewFlags(normalised, facts);
   const lim = limitsFor(resolved);
@@ -458,6 +460,23 @@ export function createAiWorkoutRoutes(context) {
     return 0;
   };
   return {
+    // The athlete builds a starter plan for themselves from their own intake. No parameters are accepted.
+    'POST /api/athlete/ai-workout': async (req, res) => {
+      const athlete = readSession(req);
+      if (!athlete) return b2bError(res, 401, 'not_signed_in', 'not signed in');
+      if (profileOf(athlete).kind === 'coach') return b2bError(res, 403, 'role_forbidden', 'athlete account required');
+      const hasCoach = (db.coachAthleteLinks || []).some(l => l.athleteId === athlete.id && l.status === 'active' && l.scopes?.includes('training'));
+      if (hasCoach) return b2bError(res, 409, 'has_coach', 'your coach builds your training plan');
+      const wait = Math.max(take('a:' + athlete.id, rate.athleteMax ?? 5), take('i:' + limitAddress(req), rate.ipMax ?? 120));
+      if (wait) return b2bError(res, 429, 'rate_limited', 'too many AI workout requests', { 'Retry-After': String(wait) });
+      try { await readBody(req); } catch { return b2bError(res, 400, 'invalid_body', 'invalid request body'); }
+      const state = readAthleteState(athlete.id) || {};
+      const todayIso = userNow(state.reminder?.tz || 'UTC')?.date;
+      const started = Date.now();
+      const result = await buildAiWorkout({ request: {}, state, link: null, assessments: [], todayIso, env, fetchImpl, selfService: true });
+      audit?.(req, 'b2b2c.ai_workout.self.' + result.source, { user: athlete, msg: `${result.fallbackReason || 'ok'} ${Date.now() - started}ms` });
+      return json(res, 200, { ...result, facts: undefined, selfService: true });
+    },
     'POST /api/coach/athletes/{athleteId}/ai-workout': async (req, res) => {
       const coach = readSession(req);
       if (!coach) return b2bError(res, 401, 'not_signed_in', 'not signed in');
