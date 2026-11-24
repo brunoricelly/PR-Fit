@@ -18,4 +18,7 @@ describe('segmented control height', () => {
     expect(css.match(/\.seg-inline button::before\{([^}]*)\}/)?.[1]).toMatch(/inset:-8px 0/)
     expect(css.match(/\.iconbtn\.wk-nav::before\{([^}]*)\}/)?.[1]).toMatch(/inset:-7px/)
   })
+  it('extends the switch hit area to 44px', () => {
+    expect(css.match(/\.sw::before\{([^}]*)\}/)?.[1]).toMatch(/inset:-7px 0/)
+  })
 })

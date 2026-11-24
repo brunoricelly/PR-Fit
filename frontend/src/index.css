@@ -1090,6 +1090,9 @@ body.chips-dragging *{cursor:inherit}
   flex:none;padding:2px;display:flex;align-items:center;
   transition:background var(--med) var(--ease);
 }
+/* 31px is the iOS look; the hit area reaches 44px vertically without painting it */
+.sw{position:relative}
+.sw::before{content:'';position:absolute;inset:-7px 0}
 .sw .knob{
   width:27px;height:27px;border-radius:50%;background:#fff;
   box-shadow:0 3px 8px rgba(0,0,0,.15),0 1px 1px rgba(0,0,0,.16);
