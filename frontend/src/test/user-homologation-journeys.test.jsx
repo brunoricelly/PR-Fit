@@ -214,7 +214,7 @@ describe('Homologação de Usabilidade — Checkpoint 8', () => {
       await setValue(exSetsC, '4')
       await setValue(exRepsC, '8-10')
 
-      const sendBtn = findButton('Send prescription') || findButton('Prescrever') || host.querySelector('.pro-editor-footer-actions button:last-child')
+      const sendBtn = findButton('Enviar prescrição') || findButton('Send prescription') || host.querySelector('.pro-editor-footer-actions button:last-child')
       expect(sendBtn).toBeTruthy()
       await click(sendBtn)
 

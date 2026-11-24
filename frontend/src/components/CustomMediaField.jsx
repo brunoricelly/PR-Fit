@@ -68,12 +68,12 @@ export function useMediaPicker() {
     : serverLacks ? t('Your server does not store photos and videos yet.')
       : !user ? t('Kept on this device only. Export with photos & videos keeps a copy.')
         : null
-  return { pick, busy, warning, setWarning, note, storable, showAdd: true, canAdd: !busy }
+  return { pick, busy, warning, setWarning, note, storable, showAdd: !serverLacks, canAdd: !busy && !serverLacks }
 }
 
 export default function CustomMediaField({ media, url, onChange }) {
   const user = useStore(s => s.user)
-  const { pick, busy, warning, setWarning, note } = useMediaPicker()
+  const { pick, busy, warning, setWarning, note, storable, showAdd, canAdd } = useMediaPicker()
   const fileRef = useRef(null)
   const videoR2Ref = useRef(null)
   const [uploadingR2, setUploadingR2] = useState(false)
@@ -141,9 +141,9 @@ export default function CustomMediaField({ media, url, onChange }) {
     <Row icon="image" iconTint="var(--blue)" title={t('Photo, GIF or video')} subtitle={subtitle}>
       <div className="cmf-act">
         {m && <span className="cmf-thumb"><CustomThumb ex={{ custom: true, media: m }} /></span>}
-        <Button variant="tinted" size="sm" icon={busy ? undefined : 'image'} disabled={busy || uploadingR2} onClick={() => fileRef.current?.click()}>
+        {(showAdd || m) && <Button variant="tinted" size="sm" icon={busy ? undefined : 'image'} disabled={!canAdd || !storable || uploadingR2} onClick={() => fileRef.current?.click()}>
           {busy ? t('Loading…') : m ? t('Change') : t('Add')}
-        </Button>
+        </Button>}
         {m && <Button variant="ghost" size="sm" icon="xmark" aria-label={t('Remove')} title={t('Remove')} disabled={busy || uploadingR2} onClick={() => { setWarning(null); onChange({ media: null }) }} />}
       </div>
     </Row>

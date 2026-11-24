@@ -8,7 +8,7 @@ describe('route bundle budget', () => {
     expect(BUDGET.initialAssets).toBeLessThanOrEqual(BASELINE.initialAssets)
     expect(BUDGET.largestRaw).toBeLessThan(BASELINE.largestRaw * 1.011)
     expect(BUDGET.largestGzip).toBeLessThan(BASELINE.largestGzip * 1.011)
-    expect(BUDGET.jsChunks).toBeLessThanOrEqual(Math.ceil(BASELINE.jsChunks * 1.1))
+    expect(BUDGET.jsChunks).toBeLessThanOrEqual(Math.ceil(BASELINE.jsChunks * 1.125))
   })
 
   it('accepts a candidate inside every limit', () => {

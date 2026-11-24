@@ -83,8 +83,7 @@
     "frontend/src/views/AdminCoach.jsx:jsx-text:Counts and outcomes only. What people asked the Coach, and what it answered, is never shown here.",
     "frontend/src/views/AdminCoach.jsx:jsx-text:can't be read",
     "frontend/src/views/AdminCoach.jsx:placeholder:whose account is this? (e.g. you@example.com)",
-    "frontend/src/views/CommunicationHabits.jsx:professional-copy:No messages yet",
-    "frontend/src/views/SchedulingView.jsx:professional-copy:No date exceptions configured."
+    "frontend/src/views/CommunicationHabits.jsx:professional-copy:No messages yet"
   ],
   "details": [
     {
@@ -557,15 +556,9 @@
     },
     {
       "file": "frontend/src/views/CommunicationHabits.jsx",
-      "line": 246,
+      "line": 241,
       "kind": "professional-copy",
       "value": "No messages yet"
-    },
-    {
-      "file": "frontend/src/views/SchedulingView.jsx",
-      "line": 682,
-      "kind": "professional-copy",
-      "value": "No date exceptions configured."
     }
   ]
 }

@@ -53,7 +53,9 @@ describe('Settings → Siri & Shortcuts', () => {
       const loc = PAGE_LOCALE[lang] || lang
       const { default: pack } = await import(`../locales/${loc}.js`)
       for (const [key, phrase] of Object.entries(rows)) {
-        expect(bare(pack[key]), `${loc} ${key}`).toBe(PHRASES[phrase][lang].replace('{app}', 'openGym'))
+        // pt/pt-BR were rebranded to PR Fit; the other packs still carry the old name (known debt).
+        const app = /^pt/.test(loc) ? 'PR Fit' : 'openGym'
+        expect(bare(pack[key]), `${loc} ${key}`).toBe(PHRASES[phrase][lang].replace('{app}', app))
       }
     }
   })

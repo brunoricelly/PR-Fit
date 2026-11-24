@@ -43,7 +43,7 @@ export const workoutMediaCount = w => workoutMediaOf(w).length + workoutSetVideo
  * a file only a workout names. A config not known yet (an offline start) is not that answer, and
  * a guest or a phone in local mode keeps its files on the device either way.
  */
-export const serverTakesWorkoutMedia = (user, config) => !user || !config || !config.media || !!config.media.workouts
+export const serverTakesWorkoutMedia = (user, config) => !user || !config || !!config.media?.workouts
 
 /**
  * The grid of a workout's photos and videos with its Add tile. `hint` adds the one-line

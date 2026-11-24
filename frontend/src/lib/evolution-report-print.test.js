@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import {
   generateEvolutionReportHtml,
@@ -129,13 +130,16 @@ describe('Evolution Report Print & HTML Generation', () => {
 
   describe('printEvolutionReport and downloadEvolutionReport', () => {
     it('calls printDocument with the generated HTML', async () => {
-      const spy = vi.spyOn(printModule, 'printDocument').mockResolvedValue()
+      // printDocument is called from inside the module, so a spy on the namespace never sees it.
+      // Its observable effect is one hidden iframe that receives the generated report.
+      document.body.innerHTML = ''
       const res = await printEvolutionReport(sampleReportData)
       expect(res.ok).toBe(true)
-      expect(spy).toHaveBeenCalledOnce()
-      const [html, filename] = spy.mock.calls[0]
-      expect(html).toContain('Relatório de Evolução Corporal')
-      expect(filename).toContain('relatorio-evolucao-maria-souza')
+      expect(res.filename).toContain('relatorio-evolucao-maria-souza')
+      expect(res.html).toContain('Relatório de Evolução Corporal')
+      const frames = document.querySelectorAll('iframe[aria-hidden="true"]')
+      expect(frames).toHaveLength(1)
+      expect(frames[0].contentWindow.document.body.innerHTML).toContain('Relatório de Evolução Corporal')
     })
 
     it('downloads the report with downloadEvolutionReport', () => {
@@ -147,7 +151,7 @@ describe('Evolution Report Print & HTML Generation', () => {
 
   describe('exportEvolutionReportPdf unified workflow', () => {
     it('compiles and triggers printing when called with report and athlete', async () => {
-      const spy = vi.spyOn(printModule, 'printDocument').mockResolvedValue()
+      document.body.innerHTML = ''
       const res = await exportEvolutionReportPdf({
         report: sampleReportData,
         athleteId: 'ath_1',
@@ -156,7 +160,7 @@ describe('Evolution Report Print & HTML Generation', () => {
 
       expect(res.ok).toBe(true)
       expect(res.filename).toContain('relatorio-evolucao')
-      expect(spy).toHaveBeenCalledOnce()
+      expect(document.querySelectorAll('iframe[aria-hidden="true"]')).toHaveLength(1)
     })
   })
 })
