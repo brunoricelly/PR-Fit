@@ -164,4 +164,22 @@ describe('Settings — the background check before the nudge (mobile)', () => {
     await mount()
     expect(host.textContent).not.toContain(NOTE)
   })
+
+  it('toggles the stalledPush long-break reminder off and on', async () => {
+    await mount()
+    const stalledRow = () => [...host.querySelectorAll('.lrow')].find(r => r.textContent.includes('Reminder after a long break'))
+    expect(stalledRow()).toBeTruthy()
+    const sw = () => stalledRow().querySelector('button, [role="switch"]')
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+
+    await act(async () => { sw().click() })
+    await mount()
+    expect(mocks.S.stalledPush).toBe(false)
+    expect(sw().getAttribute('aria-checked')).toBe('false')
+
+    await act(async () => { sw().click() })
+    await mount()
+    expect(mocks.S.stalledPush).toBe(true)
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+  })
 })
