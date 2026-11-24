@@ -104,3 +104,17 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
     })
   })
 });
+describe('coach internal tabs on narrow phones (<=480px)', () => {
+  const sched = readFileSync(resolve(dir, 'views/SchedulingView.css'), 'utf8')
+  const groups = readFileSync(resolve(dir, 'views/GroupChallenges.css'), 'utf8')
+  it('segmented navs wrap instead of clipping labels', () => {
+    expect(sched).toMatch(/@media \(max-width:\s*480px\)[\s\S]*\.pro-sched-nav[^}]*flex-wrap:\s*wrap/)
+    expect(groups).toMatch(/@media \(max-width:\s*480px\)[\s\S]*\.gc-nav-tabs[^}]*flex-wrap:\s*wrap/)
+  })
+  it('relationship list cannot be pushed wider than the viewport', () => {
+    expect(proHubCss).toMatch(/\.pro-list\s*\{[^}]*minmax\(0,\s*1fr\)/)
+  })
+  it('nutrition editor actions keep a 44px target', () => {
+    expect(nutritionCss).toMatch(/\.nutrition-editor \.btn[\s\S]*min-height:\s*44px/)
+  })
+})

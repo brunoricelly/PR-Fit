@@ -139,3 +139,13 @@
     backdrop-filter: none;
   }
 }
+
+/* Nutrition editor, narrow phones (<=480px): main/add actions get a full 44px visible target
+   (the .btn.sm default is a ~34px pill with an invisible hit-area extension) ; the rec pills already carry 44px. */
+@media (max-width: 480px) {
+  .nutrition-editor .btn,
+  .nutrition-editor .btn.sm {
+    min-height: 44px;
+  }
+  .nutrition-editor-head > .btn { min-width: 44px; }
+}

@@ -411,6 +411,35 @@
   cursor: pointer;
 }
 
+/* Narrow phones (<=480px): the segmented tabs wrap onto a second row instead of shrinking inside a
+   horizontal scroller, which clipped "Relacionamentos", "Compromissos" and "Comunidade" at
+   320-390px. Each tab keeps the 44px touch target and may wrap its own label as a last resort.
+   Long addresses/links in appointment cards break instead of pushing the card wider. */
+@media (max-width: 480px) {
+  .pro-sched-nav {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    gap: 6px;
+  }
+  .pro-sched-tab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 12px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .pro-sched-card-details .detail-row > span:last-child,
+  .pro-sched-next-card .small.dim {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .pro-sched-card-details .detail-label {
+    flex: 0 0 auto;
+    min-width: 0;
+  }
+}
+
 /* Focus and Keyboard Accessibility */
 .pro-sched-tab:focus-visible,
 .pro-sched-slot-btn:focus-visible,

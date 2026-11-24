@@ -534,6 +534,25 @@
   min-width: 44px;
 }
 
+/* Narrow phones (<=480px): Groups / Challenges / Programs tabs wrap instead of scrolling off-screen. */
+@media (max-width: 480px) {
+  .gc-nav-tabs {
+    flex-wrap: wrap;
+    overflow-x: visible;
+    gap: 6px;
+  }
+  .gc-tab {
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: 8px 12px;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+  }
+  .gc-filter-group { width: 100%; }
+  .gc-filter-group .gc-filter-btn { flex: 1 1 auto; }
+}
+
 /* Microinteractions: responsive press feedback */
 .gc-tab:active,
 .gc-filter-btn:active,

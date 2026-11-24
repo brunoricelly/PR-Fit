@@ -526,3 +526,22 @@
     backdrop-filter: none;
   }
 }
+
+/* Mobile internal coach layout (<=480px).
+   - .pro-list is a grid: its items defaulted to min-width:auto, so one long unbreakable child
+     stretched the relationship card past the column (right edge 377 in a 360 viewport).
+   - Segmented .pro-choice options reach the 44px touch target; the compact 32px status/destructive
+     chips (.pro-status, .pro-card-actions) are intentionally unchanged. */
+@media (max-width: 480px) {
+  .pro-list { grid-template-columns: minmax(0, 1fr); }
+  .pro-list > .pro-link,
+  .pro-link > * { min-width: 0; }
+  .pro-link-head > div:first-child { min-width: 0; flex: 1 1 auto; }
+  .pro-choices .pro-choice,
+  .pro-status-filter .pro-choice {
+    min-height: 44px;
+    padding: 8px 14px;
+    font-size: 13px;
+    white-space: normal;
+  }
+}
