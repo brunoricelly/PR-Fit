@@ -27,7 +27,20 @@ const FALLBACK_TEXT = {
   empty: 'A IA devolveu uma resposta vazia.',
   no_valid_exercises: 'A IA não sugeriu exercícios válidos.',
   too_few_divisions: 'A IA devolveu menos treinos do que o pedido.',
+  manual_required: 'Este caso exige revisão manual do treinador.',
+  manual_review_required: 'Este caso exige revisão manual do treinador.',
+  payload_rejected: 'O pedido à IA foi bloqueado por segurança de dados.',
+  wrong_division_count: 'A IA devolveu um número de treinos diferente do pedido.',
+  invalid_exercise: 'A IA sugeriu um exercício fora da lista segura.',
+  duplicate_exercise: 'A IA repetiu exercícios na mesma ficha.',
+  invalid_prescription: 'A IA sugeriu séries, repetições ou descanso fora do limite seguro.',
+  too_few_exercises: 'A IA devolveu poucos exercícios.',
+  too_many_exercises: 'A IA devolveu exercícios demais.',
+  too_many_sets: 'A IA sugeriu séries demais.',
+  invalid_shape: 'A IA devolveu um formato inválido.',
+  insufficient_safe_exercises: 'Há poucos exercícios seguros para estas opções.',
 }
+const MANUAL_ONLY_TEXT = 'Nenhuma ficha automática passou na verificação de segurança com estas opções. Monte a ficha manualmente no editor.'
 
 // The server's validated routine in the shape the preview and the editor already use.
 export function aiPlanFrom(result) {
@@ -416,7 +429,7 @@ export default function AiWorkoutGeneratorModal({
           </div>
         )}
         {!generatedWorkout && aiView.status !== 'fallback' && !denied && !loading && (
-          <p className="ai-copilot-status warn" role="alert" data-testid="ai-manual-only">Nenhuma ficha automática passou na verificação de segurança com estas opções. Monte a ficha manualmente no editor.</p>
+          <p className="ai-copilot-status warn" role="alert" data-testid="ai-manual-only">{MANUAL_ONLY_TEXT}</p>
         )}
 
         {/* 6. Pré-visualização da Ficha */}
