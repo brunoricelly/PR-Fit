@@ -385,7 +385,7 @@ function requestedPeriod(req, today) {
 export function createCommunicationHabitsRoutes(context) {
   const {
     audit, auditDenied, b2bError, db, json, limitAddress, limits: configuredLimits, makeEntityId,
-    profileOf, readBody, readSession, rate, saveDb,
+    profileOf, readBody, readSession, rate, saveDb, onMessage,
   } = context;
   const limits = validateCommunicationHabitsLimits(configuredLimits);
   const windows = Object.fromEntries(['message', 'checkin', 'habit', 'read'].map(kind => [kind, {
@@ -497,6 +497,8 @@ export function createCommunicationHabitsRoutes(context) {
     try { commit([...retained.coachMessages, row], retained.coachHabits, retained.habitCheckins); }
     catch { return b2bError(res, 503, 'storage_unavailable', 'message could not be saved'); }
     audit(req, 'b2b2c.message.send', { user: actor, msg: row.id });
+    // Best effort and after the commit: a push failure must never fail or delay the send.
+    try { onMessage?.({ senderId: row.senderId, recipientId: row.recipientId, linkId: row.linkId }); } catch { /* ignored */ }
     json(res, 201, { message: clone(row) });
   };
 

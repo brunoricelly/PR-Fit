@@ -1499,6 +1499,7 @@ function MobileReminderCard({ S, update, toast }) {
       )}
       {S.reminder?.on && <NudgeRows S={S} setReminder={setReminder} />}
       <StalledNotifyRow S={S} update={update} />
+      <MessageNotifyRow S={S} update={update} />
       <WrappedNotifyRow S={S} update={update} />
     </Section>
   )
@@ -1512,6 +1513,15 @@ function StalledNotifyRow({ S, update }) {
   const on = S.stalledPush !== false
   return <Row icon="bell" iconTint="var(--orange)" title={t('Reminder after a long break')} subtitle={t('If you go many days without training, your coach\'s plan sends you one gentle reminder.')}>
     <Switch checked={on} onChange={() => update(s => { s.stalledPush = !on })} aria-label={t('Reminder after a long break')} />
+  </Row>
+}
+
+// Coach <-> athlete message push (api/communication-habits.js onMessage): sent to the recipient only,
+// naming the sender and never the text. S.messagePush === false switches it off, as for the others.
+function MessageNotifyRow({ S, update }) {
+  const on = S.messagePush !== false
+  return <Row icon="chat" iconTint="var(--acc)" title={t('New message alerts')} subtitle={t('A push when your coach or athlete writes to you. It only names who wrote, never the message.')}>
+    <Switch checked={on} onChange={() => update(s => { s.messagePush = !on })} aria-label={t('New message alerts')} />
   </Row>
 }
 
@@ -1612,6 +1622,7 @@ function PushCard({ S, update, toast }) {
         <NudgeRows S={S} setReminder={patch => update(s => { s.reminder = { ...(s.reminder || DEF.reminder), ...patch, tz: localTZ() } })} />
       )}
       {on && <StalledNotifyRow S={S} update={update} />}
+      {on && <MessageNotifyRow S={S} update={update} />}
       {on && <WrappedNotifyRow S={S} update={update} />}
     </Section>
     {on && <div style={{ marginTop: -12, marginBottom: 22 }}><Button size="sm" icon="bell" onClick={test}>{t('Send test notification')}</Button></div>}

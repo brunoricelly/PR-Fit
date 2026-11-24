@@ -1770,6 +1770,8 @@ export default {
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
   'Reminder after a long break': '긴 휴식 후 알림',
   'If you go many days without training, your coach\'s plan sends you one gentle reminder.': '여러 날 동안 운동하지 않으면 코치의 플랜이 부드러운 알림을 한 번 보냅니다.',
+  'New message alerts': '새 메시지 알림',
+  'A push when your coach or athlete writes to you. It only names who wrote, never the message.': '코치나 선수가 메시지를 보내면 푸시를 보냅니다. 보낸 사람만 표시하고 메시지 내용은 절대 보여주지 않습니다.',
   'Nudge me when I skip a planned workout': '계획된 운동을 건너뛰면 알려 주기',
   'Nudge tone': '알림 말투',
   'Friendly': '다정하게',

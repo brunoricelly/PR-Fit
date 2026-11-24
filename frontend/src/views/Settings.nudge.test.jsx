@@ -182,4 +182,22 @@ describe('Settings — the background check before the nudge (mobile)', () => {
     expect(mocks.S.stalledPush).toBe(true)
     expect(sw().getAttribute('aria-checked')).toBe('true')
   })
+
+  it('toggles the messagePush new-message alerts off and on', async () => {
+    await mount()
+    const stalledRow = () => [...host.querySelectorAll('.lrow')].find(r => r.textContent.includes('New message alerts'))
+    expect(stalledRow()).toBeTruthy()
+    const sw = () => stalledRow().querySelector('button, [role="switch"]')
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+
+    await act(async () => { sw().click() })
+    await mount()
+    expect(mocks.S.messagePush).toBe(false)
+    expect(sw().getAttribute('aria-checked')).toBe('false')
+
+    await act(async () => { sw().click() })
+    await mount()
+    expect(mocks.S.messagePush).toBe(true)
+    expect(sw().getAttribute('aria-checked')).toBe('true')
+  })
 })

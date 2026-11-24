@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { appointmentReminderPush, dayReminderPush, restTimerPush, routineEmoji, testPush } from '../push-messages.js';
+import { appointmentReminderPush, dayReminderPush, messagePush, restTimerPush, routineEmoji, testPush } from '../push-messages.js';
 
 test('localizes every server-generated notification in pt-BR', () => {
   assert.deepEqual(restTimerPush('pt-BR'), {
@@ -59,4 +59,16 @@ test('leaves a literal emoji alone and falls back for anything else', () => {
   assert.equal(routineEmoji('trophy'), '🏋️');
   assert.equal(routineEmoji(''), '🏋️');
   assert.equal(routineEmoji(undefined), '🏋️');
+});
+
+test('message push names the sender, never carries the text, and groups by link', () => {
+  const pt = messagePush('pt-BR', '  Marina  ', 'l1');
+  assert.equal(pt.title, 'Nova mensagem');
+  assert.match(pt.body, /Marina enviou/);
+  assert.equal(pt.tag, 'msg-l1');
+  assert.deepEqual(Object.keys(pt).sort(), ['body', 'tag', 'title']);
+  assert.equal(messagePush('xx', 'Ana', 'l1').title, 'New message');
+  assert.equal(messagePush('en', '', 'l1').body, 'You have a new message.');
+  assert.equal(messagePush('en', 42, 'l1').body, 'You have a new message.');
+  assert.ok(messagePush('en', 'x'.repeat(500), 'l1').body.length < 80);
 });

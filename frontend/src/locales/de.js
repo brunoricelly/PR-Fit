@@ -1790,6 +1790,8 @@ export default {
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
   'Reminder after a long break': 'Erinnerung nach längerer Pause',
   'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'Wenn du viele Tage nicht trainierst, schickt dir der Plan deines Trainers eine sanfte Erinnerung.',
+  'New message alerts': 'Hinweise auf neue Nachrichten',
+  'A push when your coach or athlete writes to you. It only names who wrote, never the message.': 'Eine Push-Nachricht, wenn dein Coach oder Athlet dir schreibt. Sie nennt nur den Absender, nie den Inhalt.',
   'Nudge me when I skip a planned workout': 'Stups mich an, wenn ich ein geplantes Training auslasse',
   'Nudge tone': 'Tonfall',
   'Friendly': 'Freundlich',

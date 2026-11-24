@@ -1773,6 +1773,8 @@ export default {
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
   'Reminder after a long break': 'Emlékeztető hosszú szünet után',
   'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'Ha sok napig nem edzel, az edződ terve egy kedves emlékeztetőt küld.',
+  'New message alerts': 'Új üzenet értesítések',
+  'A push when your coach or athlete writes to you. It only names who wrote, never the message.': 'Értesítés, ha az edződ vagy a sportolód ír neked. Csak a feladót mutatja, az üzenetet soha.',
   'Nudge me when I skip a planned workout': 'Bökj meg, ha kihagyok egy tervezett edzést',
   'Nudge tone': 'Bökés hangneme',
   'Friendly': 'Barátságos',

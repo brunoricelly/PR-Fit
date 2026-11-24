@@ -12,6 +12,9 @@ const COPY = {
     stalledTitle: 'Your coach is thinking of you',
     stalledBody: "It's been {0} days since your last workout. Even a short session gets you back on track 💪",
     stalledNeverBody: 'Your plan is ready whenever you are. Start with a short session 💪',
+    messageTitle: 'New message',
+    messageBody: '{0} sent you a message.',
+    messageBodyAnon: 'You have a new message.',
   },
   'pt-BR': {
     restTitle: 'Descanso terminado 💪',
@@ -23,6 +26,9 @@ const COPY = {
     stalledTitle: 'Seu treinador pensou em você',
     stalledBody: 'Faz {0} dias desde o seu último treino. Até uma sessão curta coloca você de volta no ritmo 💪',
     stalledNeverBody: 'Seu plano está pronto quando você quiser. Comece com um treino curto 💪',
+    messageTitle: 'Nova mensagem',
+    messageBody: '{0} enviou uma mensagem para você.',
+    messageBodyAnon: 'Você tem uma nova mensagem.',
   },
 };
 
@@ -94,6 +100,18 @@ export function stalledPush(lang, days) {
     title: copy.stalledTitle,
     body: days == null ? copy.stalledNeverBody : copy.stalledBody.replace('{0}', String(days)),
     tag: 'stalled',
+  };
+}
+
+// A coach <-> athlete message. The text never rides in the push (lock screens are public); only who
+// it is from. One tag per link so a burst replaces itself instead of stacking.
+export function messagePush(lang, senderName, linkId) {
+  const copy = copyFor(lang);
+  const name = typeof senderName === 'string' ? senderName.trim().slice(0, 40) : '';
+  return {
+    title: copy.messageTitle,
+    body: name ? copy.messageBody.replace('{0}', name) : copy.messageBodyAnon,
+    tag: `msg-${String(linkId).slice(0, 40)}`,
   };
 }
 

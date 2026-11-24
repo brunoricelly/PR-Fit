@@ -1781,6 +1781,8 @@ export default {
   // --- missed-workout nudge (lib/nudge.js; the push copy is mirrored in api/nudge-copy.js) ---
   'Reminder after a long break': 'การแจ้งเตือนหลังหยุดพักนาน',
   'If you go many days without training, your coach\'s plan sends you one gentle reminder.': 'หากคุณไม่ออกกำลังกายหลายวัน แผนของโค้ชจะส่งการแจ้งเตือนอย่างอ่อนโยนให้คุณหนึ่งครั้ง',
+  'New message alerts': 'การแจ้งเตือนข้อความใหม่',
+  'A push when your coach or athlete writes to you. It only names who wrote, never the message.': 'พุชเมื่อโค้ชหรือนักกีฬาส่งข้อความถึงคุณ แสดงเฉพาะชื่อผู้ส่ง ไม่แสดงข้อความ',
   'Nudge me when I skip a planned workout': 'สะกิดฉันเมื่อข้ามการออกกำลังกายที่วางแผนไว้',
   'Nudge tone': 'น้ำเสียงการสะกิด',
   'Friendly': 'เป็นมิตร',

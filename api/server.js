@@ -16,7 +16,7 @@ import * as coachJobs from './coach/jobs.js';
 import { coachRoutes } from './coach/routes.js';
 import { startCadence } from './coach/cadence.js';
 import { startWarmup } from './coach/warmup.js';
-import { appointmentReminderPush, dayReminderPush, nudgePush, restTimerPush, stalledPush, testPush } from './push-messages.js';
+import { appointmentReminderPush, dayReminderPush, messagePush, nudgePush, restTimerPush, stalledPush, testPush } from './push-messages.js';
 import { verifyError, isMisconfigured, originHint } from './verify-error.js';
 import {
   hashPassword, verifyPassword, needsRehash, passwordProblem, passwordLength, nameKey, BusyError,
@@ -2900,6 +2900,15 @@ function dataWritable() {
 const communicationHabitsRoutes = createCommunicationHabitsRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
   makeEntityId, profileOf, readBody, readSession, rate: B2B2C_RATE, saveDb,
+  onMessage: ({ senderId, recipientId, linkId }) => {
+    const to = db.users.find(u => u.id === recipientId);
+    if (!to) return;
+    const from = db.users.find(u => u.id === senderId);
+    const S = readStateCached(recipientId);
+    if (S?.messagePush === false) return;   // the recipient switched these off in Settings
+    console.log('message push firing', recipientId);
+    sendPush(recipientId, messagePush(S?.lang, from?.name, linkId)).catch(() => {});
+  },
 });
 const progressRoutes = createProgressRoutes({
   audit, auditDenied: auditB2B2CDenied, b2bError, db, json, limitAddress, limits: B2B2C_LIMITS,
