@@ -17,6 +17,7 @@ import AssessmentPanel from './AssessmentPanel.jsx'
 import NutritionPanel, { AthleteNutritionView } from './NutritionPanel.jsx'
 import { AthleteHabitsDashboard, CoachHabitsPanel, CommunicationPanel, useCommunicationInbox } from './CommunicationHabits.jsx'
 import { CoachProgressPanel, AthleteProgressDashboard } from './ProgressAnalytics.jsx'
+import WorkoutTemplateLibrary from './WorkoutTemplateLibrary.jsx'
 import './ProfessionalHub.css'
 
 const scopeLabel = scope => scope === 'nutrition' ? p('Nutrition') : scope === 'assessments' ? p('Physical assessments') : p('Training')
@@ -119,10 +120,21 @@ function ExerciseEditor({ exercise, onChange, onRemove, canRemove, divisionIndex
   </div>
 }
 
-function RoutineEditor({ athlete, onCreated, onCancel }) {
+const editorStateFrom = routine => ({
+  name: routine.name, startDate: '', frequency: '', notes: routine.notes || '',
+  divisions: routine.divisions.map(division => ({
+    name: division.name,
+    exercises: division.exercises.map(exercise => ({
+      name: exercise.name, sets: String(exercise.sets), reps: String(exercise.reps), load: exercise.load || '',
+      restSeconds: String(exercise.restSeconds ?? 60), notes: exercise.notes || '',
+    })),
+  })),
+})
+
+function RoutineEditor({ athlete, onCreated, onCancel, onSave = null, initial = null }) {
   const toast = useUI(state => state.toast)
   const [showAiModal, setShowAiModal] = useState(false)
-  const [routine, setRoutine] = useState(() => ({
+  const [routine, setRoutine] = useState(() => initial ? editorStateFrom(initial) : ({
     name: '',
     startDate: '',
     frequency: '3x por semana',
@@ -240,21 +252,21 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
           })),
         },
       }
-      const result = await api(`/api/coach/athletes/${athlete.id}/routines`, { method: 'POST', body: JSON.stringify(body) })
-      onCreated(result.routine)
-      toast(p('Workout prescription saved.'))
+      const result = onSave ? await onSave(body) : await api(`/api/coach/athletes/${athlete.id}/routines`, { method: 'POST', body: JSON.stringify(body) })
+      onCreated(result.routine ?? result.template)
+      toast(onSave ? p('Workout template saved.') : p('Workout prescription saved.'))
     } catch (error) { toast(professionalError(error)) }
     finally { setSaving(false) }
   }
 
-  return <section className="card pro-routine-editor" aria-label={p('Prescribe workout for {0}', athlete.name)}>
+  return <section className="card pro-routine-editor" aria-label={athlete ? p('Prescribe workout for {0}', athlete.name) : p('New workout template')}>
     <div className="pro-editor-title">
       <div>
-        <h3>{p('New workout prescription')}</h3>
-        <p>{p('Build the athlete’s A/B/C split with complete exercise guidance.')}</p>
+        <h3>{athlete ? p('New workout prescription') : p('New workout template')}</h3>
+        <p>{athlete ? p('Build the athlete’s A/B/C split with complete exercise guidance.') : p('Build a reusable A/B/C split you can assign to many athletes at once.')}</p>
       </div>
       <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <Button
+        {athlete && <Button
           size="sm"
           variant="tinted"
           onClick={() => setShowAiModal(true)}
@@ -262,7 +274,7 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
         >
           <Icon name="sparkles" />
           <span style={{ marginLeft: 6 }}>{p('Prescribe with AI')}</span>
-        </Button>
+        </Button>}
         <Button size="sm" onClick={onCancel}>{p('Cancel')}</Button>
       </div>
     </div>
@@ -326,10 +338,10 @@ function RoutineEditor({ athlete, onCreated, onCancel }) {
 
     <div className="pro-editor-footer-actions">
       <Button size="sm" icon="plus" onClick={addDivision}>{p('Add division')}</Button>
-      <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : p('Send prescription')}</Button>
+      <Button variant="primary" disabled={saving} onClick={save}>{saving ? p('Saving…') : onSave ? p('Save template') : p('Send prescription')}</Button>
     </div>
 
-    {showAiModal && (
+    {athlete && showAiModal && (
       <AiWorkoutGeneratorModal
         isOpen={showAiModal}
         initialAthlete={athlete}
@@ -1261,9 +1273,10 @@ export default function ProfessionalHub() {
   const navigate = useNavigate()
   const coach = user?.profile?.kind === 'coach'
   const hasNutrition = !!(coach && (user?.profile?.coachSpecialties?.includes('nutrition') || user?.coachSpecialties?.includes('nutrition')))
+  const hasTraining = !!(coach && (user?.profile?.coachSpecialties?.includes('training') || user?.coachSpecialties?.includes('training')))
   const allowedTabs = useMemo(
-    () => ['relationships', 'scheduling', 'community', ...(hasNutrition ? ['nutrition'] : [])],
-    [hasNutrition]
+    () => ['relationships', 'scheduling', 'community', ...(hasNutrition ? ['nutrition'] : []), ...(hasTraining ? ['library'] : [])],
+    [hasNutrition, hasTraining]
   )
   const requestedTab = useMemo(() => new URLSearchParams(location.search).get('tab') || '', [location.search])
   const tab = allowedTabs.includes(requestedTab) ? requestedTab : 'relationships'
@@ -1369,9 +1382,26 @@ export default function ProfessionalHub() {
           <span>{p('Nutrition')}</span>
         </button>
       )}
+      {hasTraining && (
+        <button
+          id="professional-tab-library"
+          role="tab"
+          aria-selected={tab === 'library'}
+          aria-controls="professional-panel-library"
+          tabIndex={tab === 'library' ? 0 : -1}
+          className={"pro-sched-tab " + (tab === 'library' ? 'active' : '')}
+          onClick={() => selectTab('library')}
+          onKeyDown={handleRovingTabs}
+        >
+          <Icon name="dumbbell" />
+          <span>{p('Workout library')}</span>
+        </button>
+      )}
     </nav>
     <section id={`professional-panel-${tab}`} role="tabpanel" aria-labelledby={`professional-tab-${tab}`}>
-      {tab === 'scheduling' ? (
+      {tab === 'library' ? (
+        <WorkoutTemplateLibrary Editor={RoutineEditor} />
+      ) : tab === 'scheduling' ? (
         <SchedulingView embedded />
       ) : tab === 'community' ? (
         <CommunityHub embedded defaultRole={coach ? 'coach' : 'athlete'} />

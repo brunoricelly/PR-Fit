@@ -566,3 +566,12 @@
     white-space: normal;
   }
 }
+
+/* Workout template library */
+.pro-pick-list{list-style:none;margin:8px 0;padding:0;display:grid;gap:2px;max-height:50vh;overflow:auto}
+.pro-pick-list li{min-width:0}
+.pro-check{display:flex;align-items:center;gap:10px;min-height:44px;min-width:0;cursor:pointer}
+.pro-check input{width:20px;height:20px;flex:none}
+.pro-check span{min-width:0;overflow-wrap:anywhere}
+.pro-assign .pro-load-inline ul{margin:6px 0 0;padding-left:18px}
+.pro-template .pro-actions{flex-wrap:wrap}
