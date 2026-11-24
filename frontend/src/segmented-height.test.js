@@ -14,4 +14,8 @@ describe('segmented control height', () => {
   it('keeps the inline one in list rows as it was', () => {
     expect(css.match(/\.seg-inline button\{([^}]*)\}/)?.[1]).toMatch(/min-height:28px/)
   })
+  it('extends the compact controls hit area to 44px', () => {
+    expect(css.match(/\.seg-inline button::before\{([^}]*)\}/)?.[1]).toMatch(/inset:-8px 0/)
+    expect(css.match(/\.iconbtn\.wk-nav::before\{([^}]*)\}/)?.[1]).toMatch(/inset:-7px/)
+  })
 })

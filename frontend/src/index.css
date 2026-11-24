@@ -1166,6 +1166,10 @@ body.chips-dragging *{cursor:inherit}
 .seg-inline button{padding:5px 12px;font-size:var(--fs-footnote);min-height:28px}
 .seg-inline button span{white-space:nowrap}
 .seg-inline button .icn{font-size:14px}
+/* 28px stays the look; the hit area reaches 44px (measured 41 before) without painting it */
+.seg-inline button::before{inset:-8px 0}
+/* week arrows beside the week label: 30px look, 44px hit (measured 42) */
+.iconbtn.wk-nav::before{inset:-7px}
 
 /* native time input, restyled to sit in a row like a value label */
 .timef{
