@@ -47,7 +47,9 @@ describe('Responsive breakpoints and mobile/tablet/desktop rules', () => {
       expect(indexCss).toMatch(/font-size:\s*20px;/)
 
       expect(indexCss).toMatch(/@media \(max-width:\s*360px\)/)
-      expect(indexCss).toMatch(/font-size:\s*7\.5px;/)
+      // 9px to 360px; 8px under 330px, where "Estatísticas" clips at 9px (measured 45/49)
+      expect(indexCss).toMatch(/max-width:\s*360px\)\s*\{\s*#tabbar button span,\s*\.coach-tabbar button span\s*\{\s*font-size:\s*9px;/)
+      expect(indexCss).toMatch(/max-width:\s*330px\)\s*\{\s*#tabbar button span,\s*\.coach-tabbar button span\s*\{\s*font-size:\s*8px;/)
       expect(indexCss).toMatch(/font-size:\s*18px;/)
     })
   })

@@ -723,11 +723,18 @@ h4.sec{
 @media (max-width: 360px) {
   #tabbar button span,
   .coach-tabbar button span {
-    font-size: 7.5px;
+    font-size: 9px;
   }
   #tabbar button .icn,
   .coach-tabbar button .icn {
     font-size: 18px;
+  }
+}
+/* 320px: "Estatísticas" is 45px wide at 9px in a 45px slot (clipped); 8px fits, measured */
+@media (max-width: 330px) {
+  #tabbar button span,
+  .coach-tabbar button span {
+    font-size: 8px;
   }
 }
 
